@@ -50,6 +50,7 @@ describe('DeepLProvider Unit Tests', () => {
         segments: [{ id: 'seg1' as any, text: 'Hello' }],
         sourceLanguage: 'en' as any,
         targetLanguage: 'zh-Hant' as any,
+        mode: 'fast',
       }),
     ).rejects.toThrow(ConfigurationError);
   });
@@ -76,6 +77,7 @@ describe('DeepLProvider Unit Tests', () => {
       segments: [{ id: 'seg1' as any, text: 'Hello' }],
       sourceLanguage: 'en' as any,
       targetLanguage: 'zh-Hant' as any,
+      mode: 'fast',
     });
 
     expect(result.providerId).toBe('deepl-provider');
@@ -115,6 +117,7 @@ describe('DeepLProvider Unit Tests', () => {
         segments: [{ id: 'seg1' as any, text: 'Hello' }],
         sourceLanguage: 'en' as any,
         targetLanguage: 'zh-Hant' as any,
+        mode: 'fast',
       }),
     ).rejects.toThrow(QuotaExceededError);
   });

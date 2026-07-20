@@ -47,11 +47,13 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
 
     await adapter.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
     await (adapter as any).processCaptions();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(seg.getAttribute('data-owt-original')).toBe('I am an incompetent villainess');
-    expect(seg.textContent).toContain('I am an incompetent villainess');
-    expect(seg.textContent).toContain('我是不才惡女');
+    expect(seg.getAttribute('data-owt-original')).toBeNull();
+    const overlay = document.getElementById('owt-netflix-overlay');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.textContent).toContain('I am an incompetent villainess');
+    expect(overlay?.textContent).toContain('我是不才惡女');
   });
 
   it('restores native Netflix caption DOM on stop', async () => {
@@ -69,11 +71,12 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
 
     await adapter.start('zh-Hant', 'bilingual');
     await (adapter as any).processCaptions();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     adapter.stop();
 
+    const overlay = document.getElementById('owt-netflix-overlay');
+    expect(overlay?.innerHTML).toBe('');
     expect(seg.textContent).toBe('Hello Netflix');
-    expect(seg.hasAttribute('data-owt-original')).toBe(false);
   });
 });

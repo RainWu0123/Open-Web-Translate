@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NetflixCaptionAdapter } from '@/adapters/netflix/netflix-caption-adapter';
+import { messageRouter } from '@/infrastructure/messaging/message-router';
 
 vi.mock('@/infrastructure/messaging/message-router', () => ({
   messageRouter: {
@@ -15,6 +16,10 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
+    vi.mocked(messageRouter.sendMessage).mockResolvedValue({
+      targetLanguage: 'zh-Hant',
+      displayMode: 'bilingual',
+    } as any);
   });
 
   afterEach(() => {
@@ -48,8 +53,8 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
 
     adapter.init();
 
-    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn');
+    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement;
     expect(injectedBtn).not.toBeNull();
-    expect(injectedBtn?.getAttribute('aria-label')).toBe('OWT 雙語字幕');
+    expect(injectedBtn?.title).toBe('Open Web Translate (副字幕選單)');
   });
 });

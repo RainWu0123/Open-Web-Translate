@@ -1,6 +1,7 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { parseNetflixTtml, SubtitleCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
+import { NetflixForensicProbe } from './netflix-forensic-probe';
 
 const logger = createLogger('NetflixCaptionAdapter');
 
@@ -36,12 +37,14 @@ export class NetflixCaptionAdapter {
 
   private inlineTranslationCache = new Map<string, string>();
   private lastProcessedText = '';
+  private forensicProbe = new NetflixForensicProbe();
 
   constructor() {}
 
   public init() {
     if (typeof window !== 'undefined' && window.location?.hostname?.includes('netflix.com')) {
       logger.info('Initializing NetflixCaptionAdapter on netflix.com');
+      this.forensicProbe.start();
       this.setupNavigationListeners();
       this.setupSettingsListener();
       this.setupMouseMoveInjectionListener();
@@ -138,6 +141,7 @@ export class NetflixCaptionAdapter {
     this.currentVideoId = watchMatch ? watchMatch[1] : window.location.href;
 
     this.isActive = true;
+    this.forensicProbe.start();
     document.body.classList.add('owt-netflix-active');
     this.updateControlsButtonState();
     this.injectControlsButton();
@@ -148,6 +152,7 @@ export class NetflixCaptionAdapter {
 
   stop() {
     this.isActive = false;
+    this.forensicProbe.stop();
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;

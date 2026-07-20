@@ -525,7 +525,7 @@ onMounted(async () => {
 
 async function loadVocabulary() {
   try {
-    vocabItems.value = await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' as any } as any) || [];
+    vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' as any } as any) as any) || [];
   } catch (e) {
     console.error('Failed to load vocabulary items', e);
   }

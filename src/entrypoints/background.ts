@@ -148,7 +148,7 @@ export default defineBackground(() => {
   // ── UPDATE_SETTINGS ────────────────────────────────────────────
   messageRouter.registerHandler('UPDATE_SETTINGS', async (msg) => {
     await SettingsStorage.saveSettings(msg.settings);
-    return await SettingsStorage.getSettings();
+    return await SettingsStorage.getSettings() as any;
   });
 
   // ── TRANSLATE_ACTIVE_TAB ───────────────────────────────────────

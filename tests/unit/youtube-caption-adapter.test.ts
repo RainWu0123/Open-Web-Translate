@@ -57,7 +57,7 @@ describe('YouTubeCaptionAdapter', () => {
     const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
 
     // Mock get settings
-    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' });
+    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' } as any);
 
     toggleBtn.click();
     await vi.advanceTimersByTimeAsync(500);
@@ -78,7 +78,7 @@ describe('YouTubeCaptionAdapter', () => {
     vi.advanceTimersByTime(2500);
     const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
 
-    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' });
+    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' } as any);
     toggleBtn.click();
     await vi.advanceTimersByTimeAsync(500);
     expect((adapter as any).isActive).toBe(true);
