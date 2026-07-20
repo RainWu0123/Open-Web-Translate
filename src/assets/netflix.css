@@ -1,5 +1,7 @@
-/*
- * Netflix's native subtitles stay visible until OWT has a translated cue.
- * The adapter hides the exact native nodes only after its independent overlay
- * has been rendered, so a provider failure never leaves the player blank.
- */
+/* Safely hide native timedtext subtitles without touching controls or menus */
+body.owt-netflix-active .player-timedtext,
+body.owt-netflix-active [data-uia="player-timedtext"],
+body.owt-netflix-active [data-uia="watch-video--timed-text"],
+body.owt-netflix-active .player-timedtext-text-container {
+  visibility: hidden !important;
+}

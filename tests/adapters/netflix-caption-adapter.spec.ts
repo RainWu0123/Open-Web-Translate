@@ -5,74 +5,75 @@ import { messageRouter } from '@/infrastructure/messaging/message-router';
 vi.mock('@/infrastructure/messaging/message-router', () => ({
   messageRouter: {
     sendMessage: vi.fn(),
+    registerHandler: vi.fn(),
+    listen: vi.fn(),
   },
 }));
 
-const waitForTranslation = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe('NetflixCaptionAdapter', () => {
+describe('NetflixCaptionAdapter Integration Spec', () => {
   let adapter: NetflixCaptionAdapter;
 
   beforeEach(() => {
     document.body.innerHTML = '';
     vi.clearAllMocks();
+
     Object.defineProperty(window, 'location', {
-      value: {
-        hostname: 'www.netflix.com',
-        pathname: '/watch/82931358',
-        href: 'https://www.netflix.com/watch/82931358',
-      },
+      value: { hostname: 'www.netflix.com', pathname: '/watch/82931358', href: 'https://www.netflix.com/watch/82931358' },
       writable: true,
     });
   });
 
   afterEach(() => {
-    adapter?.stop();
+    if (adapter) {
+      adapter.stop();
+    }
   });
 
-  it('renders a stable bilingual overlay without mutating Netflix caption text', async () => {
-    vi.mocked(messageRouter.sendMessage).mockResolvedValue({
-      segments: [{ id: 'nf-overlay', translatedText: '我是不才惡女' }],
+  it('intercepts Netflix caption segments and renders bilingual translation', async () => {
+    adapter = new NetflixCaptionAdapter();
+    (messageRouter.sendMessage as any).mockResolvedValue({
+      segments: [{ id: 'nf-caption', translatedText: '我是不才惡女' }],
     });
 
     const container = document.createElement('div');
     container.className = 'player-timedtext';
     const textContainer = document.createElement('div');
     textContainer.className = 'player-timedtext-text-container';
-    textContainer.textContent = 'I am an incompetent villainess';
+    const seg = document.createElement('span');
+    seg.textContent = 'I am an incompetent villainess';
+    textContainer.appendChild(seg);
     container.appendChild(textContainer);
     document.body.appendChild(container);
 
-    adapter = new NetflixCaptionAdapter();
-    await adapter.start('zh-Hant', 'bilingual');
-    (adapter as any).processCaptions();
-    await waitForTranslation();
+    await adapter.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
+    await (adapter as any).processCaptions();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const overlay = document.querySelector('#owt-netflix-overlay');
-    expect(overlay?.textContent).toContain('I am an incompetent villainess');
-    expect(overlay?.textContent).toContain('我是不才惡女');
-    expect(textContainer.textContent).toBe('I am an incompetent villainess');
-    expect(textContainer.style.visibility).toBe('hidden');
+    expect(seg.getAttribute('data-owt-original')).toBe('I am an incompetent villainess');
+    expect(seg.textContent).toContain('I am an incompetent villainess');
+    expect(seg.textContent).toContain('我是不才惡女');
   });
 
-  it('keeps native Netflix captions visible when stopped', async () => {
-    vi.mocked(messageRouter.sendMessage).mockResolvedValue({
-      segments: [{ id: 'nf-overlay', translatedText: '你好 Netflix' }],
+  it('restores native Netflix caption DOM on stop', async () => {
+    adapter = new NetflixCaptionAdapter();
+    (messageRouter.sendMessage as any).mockResolvedValue({
+      segments: [{ id: 'nf-caption', translatedText: '我是不才惡女' }],
     });
 
-    const caption = document.createElement('div');
-    caption.className = 'player-timedtext';
-    caption.textContent = 'Hello Netflix';
-    document.body.appendChild(caption);
+    const container = document.createElement('div');
+    container.className = 'player-timedtext';
+    const seg = document.createElement('span');
+    seg.textContent = 'Hello Netflix';
+    container.appendChild(seg);
+    document.body.appendChild(container);
 
-    adapter = new NetflixCaptionAdapter();
     await adapter.start('zh-Hant', 'bilingual');
-    (adapter as any).processCaptions();
-    await waitForTranslation();
+    await (adapter as any).processCaptions();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     adapter.stop();
 
-    expect(caption.textContent).toBe('Hello Netflix');
-    expect(caption.style.visibility).toBe('');
-    expect(document.querySelector('#owt-netflix-overlay')?.textContent).toBe('');
+    expect(seg.textContent).toBe('Hello Netflix');
+    expect(seg.hasAttribute('data-owt-original')).toBe(false);
   });
 });
