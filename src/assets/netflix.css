@@ -1,0 +1,5 @@
+/*
+ * Netflix's native subtitles stay visible until OWT has a translated cue.
+ * The adapter hides the exact native nodes only after its independent overlay
+ * has been rendered, so a provider failure never leaves the player blank.
+ */

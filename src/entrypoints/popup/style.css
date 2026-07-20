@@ -1,0 +1,9 @@
+:root {
+  --bg: #1a1a2e;
+  --text: #e0e0e0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+}

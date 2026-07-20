@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Deterministic Test Article - Open Web Translate</title>
+  <style>
+    .hidden-style {
+      display: none;
+    }
+    .invisible-style {
+      visibility: hidden;
+    }
+    .code-box {
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <nav id="site-nav">
+    <a href="#home">Home</a>
+    <a href="#about">About</a>
+    <p>Nav paragraph should be excluded</p>
+  </nav>
+
+  <main id="main-content">
+    <h1 id="title-1">Main Article Title: Exploring Web Translation</h1>
+    
+    <p id="p-intro">
+      Open Web Translate is a modern, privacy-focused browser extension designed to translate web content seamlessly.
+    </p>
+
+    <h2 id="title-2">Section 1: Architecture & Design</h2>
+    
+    <h3 id="title-3">Subsection 1.1: DOM Isolation with Shadow DOM</h3>
+
+    <p id="p-isolation">
+      Shadow DOM provides encapsulation for injected translation UI components, ensuring page styles do not leak into translation blocks.
+    </p>
+
+    <p id="p-short">Short.</p>
+
+    <p id="p-long">
+      This is a very long paragraph intended for segment length and character limit testing. It contains detailed sentences explaining the translation engine mechanics, batching strategy, DOM traversal algorithms, and state management. When processing large web documents, character limits and segment counts must be strictly monitored to prevent memory exhaustion, network timeouts, and API quota degradation. Every individual segment must pass through boundary checks before being transmitted across the background message router interface.
+    </p>
+
+    <div class="code-box">
+      <code>const translate = (text) => text.toUpperCase();</code>
+      <pre>
+        function runPipeline(input) {
+          return process(input);
+        }
+      </pre>
+    </div>
+
+    <form id="search-form">
+      <label for="search-input">Search Query</label>
+      <input type="text" id="search-input" name="q" value="translation algorithms" />
+      <button type="submit">Search</button>
+      <p>Form paragraph inside form should be excluded</p>
+    </form>
+
+    <div id="hidden-container-1" class="hidden-style">
+      <p id="p-hidden-css">This paragraph is hidden via CSS display none and should be excluded.</p>
+    </div>
+
+    <div id="hidden-container-2" class="invisible-style">
+      <p id="p-hidden-vis">This paragraph is hidden via CSS visibility hidden and should be excluded.</p>
+    </div>
+
+    <p id="p-hidden-attr" hidden>This paragraph has a hidden HTML attribute and should be excluded.</p>
+
+    <script>
+      console.log("Embedded script block - should be excluded from translation");
+    </script>
+
+    <style>
+      /* Embedded style block - should be excluded from translation */
+      body { line-height: 1.5; }
+    </style>
+
+    <!-- OWT Injected Shadow DOM Host Elements -->
+    <div id="owt-badge-host" data-owt-ignore="true"></div>
+    <div class="owt-bilingual-host" data-owt-ignore="true"></div>
+
+    <!-- Dynamic Container for Testing Dynamically Added Elements -->
+    <div id="dynamic-container"></div>
+  </main>
+
+  <footer id="site-footer">
+    <p id="p-footer">Copyright 2026 Open Web Translate project. All rights reserved.</p>
+    <a href="#privacy">Privacy Policy</a>
+  </footer>
+</body>
+</html>
