@@ -53,42 +53,24 @@ export class YouTubeCaptionAdapter {
         { once: true },
       );
     }
-
-    // Auto-start subtitle translation if extension is enabled
-    Promise.resolve(messageRouter.sendMessage({ type: 'GET_SETTINGS' }))
-      .then((settings) => {
-        if (settings?.enabled !== false) {
-          void this.start(
-            settings?.targetLanguage || 'zh-Hant',
-            settings?.displayMode || 'bilingual',
-            settings?.subtitleOriginalFontSize || 18,
-            settings?.subtitleTranslatedFontSize || 22,
-            settings?.subtitleOriginalColor || '#ffffff',
-            settings?.subtitleTranslatedColor || '#818cf8',
-          );
-        }
-      })
-      .catch(() => {
-        void this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
-      });
   }
 
-  private eventCleanups: Array<() => void> = [];
-
   private setupMouseMoveInjectionListener() {
-    const onMouseMove = () => {
-      const now = Date.now();
-      if (now - this.lastMouseMoveTime < 400) return;
-      this.lastMouseMoveTime = now;
-      if (!document.querySelector('.owt-yt-toggle-btn')) this.injectControlsButton();
-    };
-    window.addEventListener('mousemove', onMouseMove, { passive: true });
-    this.eventCleanups.push(() => window.removeEventListener('mousemove', onMouseMove));
+    window.addEventListener(
+      'mousemove',
+      () => {
+        const now = Date.now();
+        if (now - this.lastMouseMoveTime < 400) return;
+        this.lastMouseMoveTime = now;
+        if (!document.querySelector('.owt-yt-toggle-btn')) this.injectControlsButton();
+      },
+      { passive: true },
+    );
   }
 
   private setupSettingsListener() {
     try {
-      const listener = (changes: Record<string, any>) => {
+      browser.storage.onChanged.addListener((changes) => {
         const newSettings = changes['owt_settings']?.newValue as any;
         if (!newSettings) return;
 
@@ -103,10 +85,6 @@ export class YouTubeCaptionAdapter {
           this.restoreNativeSegments();
           this.processCaptions();
         }
-      };
-      browser.storage.onChanged.addListener(listener);
-      this.eventCleanups.push(() => {
-        try { browser.storage.onChanged.removeListener(listener); } catch {}
       });
     } catch {
       // Storage listeners are not available in unit-test or restricted contexts.
@@ -135,12 +113,6 @@ export class YouTubeCaptionAdapter {
     window.addEventListener('hashchange', handleNavigation);
     window.addEventListener('yt-navigate-finish', handleNavigation);
     window.addEventListener('owt-youtube-url-change', handleNavigation);
-    this.eventCleanups.push(() => {
-      window.removeEventListener('popstate', handleNavigation);
-      window.removeEventListener('hashchange', handleNavigation);
-      window.removeEventListener('yt-navigate-finish', handleNavigation);
-      window.removeEventListener('owt-youtube-url-change', handleNavigation);
-    });
 
     const win = window as typeof window & { __owtYouTubeHistoryPatched?: boolean };
     if (!win.__owtYouTubeHistoryPatched) {
@@ -158,14 +130,6 @@ export class YouTubeCaptionAdapter {
         // Some embedded test environments expose a read-only history object.
       }
     }
-  }
-
-  public destroy() {
-    this.stop();
-    for (const cleanup of this.eventCleanups) {
-      cleanup();
-    }
-    this.eventCleanups = [];
   }
 
   private async handleToggleClick() {

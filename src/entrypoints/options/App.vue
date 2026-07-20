@@ -525,7 +525,7 @@ onMounted(async () => {
 
 async function loadVocabulary() {
   try {
-    vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' })) || [];
+    vocabItems.value = await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' as any } as any) || [];
   } catch (e) {
     console.error('Failed to load vocabulary items', e);
   }
@@ -533,7 +533,7 @@ async function loadVocabulary() {
 
 async function deleteVocabItem(id: string) {
   try {
-    await messageRouter.sendMessage({ type: 'DELETE_VOCAB_ITEM', id });
+    await messageRouter.sendMessage({ type: 'DELETE_VOCAB_ITEM' as any, id } as any);
     await loadVocabulary();
   } catch (e) {
     console.error('Failed to delete vocabulary item', e);
@@ -543,7 +543,7 @@ async function deleteVocabItem(id: string) {
 async function clearVocabulary() {
   if (confirm('Are you sure you want to clear all vocabulary items?')) {
     try {
-      await messageRouter.sendMessage({ type: 'CLEAR_VOCAB_ITEMS' });
+      await messageRouter.sendMessage({ type: 'CLEAR_VOCAB_ITEMS' as any } as any);
       await loadVocabulary();
     } catch (e) {
       console.error('Failed to clear vocabulary items', e);

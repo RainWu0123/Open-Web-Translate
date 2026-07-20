@@ -1,4 +1,3 @@
-import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { parseNetflixTtml, type SubtitleCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
@@ -217,13 +216,7 @@ export class NetflixCaptionAdapter {
     if (fullscreenElement && fullscreenElement.tagName !== 'VIDEO') {
       return fullscreenElement;
     }
-    return (
-      (document.querySelector('.watch-video') as HTMLElement) ||
-      (document.querySelector('[data-uia="watch-video"]') as HTMLElement) ||
-      (document.querySelector('.nf-player-container') as HTMLElement) ||
-      document.body ||
-      document.documentElement
-    );
+    return document.body || document.documentElement;
   }
 
   private getOverlay(): HTMLElement {
@@ -233,9 +226,9 @@ export class NetflixCaptionAdapter {
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = 'owt-netflix-overlay';
-      overlay.style.position = 'absolute';
+      overlay.style.position = 'fixed';
       overlay.style.top = 'auto';
-      overlay.style.bottom = '15%';
+      overlay.style.bottom = '12%';
       overlay.style.left = '50%';
       overlay.style.transform = 'translateX(-50%)';
       overlay.style.zIndex = '2147483647';
@@ -282,10 +275,7 @@ export class NetflixCaptionAdapter {
     ];
 
     return Array.from(document.querySelectorAll<HTMLElement>(selectors.join(', '))).filter((element) => {
-      if (element.id === 'owt-netflix-overlay' || element.closest('#owt-netflix-overlay')) return false;
-      if (element.id === 'owt-netflix-selector-menu' || element.closest('#owt-netflix-selector-menu')) return false;
-      if (element.closest('.player-controls, .right-controls')) return false;
-      return true;
+      return element.id !== 'owt-netflix-overlay' && !element.closest('#owt-netflix-overlay');
     });
   }
 
@@ -302,12 +292,24 @@ export class NetflixCaptionAdapter {
   }
 
   private positionOverlay(overlay: HTMLElement) {
-    overlay.style.position = 'fixed';
-    overlay.style.left = '50%';
-    overlay.style.top = 'auto';
-    overlay.style.bottom = '12%';
-    overlay.style.transform = 'translateX(-50%)';
-    overlay.style.zIndex = '2147483647';
+    const nativeElement = this.getNativeSubtitleElement();
+    const rect = nativeElement?.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+
+    if (rect && rect.width > 0 && rect.height > 0 && viewportWidth > 0 && viewportHeight > 0) {
+      const centerX = Math.min(Math.max(rect.left + rect.width / 2, 8), viewportWidth - 8);
+      const top = Math.min(Math.max(rect.top, 8), Math.max(8, viewportHeight - 160));
+      overlay.style.left = `${centerX}px`;
+      overlay.style.top = `${top}px`;
+      overlay.style.bottom = 'auto';
+      overlay.style.transform = 'translateX(-50%)';
+    } else {
+      overlay.style.left = '50%';
+      overlay.style.top = 'auto';
+      overlay.style.bottom = '12%';
+      overlay.style.transform = 'translateX(-50%)';
+    }
   }
 
   private hideNativeSubtitles() {
@@ -541,19 +543,21 @@ export class NetflixCaptionAdapter {
       return;
     }
 
-    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
-    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
-
     const rightGroup =
-      audioSubWrapper?.parentElement ||
       document.querySelector('.player-controls .right-controls') ||
+      document.querySelector('[data-uia="control-audio-subtitle"]') ||
       document.querySelector('.player-controls');
     if (!rightGroup) return;
 
+    const firstWrapper =
+      rightGroup.querySelector('div') ||
+      rightGroup.querySelector('button')?.parentElement ||
+      rightGroup.firstElementChild;
+
     button = document.createElement('button');
     button.className = 'owt-netflix-toggle-btn';
-    button.setAttribute('aria-label', 'OWT 雙語字幕');
-    button.setAttribute('title', 'OWT 雙語字幕 (左鍵開關 / 右鍵副字幕選單)');
+    button.setAttribute('aria-label', 'OWT \u96D9\u8A9E\u5B57\u5E55');
+    button.setAttribute('title', 'OWT \u96D9\u8A9E\u5B57\u5E55');
     button.style.background = 'transparent';
     button.style.border = 'none';
     button.style.color = 'white';
@@ -561,11 +565,11 @@ export class NetflixCaptionAdapter {
     button.style.width = '44px';
     button.style.height = '44px';
     button.style.padding = '0';
-    button.style.margin = '0 6px 0 0';
+    button.style.margin = '0 8px 0 0';
     button.style.display = 'flex';
     button.style.alignItems = 'center';
     button.style.justifyContent = 'center';
-    button.style.opacity = '0.85';
+    button.style.opacity = '0.8';
     button.style.transition = 'all 0.2s ease';
     button.style.zIndex = '9999';
     button.style.position = 'relative';
@@ -579,17 +583,12 @@ export class NetflixCaptionAdapter {
 
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      this.handleToggleClick();
-    });
-
-    button.addEventListener('contextmenu', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
       this.toggleSelectorMenu();
     });
 
-    if (audioSubWrapper && audioSubWrapper.parentNode) {
-      audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
+    (rightGroup as HTMLElement).style.position = 'relative';
+    if (firstWrapper && rightGroup.contains(firstWrapper)) {
+      rightGroup.insertBefore(button, firstWrapper);
     } else {
       rightGroup.prepend(button);
     }
@@ -599,6 +598,7 @@ export class NetflixCaptionAdapter {
   }
 
   private toggleSelectorMenu() {
+    if (!this.isActive) void this.handleToggleClick();
     if (this.selectorMenu?.style.display === 'block') {
       this.hideSelectorMenu();
     } else {
@@ -644,7 +644,7 @@ export class NetflixCaptionAdapter {
     heading.style.fontWeight = '700';
     heading.style.marginBottom = '8px';
     heading.style.color = '#c084fc';
-    heading.textContent = `🌐 OWT 副字幕選單 (${this.discoveredTracks.length} 軌可用)`;
+    heading.textContent = `OWT ?????????赯???${this.discoveredTracks.length} ????`;
     this.selectorMenu.appendChild(heading);
 
     const list = document.createElement('div');
@@ -666,7 +666,7 @@ export class NetflixCaptionAdapter {
       list.appendChild(item);
     };
 
-    appendItem('✨ 自動 AI / 機器翻譯 (Google / DeepL / Gemini)', this.selectedTrackId === 'ai-translate', () => {
+    appendItem('AI / machine translation', this.selectedTrackId === 'ai-translate', () => {
       this.selectedTrackId = 'ai-translate';
       this.secondaryCues = [];
       this.lastProcessedText = '';
@@ -683,7 +683,7 @@ export class NetflixCaptionAdapter {
 
     for (const track of this.discoveredTracks) {
       appendItem(
-        `🎬 原生副字幕：${track.label} ${track.isCC ? '(CC)' : ''}`,
+        `?? Netflix ??????{track.label} ${track.isCC ? '(CC)' : ''}`,
         this.selectedTrackId === track.id,
         () => {
           this.selectedTrackId = track.id;
@@ -738,28 +738,6 @@ export class NetflixCaptionAdapter {
       .catch(() => {
         // Settings are optional; start() still applies safe defaults.
       });
-
-    try {
-      browser.storage.onChanged.addListener((changes) => {
-        if (changes['owt_settings']) {
-          const newSettings = changes['owt_settings'].newValue as any;
-          if (newSettings) {
-            this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
-            this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
-            this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
-            this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
-            this.targetLang = newSettings.targetLanguage || 'zh-Hant';
-            this.displayMode = newSettings.displayMode || 'bilingual';
-            if (this.isActive) {
-              this.lastProcessedText = '';
-              this.processCaptions();
-            }
-          }
-        }
-      });
-    } catch {
-      // Ignore if storage listener unavailable
-    }
   }
 }
 

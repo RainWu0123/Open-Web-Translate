@@ -80,6 +80,6 @@ describe('Typed Message Request/Response Contract', () => {
     expect(settings.enabled).toBe(true);
     expect(settings.targetLanguage).toBeDefined();
     expect(settings.defaultTranslationMode).toMatch(/fast|quality/);
-    expect(settings.activeProviderId).toBe('google-provider');
+    expect(settings.activeProviderId).toBe('mock-provider');
   });
 });

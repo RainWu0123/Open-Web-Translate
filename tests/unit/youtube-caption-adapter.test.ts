@@ -29,7 +29,6 @@ describe('YouTubeCaptionAdapter', () => {
       writable: true,
     });
 
-    vi.mocked(messageRouter.sendMessage).mockResolvedValue({ targetLanguage: 'en', displayMode: 'bilingual' } as any);
     adapter = new YouTubeCaptionAdapter();
     adapter.init();
     vi.useFakeTimers();
@@ -53,41 +52,42 @@ describe('YouTubeCaptionAdapter', () => {
     expect(toggleBtn?.getAttribute('aria-label')).toBe('OWT 雙語字幕');
   });
 
-  it('clicking toggle button should toggle adapter state without triggering page translation', async () => {
+  it('clicking toggle button should start adapter without triggering page translation', async () => {
     vi.advanceTimersByTime(2500);
     const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
 
-    // Initially auto-started
-    expect((adapter as any).isActive).toBe(true);
+    // Mock get settings
+    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' });
 
     toggleBtn.click();
     await vi.advanceTimersByTimeAsync(500);
 
-    // Clicking toggles it off
-    expect((adapter as any).isActive).toBe(false);
-
-    const svg = toggleBtn.querySelector('svg');
-    expect(svg?.style.fill).toBe('rgba(255, 255, 255, 0.85)');
-
-    // Make sure no full page translation was triggered
-    expect(messageRouter.sendMessage).toHaveBeenCalledWith({ type: 'GET_SETTINGS' });
-  });
-
-  it('clicking toggle button again should restart adapter', async () => {
-    vi.advanceTimersByTime(2500);
-    const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
-
-    // Toggle off
-    toggleBtn.click();
-    await vi.advanceTimersByTimeAsync(500);
-    expect((adapter as any).isActive).toBe(false);
-
-    // Toggle on again
-    toggleBtn.click();
-    await vi.advanceTimersByTimeAsync(500);
+    // Check if adapter started
     expect((adapter as any).isActive).toBe(true);
 
     const svg = toggleBtn.querySelector('svg');
     expect(svg?.style.fill).toBe('#818cf8');
+
+    // Make sure no full page translation was triggered (which would involve extracting targets and sending a huge request)
+    // The sendMessage call was only for GET_SETTINGS
+    expect(messageRouter.sendMessage).toHaveBeenCalledWith({ type: 'GET_SETTINGS' });
+    expect(messageRouter.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('clicking toggle button again should stop adapter', async () => {
+    vi.advanceTimersByTime(2500);
+    const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
+
+    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' });
+    toggleBtn.click();
+    await vi.advanceTimersByTimeAsync(500);
+    expect((adapter as any).isActive).toBe(true);
+
+    toggleBtn.click();
+    await vi.advanceTimersByTimeAsync(500);
+    expect((adapter as any).isActive).toBe(false);
+
+    const svg = toggleBtn.querySelector('svg');
+    expect(svg?.style.fill).toBe('rgba(255, 255, 255, 0.85)');
   });
 });
