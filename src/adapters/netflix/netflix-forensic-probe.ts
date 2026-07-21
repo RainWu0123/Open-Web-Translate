@@ -25,27 +25,50 @@ export class NetflixForensicProbe {
   private panelHost: HTMLDivElement | null = null;
   private shadowRoot: ShadowRoot | null = null;
   private updateTimer: ReturnType<typeof setInterval> | null = null;
+  private starting = false;
 
   constructor() {}
 
   public start() {
-    if (this.checkInterval) return;
+    if (this.checkInterval || this.starting) return;
+    this.starting = true;
     logger.info('Starting passive forensic probe...');
-    this.createDebugPanel();
-    
-    // Poll for video element
-    this.checkInterval = setInterval(() => {
-      this.discoverVideo();
-    }, 1000);
 
-    // Periodically update the debug panel UI
-    this.updateTimer = setInterval(() => {
-      this.updateDebugPanel();
-    }, 800);
+    // Never touch DOM until body exists (document_start race).
+    const begin = () => {
+      if (this.checkInterval) {
+        this.starting = false;
+        return;
+      }
+      this.createDebugPanel();
+      this.checkInterval = setInterval(() => {
+        this.discoverVideo();
+      }, 1000);
+      this.updateTimer = setInterval(() => {
+        this.updateDebugPanel();
+      }, 800);
+      this.starting = false;
+    };
+
+    if (document.body) {
+      begin();
+    } else if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', begin, { once: true });
+    } else {
+      let attempts = 0;
+      const retry = () => {
+        attempts += 1;
+        if (document.body) begin();
+        else if (attempts < 40) setTimeout(retry, 50);
+        else this.starting = false;
+      };
+      retry();
+    }
   }
 
   public stop() {
     logger.info('Stopping forensic probe...');
+    this.starting = false;
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;

@@ -23,6 +23,37 @@ const logger = createLogger('ContentScript');
 const youtubeAdapter = new YouTubeCaptionAdapter();
 const netflixAdapter = new NetflixCaptionAdapter();
 
+/**
+ * Inject netflix-main.js into the page MAIN world.
+ * Safe at document_start: uses documentElement if head is not ready.
+ * Idempotent via data attribute.
+ */
+function injectNetflixMainWorldScript(): void {
+  try {
+    if (document.documentElement?.getAttribute('data-owt-netflix-main') === '1') {
+      return;
+    }
+    document.documentElement?.setAttribute('data-owt-netflix-main', '1');
+
+    const scriptUrl = browser.runtime.getURL('netflix-main.js' as any);
+    const script = document.createElement('script');
+    script.src = scriptUrl;
+    script.async = false;
+    script.onload = () => {
+      script.remove();
+      logger.info('netflix-main.js loaded into MAIN world');
+    };
+    script.onerror = () => {
+      document.documentElement?.removeAttribute('data-owt-netflix-main');
+      logger.warn('netflix-main.js failed to load; will not retry automatically');
+    };
+    (document.head || document.documentElement).appendChild(script);
+    logger.info('Injected netflix-main.js into MAIN world');
+  } catch (err) {
+    logger.warn('Failed to inject netflix-main.js:', err);
+  }
+}
+
 // ─── Badge State Machine ─────────────────────────────────────────
 type BadgeState = 'idle' | 'translating' | 'translated';
 let badgeState: BadgeState = 'idle';
@@ -39,68 +70,10 @@ export default defineContentScript({
     if (window.location.hostname.includes('youtube.com')) {
       youtubeAdapter.init();
     } else if (window.location.hostname.includes('netflix.com')) {
-      // 1. Install Firefox early network interceptor at document_start via wrappedJSObject.
-      try {
-        const win = (window as any).wrappedJSObject;
-        if (win) {
-          win._owtDiscoveredTracks = win._owtDiscoveredTracks || new win.Array();
-
-          const parseTrackUrl = (url: string) => {
-            if (typeof url === 'string' && (url.includes('/?o=') || url.includes('.xml') || url.includes('subtitles')) && url.startsWith('http')) {
-              let exists = false;
-              const len = win._owtDiscoveredTracks.length;
-              for (let i = 0; i < len; i++) {
-                if (win._owtDiscoveredTracks[i]?.url === url) {
-                  exists = true;
-                  break;
-                }
-              }
-              if (!exists) {
-                const track = new win.Object();
-                track.url = url;
-                win._owtDiscoveredTracks.push(track);
-                console.log('[OWT] Intercepted subtitle URL:', url);
-              }
-            }
-          };
-
-          const proto = win.XMLHttpRequest.prototype;
-          const origOpen = (window as any).exportFunction(proto.open, win);
-          const newOpen = function(this: any, _method: string, url: string | URL) {
-            try {
-              if (typeof url === 'string') parseTrackUrl(url);
-            } catch (e) {}
-            return origOpen.apply(this, arguments as any);
-          };
-          proto.open = (window as any).exportFunction(newOpen, win);
-
-          const origFetch = win.fetch;
-          const newFetch = function(this: any, input: RequestInfo | URL) {
-            try {
-              const url = typeof input === 'string' ? input : (input && 'url' in (input as any) ? (input as any).url : '');
-              if (typeof url === 'string') parseTrackUrl(url);
-            } catch (e) {}
-            return origFetch.apply(this, arguments as any);
-          };
-          win.fetch = (window as any).exportFunction(newFetch, win);
-          logger.info('Early Firefox network interceptor installed successfully');
-        }
-      } catch (err) {
-        logger.warn('Failed to install network interceptor:', err);
-      }
-
-      // 2. In Firefox MV2, world: 'MAIN' scripts are not automatically loaded.
-      // We must manually inject netflix-main.js.
-      try {
-        const scriptUrl = browser.runtime.getURL('netflix-main.js' as any);
-        const script = document.createElement('script');
-        script.src = scriptUrl;
-        script.onload = () => script.remove();
-        (document.head || document.documentElement).appendChild(script);
-        logger.info('Injected netflix-main.js into MAIN world');
-      } catch (err) {
-        logger.warn('Failed to inject netflix-main.js:', err);
-      }
+      // Primary path: inject MAIN-world Cadmium probe (required on Firefox MV2
+      // where world:'MAIN' content scripts may not auto-load). Do NOT patch
+      // page fetch/XHR from the isolated world — that hits Xray/CSP issues.
+      injectNetflixMainWorldScript();
       netflixAdapter.init();
     }
 
