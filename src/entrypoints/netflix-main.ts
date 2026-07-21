@@ -364,7 +364,7 @@ export default defineContentScript({
       }
     }
 
-    /** Try to force Netflix to materialize downloadables for a track. */
+    /** Try to materialize downloadables for a track without switching the visible subtitle. */
     function resolveTrackUrl(trackId: string): string {
       try {
         const api = getPlayerApi();
@@ -383,34 +383,73 @@ export default defineContentScript({
           });
           if (!match) continue;
 
-          // Some builds populate downloadables after setTimedTextTrack
+          // Prefer passive URL extraction — setTimedTextTrack switches visible subs.
+          const passiveUrl = extractUrlFromTrack(match);
+          if (passiveUrl) return passiveUrl;
+
+          // Last resort: briefly mount track to populate downloadables, then restore.
           if (typeof player.setTimedTextTrack === 'function') {
+            let previous: any = null;
+            try {
+              if (typeof player.getTimedTextTrack === 'function') {
+                previous = player.getTimedTextTrack();
+              }
+            } catch {
+              // ignore
+            }
+
             try {
               player.setTimedTextTrack(match);
             } catch {
               // ignore
             }
-          }
 
-          const url = extractUrlFromTrack(match);
-          if (url) return url;
-
-          // Re-read list after set
-          try {
-            const refreshed = player.getTimedTextTrackList() || [];
-            const again = refreshed.find((t: any) => {
-              const id = safeString(
-                t.trackId ?? t.id ?? t.new_track_id ?? t.rawTrack?.new_track_id,
-                '',
-              );
-              return id === trackId;
-            });
-            if (again) {
-              const url2 = extractUrlFromTrack(again);
-              if (url2) return url2;
+            const url = extractUrlFromTrack(match);
+            if (url) {
+              if (previous && previous !== match) {
+                try {
+                  player.setTimedTextTrack(previous);
+                } catch {
+                  // ignore
+                }
+              }
+              return url;
             }
-          } catch {
-            // ignore
+
+            // Re-read list after set
+            try {
+              const refreshed = player.getTimedTextTrackList() || [];
+              const again = refreshed.find((t: any) => {
+                const id = safeString(
+                  t.trackId ?? t.id ?? t.new_track_id ?? t.rawTrack?.new_track_id,
+                  '',
+                );
+                return id === trackId;
+              });
+              if (again) {
+                const url2 = extractUrlFromTrack(again);
+                if (url2) {
+                  if (previous && previous !== match) {
+                    try {
+                      player.setTimedTextTrack(previous);
+                    } catch {
+                      // ignore
+                    }
+                  }
+                  return url2;
+                }
+              }
+            } catch {
+              // ignore
+            }
+
+            if (previous && previous !== match) {
+              try {
+                player.setTimedTextTrack(previous);
+              } catch {
+                // ignore
+              }
+            }
           }
         }
       } catch {

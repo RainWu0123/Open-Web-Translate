@@ -153,15 +153,22 @@ export function parseNetflixTtml(xmlText: string): SubtitleCue[] {
     pElements.forEach((p) => {
       const begin = getAttr(p, 'begin');
       const end = getAttr(p, 'end');
+      const dur = getAttr(p, 'dur');
       const text = extractText(p);
 
-      if (begin && end && text) {
-        cues.push({
-          startMs: timeToMs(begin),
-          endMs: timeToMs(end),
-          text,
-        });
+      if (!begin || !text) return;
+
+      const startMs = timeToMs(begin);
+      let endMs = end ? timeToMs(end) : 0;
+      if (!endMs && dur) {
+        endMs = startMs + timeToMs(dur);
       }
+      if (endMs <= startMs) {
+        // Minimum visible window when end/dur missing or malformed
+        endMs = startMs + 2000;
+      }
+
+      cues.push({ startMs, endMs, text });
     });
   } catch (err) {
     console.warn('[OWT-TTML] Failed to parse TTML:', err);

@@ -1,7 +1,7 @@
-/* Safely hide native timedtext subtitles without touching controls or menus */
-body.owt-netflix-active .player-timedtext,
-body.owt-netflix-active [data-uia="player-timedtext"],
-body.owt-netflix-active [data-uia="watch-video--timed-text"],
-body.owt-netflix-active .player-timedtext-text-container {
+/* Hide native subs only while our overlay is actively showing translated text */
+body.owt-overlay-showing .player-timedtext,
+body.owt-overlay-showing [data-uia="player-timedtext"],
+body.owt-overlay-showing [data-uia="watch-video--timed-text"],
+body.owt-overlay-showing .player-timedtext-text-container {
   visibility: hidden !important;
 }

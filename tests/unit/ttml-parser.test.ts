@@ -45,4 +45,21 @@ describe('parseNetflixTtml', () => {
     const cues = parseNetflixTtml('<not-valid');
     expect(cues).toEqual([]);
   });
+
+  it('parses begin + dur when end is absent', () => {
+    const xml = `<?xml version="1.0"?>
+<tt xmlns="http://www.w3.org/ns/ttml">
+  <body>
+    <div>
+      <p begin="00:00:05.000" dur="00:00:02.000">With duration only</p>
+    </div>
+  </body>
+</tt>`;
+
+    const cues = parseNetflixTtml(xml);
+    expect(cues).toHaveLength(1);
+    expect(cues[0].startMs).toBe(5000);
+    expect(cues[0].endMs).toBe(7000);
+    expect(cues[0].text).toBe('With duration only');
+  });
 });

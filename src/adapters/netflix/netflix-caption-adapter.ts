@@ -126,6 +126,9 @@ export class NetflixCaptionAdapter {
   private controlsPollTimer: ReturnType<typeof setInterval> | null = null;
   private nativeLoadGeneration = 0;
   private lastRenderedKey = '';
+  /** TTML health: if no cue matches within grace period, fall back to DOM. */
+  private ttmlMatchCount = 0;
+  private ttmlLoadedAt = 0;
 
   constructor() {}
 
@@ -430,6 +433,8 @@ export class NetflixCaptionAdapter {
 
       const xml = await this.fetchTtml(url);
       this.secondaryCues = parseNetflixTtml(xml);
+      this.ttmlMatchCount = 0;
+      this.ttmlLoadedAt = Date.now();
       logger.info(`Loaded secondary cues: ${this.secondaryCues.length} from ${track.label}`);
 
       if (this.secondaryCues.length === 0) {
@@ -558,6 +563,8 @@ export class NetflixCaptionAdapter {
           this.nativeTranslationCues = [];
           this.hasAutoSelected = false;
           this.selectedTrackId = 'ai-translate';
+          this.ttmlMatchCount = 0;
+          this.ttmlLoadedAt = 0;
           this.clearOverlay();
           this.inlineTranslationCache.clear();
           this.tryAutoStart();
@@ -675,7 +682,7 @@ export class NetflixCaptionAdapter {
     this.lastProcessedText = '';
     this.clearOverlay();
     this.hideSelectorMenu();
-    document.body?.classList.remove('owt-netflix-active');
+    document.body?.classList.remove('owt-netflix-active', 'owt-overlay-showing');
 
     const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
     if (nativeContainer) {
@@ -717,6 +724,30 @@ export class NetflixCaptionAdapter {
     const overlay = document.getElementById('owt-netflix-overlay');
     if (overlay) overlay.innerHTML = '';
     this.lastRenderedKey = '';
+    document.body?.classList.remove('owt-overlay-showing');
+
+    const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
+    nativeContainer?.classList.remove('owt-hide-native');
+  }
+
+  /** DOM scrape when AI mode, no TTML, or TTML timing never matched. */
+  private shouldUseDomFallback(): boolean {
+    if (this.selectedTrackId === 'ai-translate') return true;
+    if (this.secondaryCues.length === 0) return true;
+
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    if (!video) return true;
+
+    const currentMs = Math.round(video.currentTime * 1000);
+    if (findCueAt(this.secondaryCues, currentMs)) return false;
+
+    // TTML loaded but never matched → broken timing or wrong track
+    if (this.ttmlMatchCount === 0 && this.ttmlLoadedAt > 0 && Date.now() - this.ttmlLoadedAt > 2500) {
+      return true;
+    }
+
+    // Between cues in a working TTML stream — don't DOM-scrape
+    return false;
   }
 
   private startObserver() {
@@ -729,15 +760,15 @@ export class NetflixCaptionAdapter {
 
     if (!targetNode) return;
 
-    // DOM path is fallback only (ai-translate when no TTML track selected).
+    // DOM path is fallback when TTML is unavailable or not matching.
     this.observer = new MutationObserver(() => {
-      if (this.isActive && (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0)) {
+      if (this.isActive && this.shouldUseDomFallback()) {
         this.processCaptions();
       }
     });
     this.observer.observe(targetNode, { childList: true, subtree: true, characterData: true });
 
-    if (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0) {
+    if (this.shouldUseDomFallback()) {
       this.processCaptions();
     }
   }
@@ -767,8 +798,7 @@ export class NetflixCaptionAdapter {
 
   private processCaptions() {
     if (!this.isActive) return;
-    // Primary path is TTML time-sync; DOM is fallback only.
-    if (this.selectedTrackId !== 'ai-translate' && this.secondaryCues.length > 0) return;
+    if (!this.shouldUseDomFallback()) return;
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -780,10 +810,6 @@ export class NetflixCaptionAdapter {
       if (!currentNativeText) {
         if (this.lastProcessedText !== '') {
           this.lastProcessedText = '';
-          // Don't clear if we might still be loading tracks
-          if (this.secondaryCues.length === 0) {
-            // leave diagnostic or empty
-          }
         }
         return;
       }
@@ -873,6 +899,7 @@ export class NetflixCaptionAdapter {
     }
 
     overlay.appendChild(container);
+    document.body?.classList.add('owt-overlay-showing');
   }
 
   private injectControlsButton() {
@@ -1127,32 +1154,30 @@ export class NetflixCaptionAdapter {
   private updateSubtitleSync() {
     if (!this.isActive) return;
 
-    // No TTML track selected / loaded → leave to DOM fallback observer.
+    // No TTML loaded → DOM fallback observer handles it.
     if (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0) {
       return;
     }
 
     const video = document.querySelector('video') as HTMLVideoElement | null;
-    if (!video) {
-      return;
-    }
-
-    const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
-    if (nativeContainer && !nativeContainer.classList.contains('owt-hide-native')) {
-      nativeContainer.classList.add('owt-hide-native');
-    }
+    if (!video) return;
 
     const currentMs = Math.round(video.currentTime * 1000);
     const activeCue = findCueAt(this.secondaryCues, currentMs);
 
     if (!activeCue) {
+      // Between cues: clear overlay. If TTML never worked, fall back to DOM scrape.
       if (this.lastProcessedText !== '') {
         this.clearOverlay();
         this.lastProcessedText = '';
-        this.lastRenderedKey = '';
+      }
+      if (this.shouldUseDomFallback()) {
+        this.processCaptions();
       }
       return;
     }
+
+    this.ttmlMatchCount += 1;
 
     const text = activeCue.text;
     if (this.lastProcessedText === text) {
