@@ -53,13 +53,15 @@ export class NetflixCaptionAdapter {
       this.setupMouseMoveInjectionListener();
       this.setupMainWorldMessageListener();
 
-      this.injectControlsButton();
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
           this.injectControlsButton();
+          this.tryAutoStart();
         }, { once: true });
+      } else {
+        this.injectControlsButton();
+        this.tryAutoStart();
       }
-      this.tryAutoStart();
     }
   }
 
@@ -172,7 +174,7 @@ export class NetflixCaptionAdapter {
 
     this.isActive = true;
     this.forensicProbe.start();
-    document.body.classList.add('owt-netflix-active');
+    document.body?.classList.add('owt-netflix-active');
     this.updateControlsButtonState();
     this.injectControlsButton();
 
