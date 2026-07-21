@@ -1,5 +1,5 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import { parseNetflixTtml, SubtitleCue } from '@/shared/subtitles/ttml-parser';
+import { parseNetflixTtml, parseNetflixTtmlDetailed, SubtitleCue, TtmlParseDiagnostics } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
 import { NetflixForensicProbe } from './netflix-forensic-probe';
 
@@ -7,6 +7,31 @@ const logger = createLogger('NetflixCaptionAdapter');
 
 const MAIN_SOURCE = 'owt-netflix-main';
 const CONTENT_SOURCE = 'owt-netflix-content';
+
+type NetflixDebugStage =
+  | 'BOOT'
+  | 'WAITING_MAIN'
+  | 'WAITING_TRACKS'
+  | 'LOADING_SOURCE'
+  | 'LOADING_NATIVE'
+  | 'SYNCING'
+  | 'DOM_FALLBACK'
+  | 'ERROR';
+
+interface NetflixDebugState {
+  stage: NetflixDebugStage;
+  message: string;
+  lastError: string;
+  mainLoaded: boolean;
+  trackCount: number;
+  tracksWithUrl: number;
+  sourceCueCount: number;
+  nativeCueCount: number;
+  activeCue: boolean;
+  videoMs: number;
+  sourceTtml: TtmlParseDiagnostics | null;
+  nativeTtml: TtmlParseDiagnostics | null;
+}
 
 interface DiscoveredTrack {
   id: string;
@@ -136,6 +161,21 @@ export class NetflixCaptionAdapter {
   /** TTML health: if no cue matches within grace period, fall back to DOM. */
   private ttmlMatchCount = 0;
   private ttmlLoadedAt = 0;
+  private readonly debugState: NetflixDebugState = {
+    stage: 'BOOT',
+    message: '初始化中',
+    lastError: '',
+    mainLoaded: false,
+    trackCount: 0,
+    tracksWithUrl: 0,
+    sourceCueCount: 0,
+    nativeCueCount: 0,
+    activeCue: false,
+    videoMs: 0,
+    sourceTtml: null,
+    nativeTtml: null,
+  };
+  private debugHud: HTMLElement | null = null;
 
   constructor() {}
 
@@ -154,10 +194,82 @@ export class NetflixCaptionAdapter {
 
     // Defer any DOM writes until body exists (document_start race).
     this.whenDomReady(() => {
+      this.setDebug('WAITING_MAIN', '等待 MAIN-world Netflix probe');
       this.forensicProbe.start();
       this.injectControlsButton();
       this.tryAutoStart();
     });
+  }
+
+  private setDebug(stage: NetflixDebugStage, message: string, error = '') {
+    this.debugState.stage = stage;
+    this.debugState.message = message;
+    if (error) this.debugState.lastError = error;
+    this.debugState.trackCount = this.discoveredTracks.length;
+    this.debugState.tracksWithUrl = this.discoveredTracks.filter((track) => !!track.url).length;
+    this.debugState.sourceCueCount = this.secondaryCues.length;
+    this.debugState.nativeCueCount = this.nativeTranslationCues.length;
+    this.updateDebugHud();
+  }
+
+  private formatMs(value: number | null): string {
+    if (value === null || !Number.isFinite(value)) return '-';
+    return `${(value / 1000).toFixed(2)}s`;
+  }
+
+  private getDebugHud(): HTMLElement | null {
+    if (!document.body) return null;
+    let hud = document.getElementById('owt-netflix-debug-hud');
+    if (!hud) {
+      hud = document.createElement('pre');
+      hud.id = 'owt-netflix-debug-hud';
+      hud.style.cssText = [
+        'position:fixed',
+        'top:12px',
+        'left:12px',
+        'z-index:2147483647',
+        'margin:0',
+        'max-width:min(520px,calc(100vw - 24px))',
+        'white-space:pre-wrap',
+        'font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',
+        'color:#e5e7eb',
+        'background:rgba(3,7,18,.92)',
+        'border:1px solid #475569',
+        'border-radius:8px',
+        'padding:10px 12px',
+        'pointer-events:none',
+        'text-shadow:none',
+        'box-shadow:0 4px 18px rgba(0,0,0,.55)',
+      ].join(';');
+      document.body.appendChild(hud);
+    }
+    this.debugHud = hud;
+    return hud;
+  }
+
+  private updateDebugHud() {
+    const hud = this.getDebugHud();
+    if (!hud) return;
+    const source = this.debugState.sourceTtml;
+    const native = this.debugState.nativeTtml;
+    const ok = this.debugState.stage !== 'ERROR';
+    hud.style.borderColor = ok ? '#475569' : '#ef4444';
+    hud.textContent = [
+      `OWT Netflix Debug  ${ok ? '●' : '✕'} ${this.debugState.stage}`,
+      `狀態: ${this.debugState.message}`,
+      `MAIN: ${this.debugState.mainLoaded ? '已連線' : '未收到訊息'} | 軌道: ${this.debugState.trackCount} | 可下載: ${this.debugState.tracksWithUrl}`,
+      `影片: ${this.formatMs(this.debugState.videoMs)} | 原文 cues: ${this.debugState.sourceCueCount} | 譯文 cues: ${this.debugState.nativeCueCount}`,
+      `同步: ${this.debugState.activeCue ? '命中 active cue' : '尚未命中 cue'} | 選擇軌: ${this.selectedTrackId}`,
+      source ? `原文 TTML: ${source.xmlBytes}B, p=${source.paragraphCount}, cues=${source.cueCount}, ${this.formatMs(source.firstCueMs)}~${this.formatMs(source.lastCueMs)}, ${source.timeBase}` : '原文 TTML: 尚未下載',
+      native ? `譯文 TTML: ${native.xmlBytes}B, p=${native.paragraphCount}, cues=${native.cueCount}, ${native.timeBase}` : '譯文 TTML: 尚未下載/無目標語軌',
+      this.debugState.lastError ? `錯誤: ${this.debugState.lastError}` : '錯誤: 無',
+      '截圖此框即可回報問題',
+    ].join('\n');
+  }
+
+  private removeDebugHud() {
+    document.getElementById('owt-netflix-debug-hud')?.remove();
+    this.debugHud = null;
   }
 
   /** Wait for document.body before touching the live DOM. */
@@ -332,6 +444,7 @@ export class NetflixCaptionAdapter {
         };
       });
 
+      this.setDebug('WAITING_TRACKS', `收到 manifest 軌道：${this.discoveredTracks.length}`);
       void this.ensureTrackSelectionAndLoad();
       this.updateSelectorMenuOptions();
     }
@@ -371,6 +484,7 @@ export class NetflixCaptionAdapter {
       return t;
     });
     this.discoveredTracks = merged;
+    this.setDebug('WAITING_TRACKS', `收到字幕軌：${merged.length}，含 URL：${merged.filter((t) => t.url).length}`);
     logger.info(`Tracks received from MAIN: ${merged.length} (was ${prevCount})`, {
       labels: merged.map((t) => `${t.label}${t.url ? '' : '[no-url]'}`),
       withUrl: merged.filter((t) => !!t.url).length,
@@ -512,12 +626,14 @@ export class NetflixCaptionAdapter {
     }
 
     this.selectedTrackId = trackId;
+    this.setDebug('LOADING_SOURCE', `下載原文軌：${track.label}`);
     this.renderDiagnostic(`[OWT] ⏳ 下載字幕：${track.label}…`);
 
     try {
       const url = await this.ensureTrackUrl(track);
       if (!url) {
         logger.warn('Track has no downloadable URL', track.label);
+        this.setDebug('ERROR', `原文軌沒有 TTML URL：${track.label}`, 'TRACK_URL_MISSING');
         this.renderDiagnostic(`[OWT] ⚠️ ${track.label} 無可用 TTML URL`, true);
         // Still try native translation track
         await this.loadNativeTranslationTrack();
@@ -526,9 +642,16 @@ export class NetflixCaptionAdapter {
       }
 
       const xml = await this.fetchTtml(url);
-      this.secondaryCues = parseNetflixTtml(xml);
+      const parsed = parseNetflixTtmlDetailed(xml);
+      this.secondaryCues = parsed.cues;
+      this.debugState.sourceTtml = parsed.diagnostics;
       this.ttmlMatchCount = 0;
       this.ttmlLoadedAt = Date.now();
+      this.setDebug(
+        parsed.cues.length ? 'SYNCING' : 'ERROR',
+        parsed.cues.length ? `原文 TTML 完成，等待時間同步：${parsed.cues.length} cues` : 'TTML 下載成功，但解析為 0 cues',
+        parsed.cues.length ? '' : 'TTML_PARSE_ZERO_CUES',
+      );
       logger.info(`Loaded secondary cues: ${this.secondaryCues.length} from ${track.label}`);
 
       if (this.secondaryCues.length === 0) {
@@ -546,6 +669,7 @@ export class NetflixCaptionAdapter {
       this.updateSelectorMenuOptions();
     } catch (err) {
       logger.error('Failed to load track TTML:', err);
+      this.setDebug('ERROR', `原文 TTML 下載/解析失敗：${track.label}`, err instanceof Error ? err.message : String(err));
       this.renderDiagnostic(`[OWT] ❌ 下載/解析 ${track.label} 失敗`, true);
     }
   }
@@ -1363,6 +1487,8 @@ export class NetflixCaptionAdapter {
 
     const currentMs = Math.round(video.currentTime * 1000);
     const activeCue = findCueAt(this.secondaryCues, currentMs);
+    this.debugState.videoMs = currentMs;
+    this.debugState.activeCue = Boolean(activeCue);
 
     if (!activeCue) {
       const elapsed = Date.now() - this.lastCueRenderTs;
@@ -1375,13 +1501,17 @@ export class NetflixCaptionAdapter {
         this.lastProcessedText = '';
       }
       if (this.shouldUseDomFallback()) {
+        this.setDebug('DOM_FALLBACK', 'TTML 時間未命中，嘗試讀取 Netflix DOM 字幕');
         this.processCaptions();
+      } else {
+        this.updateDebugHud();
       }
       return;
     }
 
     this.ttmlMatchCount += 1;
     this.lastCueRenderTs = Date.now();
+    this.setDebug('SYNCING', 'TTML cue 已命中，正在顯示雙語字幕');
 
     const text = activeCue.text;
     if (this.lastProcessedText === text) return;
@@ -1598,7 +1728,14 @@ export class NetflixCaptionAdapter {
       const xml = await this.fetchTtml(url);
       if (gen !== this.nativeLoadGeneration) return;
 
-      this.nativeTranslationCues = parseNetflixTtml(xml);
+      const parsed = parseNetflixTtmlDetailed(xml);
+      this.nativeTranslationCues = parsed.cues;
+      this.debugState.nativeTtml = parsed.diagnostics;
+      this.setDebug(
+        parsed.cues.length ? 'SYNCING' : 'ERROR',
+        parsed.cues.length ? `原生譯文 TTML 完成：${parsed.cues.length} cues` : '原生譯文 TTML 解析為 0 cues',
+        parsed.cues.length ? '' : 'NATIVE_TTML_PARSE_ZERO_CUES',
+      );
       logger.info('Parsed native translation cues:', this.nativeTranslationCues.length, {
         track: matchingTrack.label,
       });

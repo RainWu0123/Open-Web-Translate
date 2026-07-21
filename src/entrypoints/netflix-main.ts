@@ -491,14 +491,22 @@ export default defineContentScript({
       console.log(`[OWT-MAIN] Manifest tracks captured: ${tracks.length} tracks`);
     }
 
-    function isPlaybackManifest(value: unknown): value is {
-      movieId?: string | number;
-      videoId?: string | number;
-      textTracks?: unknown[];
-    } {
-      if (!value || typeof value !== 'object') return false;
-      const candidate = value as Record<string, unknown>;
-      return Array.isArray(candidate.textTracks);
+    function findTextTracks(obj: unknown, depth = 0): { movieId?: string | number; textTracks: any[] } | null {
+      if (!obj || typeof obj !== 'object' || depth > 5) return null;
+      const rec = obj as Record<string, unknown>;
+      if (Array.isArray(rec.textTracks) && rec.textTracks.length > 0) {
+        return {
+          movieId: (rec.movieId || rec.videoId || rec.movie_id) as any,
+          textTracks: rec.textTracks,
+        };
+      }
+      for (const val of Object.values(rec)) {
+        if (val && typeof val === 'object') {
+          const res = findTextTracks(val, depth + 1);
+          if (res) return res;
+        }
+      }
+      return null;
     }
 
     function installManifestJsonHook(): void {
@@ -511,14 +519,14 @@ export default defineContentScript({
         const parsed = originalJsonParse.call(JSON, text, reviver);
 
         try {
-          if (isPlaybackManifest(parsed)) {
+          const manifestInfo = findTextTracks(parsed);
+          if (manifestInfo) {
             const movieId = String(
-              parsed.movieId ??
-              parsed.videoId ??
+              manifestInfo.movieId ??
               window.location.pathname.match(/\/watch\/(\d+)/)?.[1] ??
               '',
             );
-            emitManifestTracks(movieId, parsed.textTracks ?? []);
+            emitManifestTracks(movieId, manifestInfo.textTracks ?? []);
           }
         } catch (error) {
           console.debug('[OWT-MAIN] manifest inspection failed', error);
