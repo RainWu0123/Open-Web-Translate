@@ -39,6 +39,18 @@ export default defineContentScript({
     if (window.location.hostname.includes('youtube.com')) {
       youtubeAdapter.init();
     } else if (window.location.hostname.includes('netflix.com')) {
+      // In Firefox MV2, world: 'MAIN' scripts are not automatically loaded.
+      // We must manually inject netflix-main.js.
+      try {
+        const scriptUrl = browser.runtime.getURL('netflix-main.js' as any);
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.onload = () => script.remove();
+        (document.head || document.documentElement).appendChild(script);
+        logger.info('Injected netflix-main.js into MAIN world');
+      } catch (err) {
+        logger.warn('Failed to inject netflix-main.js:', err);
+      }
       netflixAdapter.init();
     }
 

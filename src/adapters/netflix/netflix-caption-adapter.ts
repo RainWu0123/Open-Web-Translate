@@ -38,6 +38,7 @@ export class NetflixCaptionAdapter {
   private inlineTranslationCache = new Map<string, string>();
   private lastProcessedText = '';
   private forensicProbe = new NetflixForensicProbe();
+  private syncTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {}
 
@@ -147,12 +148,14 @@ export class NetflixCaptionAdapter {
     this.injectControlsButton();
 
     this.startObserver();
+    this.startSubtitleSync();
     logger.info('NetflixCaptionAdapter started', { targetLang, displayMode });
   }
 
   stop() {
     this.isActive = false;
     this.forensicProbe.stop();
+    this.stopSubtitleSync();
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
@@ -166,6 +169,13 @@ export class NetflixCaptionAdapter {
     this.clearOverlay();
     this.hideSelectorMenu();
     document.body.classList.remove('owt-netflix-active');
+    
+    // Restore native subtitles visibility
+    const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
+    if (nativeContainer) {
+      nativeContainer.classList.remove('owt-hide-native');
+    }
+    
     this.updateControlsButtonState();
     logger.info('NetflixCaptionAdapter stopped');
   }
@@ -569,5 +579,60 @@ export class NetflixCaptionAdapter {
       if (settings?.subtitleOriginalColor) this.subtitleOriginalColor = settings.subtitleOriginalColor;
       if (settings?.subtitleTranslatedColor) this.subtitleTranslatedColor = settings.subtitleTranslatedColor;
     });
+  }
+
+  private startSubtitleSync() {
+    this.stopSubtitleSync();
+    this.syncTimer = setInterval(() => {
+      this.updateSubtitleSync();
+    }, 100);
+  }
+
+  private stopSubtitleSync() {
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+  }
+
+  private updateSubtitleSync() {
+    if (!this.isActive) return;
+
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    if (!video) {
+      this.clearOverlay();
+      return;
+    }
+
+    // Hide native subtitles if OWT is active
+    const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
+    if (nativeContainer && !nativeContainer.classList.contains('owt-hide-native')) {
+      nativeContainer.classList.add('owt-hide-native');
+    }
+
+    if (this.selectedTrackId === 'ai-translate') {
+      // AI translation relies on MutationObserver to hook text from DOM
+      return;
+    }
+
+    // Loaded track mode (such as English text track loaded for Chinese image main track)
+    const currentMs = Math.round(video.currentTime * 1000);
+    const activeCue = this.secondaryCues.find(
+      (c) => currentMs >= c.startMs && currentMs <= c.endMs,
+    );
+
+    if (!activeCue) {
+      this.clearOverlay();
+      this.lastProcessedText = '';
+      return;
+    }
+
+    const text = activeCue.text;
+    if (this.lastProcessedText === text) {
+      return;
+    }
+
+    this.lastProcessedText = text;
+    this.fetchAndRenderOverlay(text, this.routeGeneration);
   }
 }

@@ -27,5 +27,8 @@ export default defineConfig({
     options_ui: {
       open_in_tab: true,
     },
+    web_accessible_resources: [
+      'netflix-main.js',
+    ],
   }),
 });
