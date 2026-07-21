@@ -233,6 +233,7 @@ export class NetflixCaptionAdapter {
       // Accept MAIN source messages (and legacy unscoped track messages).
       const isMain =
         data.source === MAIN_SOURCE ||
+        data.type === 'OWT_NETFLIX_MANIFEST_TRACKS' ||
         data.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
         data.type === 'OWT_TEST_PING' ||
         data.type === 'OWT_NETFLIX_PROBE_STATUS' ||
@@ -242,6 +243,11 @@ export class NetflixCaptionAdapter {
       if (!isMain) return;
 
       switch (data.type) {
+        case 'OWT_NETFLIX_MANIFEST_TRACKS':
+          this.channelAlive = true;
+          this.onManifestTracks(data);
+          break;
+
         case 'OWT_TEST_PING':
           this.channelAlive = true;
           this.missedPings = 0;
@@ -275,6 +281,60 @@ export class NetflixCaptionAdapter {
           break;
       }
     });
+  }
+
+  private pickTextTrackUrl(track: any): string {
+    const downloadables = track?.downloadables || {};
+    const preferredProfiles = [
+      'webvtt-lssdh-ios8',
+      'dfxp-ls-sdh',
+      'dfxp-ls-sdh-0',
+      'simplesdh',
+    ];
+
+    for (const profile of preferredProfiles) {
+      const downloadable = downloadables[profile];
+      if (!downloadable || downloadable.isImage) continue;
+
+      const url = downloadable.downloadUrls?.[0] ?? downloadable.urls?.[0];
+      if (url) return url;
+    }
+
+    for (const downloadable of Object.values<any>(downloadables)) {
+      if (downloadable?.isImage) continue;
+
+      const url = downloadable?.downloadUrls?.[0] ?? downloadable?.urls?.[0];
+      if (url) return url;
+    }
+
+    return '';
+  }
+
+  private onManifestTracks(data: { movieId?: string; tracks?: any[] }) {
+    const tracks = data.tracks ?? [];
+    logger.info('[NF] manifest tracks received', {
+      movieId: data.movieId,
+      count: tracks.length,
+      hydrated: tracks.filter((track) => track.hydrated).length,
+    });
+
+    if (tracks.length > 0) {
+      this.discoveredTracks = tracks.map((track) => {
+        const url = this.pickTextTrackUrl(track);
+        return {
+          id: String(track.id),
+          label: String(track.label),
+          language: String(track.language),
+          url,
+          isCC: Boolean(track.isCC),
+          hasUrl: Boolean(url),
+          trackType: track.isImageBased ? 'IMAGE' : 'TEXT',
+        };
+      });
+
+      void this.ensureTrackSelectionAndLoad();
+      this.updateSelectorMenuOptions();
+    }
   }
 
   private async onTracksDiscovered(rawTracks: any[]) {

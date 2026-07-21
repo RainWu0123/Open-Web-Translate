@@ -405,7 +405,144 @@ export default defineContentScript({
       }
     }
 
-    /** Try to materialize downloadables for a track. */
+    interface ManifestTrackPayload {
+      id: string;
+      label: string;
+      language: string;
+      isCC: boolean;
+      hydrated: boolean;
+      isImageBased: boolean;
+      downloadables: Record<
+        string,
+        {
+          isImage: boolean;
+          downloadUrls: string[];
+          urls: string[];
+        }
+      >;
+    }
+
+    function normalizeManifestTrack(track: any): ManifestTrackPayload | null {
+      if (!track || typeof track !== 'object') return null;
+      if (track.isNoneTrack === true) return null;
+
+      const id = String(
+        track.new_track_id ??
+        track.trackId ??
+        track.id ??
+        '',
+      );
+
+      if (!id) return null;
+
+      const rawDownloadables = track.ttDownloadables ?? {};
+      const downloadables: ManifestTrackPayload['downloadables'] = {};
+
+      for (const [profile, value] of Object.entries(rawDownloadables)) {
+        if (!value || typeof value !== 'object') continue;
+
+        const entry = value as any;
+
+        const downloadUrls = Object.values(entry.downloadUrls ?? {})
+          .filter((url): url is string => typeof url === 'string' && /^https?:\/\//.test(url));
+
+        const urls = Array.isArray(entry.urls)
+          ? entry.urls
+              .map((item: any) => item?.url)
+              .filter((url: unknown): url is string =>
+                typeof url === 'string' && /^https?:\/\//.test(url),
+              )
+          : [];
+
+        downloadables[profile] = {
+          isImage: Boolean(entry.isImage),
+          downloadUrls,
+          urls,
+        };
+      }
+
+      return {
+        id,
+        label: String(track.languageDescription ?? track.label ?? track.language ?? id),
+        language: String(track.language ?? track.bcp47 ?? 'unknown'),
+        isCC: track.rawTrackType === 'closedcaptions' || Boolean(track.isClosedCaptions),
+        hydrated: track.hydrated !== false,
+        isImageBased: Object.values(downloadables).some((item) => item.isImage),
+        downloadables,
+      };
+    }
+
+    let lastManifestSignature = '';
+
+    function emitManifestTracks(movieId: string, rawTracks: any[]): void {
+      const tracks = rawTracks.map(normalizeManifestTrack).filter(Boolean) as ManifestTrackPayload[];
+      const signature = [
+        movieId,
+        ...tracks.map((track) => `${track.id}:${track.language}:${track.hydrated}`),
+      ].join('|');
+
+      if (signature === lastManifestSignature) return;
+      lastManifestSignature = signature;
+
+      post('OWT_NETFLIX_MANIFEST_TRACKS', {
+        movieId,
+        tracks,
+      });
+      console.log(`[OWT-MAIN] Manifest tracks captured: ${tracks.length} tracks`);
+    }
+
+    function isPlaybackManifest(value: unknown): value is {
+      movieId?: string | number;
+      videoId?: string | number;
+      textTracks?: unknown[];
+    } {
+      if (!value || typeof value !== 'object') return false;
+      const candidate = value as Record<string, unknown>;
+      return Array.isArray(candidate.textTracks);
+    }
+
+    function installManifestJsonHook(): void {
+      const originalJsonParse = JSON.parse;
+
+      JSON.parse = function patchedJsonParse(
+        text: string,
+        reviver?: (this: unknown, key: string, value: unknown) => unknown,
+      ): unknown {
+        const parsed = originalJsonParse.call(JSON, text, reviver);
+
+        try {
+          if (isPlaybackManifest(parsed)) {
+            const movieId = String(
+              parsed.movieId ??
+              parsed.videoId ??
+              window.location.pathname.match(/\/watch\/(\d+)/)?.[1] ??
+              '',
+            );
+            emitManifestTracks(movieId, parsed.textTracks ?? []);
+          }
+        } catch (error) {
+          console.debug('[OWT-MAIN] manifest inspection failed', error);
+        }
+
+        return parsed;
+      };
+    }
+
+    installManifestJsonHook();
+
+    function getRecentTimedTextResourceNames(): string[] {
+      try {
+        return performance
+          .getEntriesByType('resource')
+          .map((entry) => entry.name)
+          .filter((name) => /timedtext|ttml|dfxp|imsc/i.test(name))
+          .slice(-20);
+      } catch {
+        return [];
+      }
+    }
+
+    /** Try to materialize downloadables for a track passively. */
     function resolveTrackUrl(trackId: string): string {
       try {
         const api = getPlayerApi();
@@ -424,38 +561,12 @@ export default defineContentScript({
           });
           if (!match) continue;
 
-          // 1. Passive URL extraction
           const passiveUrl = extractUrlFromTrack(match);
           if (passiveUrl) return passiveUrl;
-
-          // 2. Active fallback: call setTimedTextTrack to force Cadmium URL materialization
-          if (typeof player.setTimedTextTrack === 'function') {
-            try {
-              player.setTimedTextTrack(match);
-              const activeUrl = extractUrlFromTrack(match);
-              if (activeUrl) return activeUrl;
-            } catch (e) {
-              console.warn('[OWT-MAIN] setTimedTextTrack fallback failed', e);
-            }
-          }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('[OWT-MAIN] resolveTrackUrl failed', err);
       }
-
-      // 3. Resource timing fallback: scan recent fetches for subtitle URLs
-      try {
-        const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
-        const ttEntries = entries
-          .filter((e) => /timedtext|ttml|dfxp|imsc|\?o=/i.test(e.name))
-          .sort((a, b) => b.startTime - a.startTime);
-        if (ttEntries.length > 0) {
-          return ttEntries[0].name;
-        }
-      } catch {
-        // ignore
-      }
-
       return '';
     }
 
