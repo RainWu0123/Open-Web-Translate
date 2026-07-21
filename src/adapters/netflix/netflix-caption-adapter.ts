@@ -118,8 +118,9 @@ export class NetflixCaptionAdapter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastPingTs = 0;
   private missedPings = 0;
-  private clearGraceMs = 200;
+  private clearGraceMs = 800;
   private lastCueRenderTs = 0;
+  private nativeSubtitleElements = new Set<HTMLElement>();
   private pendingTtmlRequests = new Map<
     string,
     { resolve: (xml: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -754,14 +755,62 @@ export class NetflixCaptionAdapter {
     return overlay;
   }
 
+  private markAndHideNativeSubtitleElements(): void {
+    const selectors = [
+      '.player-timedtext',
+      '[data-uia="player-timedtext"]',
+      '[data-uia="watch-video--timed-text"]',
+      '.player-timedtext-text-container',
+      '[class*="timedtext"]',
+      '[class*="TimedText"]',
+      '[class*="subtitle"]',
+      '[class*="Subtitle"]',
+    ];
+
+    const candidates = document.querySelectorAll<HTMLElement>(selectors.join(', '));
+
+    candidates.forEach((element) => {
+      if (element.id === 'owt-netflix-overlay' || element.closest('#owt-netflix-overlay')) {
+        return;
+      }
+
+      const text = element.innerText?.trim();
+      const rect = element.getBoundingClientRect();
+
+      if (
+        text &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.top < window.innerHeight
+      ) {
+        element.classList.add('owt-hide-native-subtitle');
+        this.nativeSubtitleElements.add(element);
+      }
+    });
+  }
+
+  private restoreNativeSubtitleElements(): void {
+    this.nativeSubtitleElements.forEach((element) => {
+      element.classList.remove('owt-hide-native-subtitle');
+    });
+
+    this.nativeSubtitleElements.clear();
+  }
+
   private clearOverlay() {
+    logger.info('[NF] clearOverlay called', {
+      lastProcessedText: this.lastProcessedText,
+      selectedTrackId: this.selectedTrackId,
+      stack: new Error().stack,
+    });
+
     const overlay = document.getElementById('owt-netflix-overlay');
     if (overlay) overlay.innerHTML = '';
-    this.lastRenderedKey = '';
-    document.body?.classList.remove('owt-overlay-showing');
 
-    const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
-    nativeContainer?.classList.remove('owt-hide-native');
+    this.lastRenderedKey = '';
+    this.restoreNativeSubtitleElements();
+    document.body?.classList.remove('owt-overlay-showing');
   }
 
   /** DOM scrape when AI mode, no TTML, or TTML timing never matched. */
@@ -939,7 +988,35 @@ export class NetflixCaptionAdapter {
     }
 
     overlay.appendChild(container);
+
+    this.markAndHideNativeSubtitleElements();
     document.body?.classList.add('owt-overlay-showing');
+
+    requestAnimationFrame(() => {
+      const renderedOverlay = document.getElementById('owt-netflix-overlay') as HTMLElement | null;
+      const rect = renderedOverlay?.getBoundingClientRect();
+
+      logger.info('[NF] overlay DOM verification', {
+        exists: Boolean(renderedOverlay),
+        childCount: renderedOverlay?.childElementCount ?? 0,
+        text: renderedOverlay?.innerText ?? '',
+        parent: renderedOverlay?.parentElement?.className ?? '',
+        rect: rect
+          ? {
+              top: Math.round(rect.top),
+              bottom: Math.round(rect.bottom),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }
+          : null,
+        visible:
+          Boolean(rect) &&
+          (rect?.width ?? 0) > 0 &&
+          (rect?.height ?? 0) > 0 &&
+          (rect?.bottom ?? 0) > 0 &&
+          (rect?.top ?? window.innerHeight) < window.innerHeight,
+      });
+    });
   }
 
   private injectControlsButton() {
@@ -1221,8 +1298,12 @@ export class NetflixCaptionAdapter {
     const activeCue = findCueAt(this.secondaryCues, currentMs);
 
     if (!activeCue) {
-      const sinceLastCue = Date.now() - this.lastCueRenderTs;
-      if (this.lastProcessedText !== '' && sinceLastCue > this.clearGraceMs) {
+      const elapsed = Date.now() - this.lastCueRenderTs;
+      if (this.lastProcessedText !== '' && elapsed > this.clearGraceMs) {
+        logger.info('[NF] cue gap confirmed; clearing overlay', {
+          currentMs,
+          elapsed,
+        });
         this.clearOverlay();
         this.lastProcessedText = '';
       }

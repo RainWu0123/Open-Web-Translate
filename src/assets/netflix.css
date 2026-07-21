@@ -2,6 +2,7 @@
 body.owt-overlay-showing .player-timedtext,
 body.owt-overlay-showing [data-uia="player-timedtext"],
 body.owt-overlay-showing [data-uia="watch-video--timed-text"],
-body.owt-overlay-showing .player-timedtext-text-container {
+body.owt-overlay-showing .player-timedtext-text-container,
+body.owt-overlay-showing .owt-hide-native-subtitle {
   visibility: hidden !important;
 }
