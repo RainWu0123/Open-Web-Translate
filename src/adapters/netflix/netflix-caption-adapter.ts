@@ -40,6 +40,7 @@ export class NetflixCaptionAdapter {
   private forensicProbe = new NetflixForensicProbe();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private nativeTranslationCues: SubtitleCue[] = [];
+  private hasAutoSelected = false;
 
   constructor() {}
 
@@ -63,11 +64,33 @@ export class NetflixCaptionAdapter {
   }
 
   private setupMainWorldMessageListener() {
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', async (event) => {
       if (event.data?.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' && Array.isArray(event.data.tracks)) {
         this.discoveredTracks = event.data.tracks;
+
+        if (this.selectedTrackId === 'ai-translate' && this.discoveredTracks.length > 0 && !this.hasAutoSelected) {
+          this.hasAutoSelected = true;
+          const defaultTrack = this.discoveredTracks.find(t =>
+            t.language.toLowerCase().startsWith('en') ||
+            t.label.toLowerCase().includes('english')
+          ) || this.discoveredTracks[0];
+
+          if (defaultTrack) {
+            logger.info(`Auto-selecting default secondary track: ${defaultTrack.label}`);
+            this.selectedTrackId = defaultTrack.id;
+            try {
+              const xml = await fetch(defaultTrack.url).then(res => res.text());
+              this.secondaryCues = parseNetflixTtml(xml);
+              logger.info(`Auto-loaded secondary cues: ${this.secondaryCues.length}`);
+            } catch (err) {
+              logger.error('Failed to auto-load secondary track TTML:', err);
+            }
+          }
+        }
+
         this.updateSelectorMenuOptions();
-        this.loadNativeTranslationTrack();
+        await this.loadNativeTranslationTrack();
+        this.processCaptions();
       }
     });
   }
@@ -99,6 +122,7 @@ export class NetflixCaptionAdapter {
           this.discoveredTracks = [];
           this.secondaryCues = [];
           this.nativeTranslationCues = [];
+          this.hasAutoSelected = false;
           this.clearOverlay();
           this.inlineTranslationCache.clear();
           this.tryAutoStart();
