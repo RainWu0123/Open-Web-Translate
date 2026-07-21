@@ -218,7 +218,13 @@ export class NetflixCaptionAdapter {
   }
 
   private getDebugHud(): HTMLElement | null {
-    if (!document.body) return null;
+    const container =
+      (document.fullscreenElement as HTMLElement) ||
+      document.querySelector('.watch-video') ||
+      document.querySelector('[data-uia="watch-video"]') ||
+      document.body;
+    if (!container) return null;
+
     let hud = document.getElementById('owt-netflix-debug-hud');
     if (!hud) {
       hud = document.createElement('pre');
@@ -241,7 +247,9 @@ export class NetflixCaptionAdapter {
         'text-shadow:none',
         'box-shadow:0 4px 18px rgba(0,0,0,.55)',
       ].join(';');
-      document.body.appendChild(hud);
+      container.appendChild(hud);
+    } else if (hud.parentElement !== container) {
+      container.appendChild(hud);
     }
     this.debugHud = hud;
     return hud;
@@ -914,6 +922,13 @@ export class NetflixCaptionAdapter {
 
   private getOverlay(): HTMLElement {
     let overlay = document.getElementById('owt-netflix-overlay');
+    const container =
+      (document.fullscreenElement as HTMLElement) ||
+      document.querySelector('.watch-video') ||
+      document.querySelector('[data-uia="watch-video"]') ||
+      document.body ||
+      document.documentElement;
+
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = 'owt-netflix-overlay';
@@ -929,7 +944,9 @@ export class NetflixCaptionAdapter {
       overlay.style.width = '90%';
       overlay.style.maxWidth = '1000px';
 
-      (document.body || document.documentElement)?.appendChild(overlay);
+      container?.appendChild(overlay);
+    } else if (overlay.parentElement !== container) {
+      container?.appendChild(overlay);
     }
     return overlay;
   }
