@@ -220,6 +220,7 @@ export class NetflixCaptionAdapter {
   private getDebugHud(): HTMLElement | null {
     const container =
       (document.fullscreenElement as HTMLElement) ||
+      document.querySelector('.player-controls') ||
       document.querySelector('.watch-video') ||
       document.querySelector('[data-uia="watch-video"]') ||
       document.body;
@@ -924,6 +925,7 @@ export class NetflixCaptionAdapter {
     let overlay = document.getElementById('owt-netflix-overlay');
     const container =
       (document.fullscreenElement as HTMLElement) ||
+      document.querySelector('.player-controls') ||
       document.querySelector('.watch-video') ||
       document.querySelector('[data-uia="watch-video"]') ||
       document.body ||
