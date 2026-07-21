@@ -8,53 +8,68 @@
       <ThemeToggle compact v-model="theme" />
     </header>
 
+    <div v-if="isNetflixTab" class="tab-bar">
+      <button :class="{ active: activeMode === 'netflix' }" @click="activeMode = 'netflix'">
+        🎬 Netflix 雙語字幕
+      </button>
+      <button :class="{ active: activeMode === 'general' }" @click="activeMode = 'general'">
+        🌐 一般網頁翻譯
+      </button>
+    </div>
+
     <div class="popup-body">
-      <DisplaySettings
-        compact
-        :settings="settings"
-        @update:settings="onSettingsPartialUpdate"
-        @change="save"
-      />
+      <template v-if="isNetflixTab && activeMode === 'netflix'">
+        <NetflixSubtitleConfigCard />
+      </template>
 
-      <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
-        <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
-        <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
-      </div>
+      <template v-else>
+        <DisplaySettings
+          compact
+          :settings="settings"
+          @update:settings="onSettingsPartialUpdate"
+          @change="save"
+        />
 
-      <div class="action-buttons">
-        <button
-          class="btn btn-primary"
-          :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
-          @click="translateCurrentPage"
-          data-testid="translate-page-btn"
-        >
-          <span v-if="isTranslating" class="spinner"></span>
-          {{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}
-        </button>
+        <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
+          <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
+          <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
+        </div>
 
-        <button
-          class="btn btn-secondary"
-          :disabled="isLoading || !settings.enabled"
-          @click="restorePage"
-          data-testid="restore-page-btn"
-        >
-          <span v-if="isRestoring" class="spinner"></span>
-          {{ isRestoring ? '還原中...' : '還原頁面' }}
-        </button>
-      </div>
+        <div class="action-buttons">
+          <button
+            class="btn btn-primary"
+            :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
+            @click="translateCurrentPage"
+            data-testid="translate-page-btn"
+          >
+            <span v-if="isTranslating" class="spinner"></span>
+            {{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}
+          </button>
 
-      <div v-if="errorMessage" class="error-banner" data-testid="error-banner">
-        <span>⚠️ {{ errorMessage }}</span>
-      </div>
+          <button
+            class="btn btn-secondary"
+            :disabled="isLoading || !settings.enabled"
+            @click="restorePage"
+            data-testid="restore-page-btn"
+          >
+            <span v-if="isRestoring" class="spinner"></span>
+            {{ isRestoring ? '還原中...' : '還原頁面' }}
+          </button>
+        </div>
 
-      <div v-if="statusMessage" class="status-banner" data-testid="status-banner">
-        <span>ℹ️ {{ statusMessage }}</span>
-      </div>
+        <div v-if="errorMessage" class="error-banner" data-testid="error-banner">
+          <span>⚠️ {{ errorMessage }}</span>
+        </div>
 
-      <div class="status">
-        <span :class="settings.enabled ? 'dot active' : 'dot'"></span>
-        {{ settings.enabled ? 'Active' : 'Paused' }}
-      </div>
+        <div v-if="statusMessage" class="status-banner" data-testid="status-banner">
+          <span>ℹ️ {{ statusMessage }}</span>
+        </div>
+
+        <div class="status">
+          <span :class="settings.enabled ? 'dot active' : 'dot'"></span>
+          {{ settings.enabled ? 'Active' : 'Paused' }}
+        </div>
+      </template>
     </div>
 
     <footer class="popup-footer">
@@ -68,6 +83,7 @@ import { ref, onMounted, computed } from 'vue';
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import DisplaySettings from '@/components/DisplaySettings.vue';
+import NetflixSubtitleConfigCard from '@/components/NetflixSubtitleConfigCard.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
 const settings = ref({
@@ -82,6 +98,9 @@ const isTranslating = ref(false);
 const isRestoring = ref(false);
 const isLoading = computed(() => isTranslating.value || isRestoring.value);
 
+const isNetflixTab = ref(false);
+const activeMode = ref<'netflix' | 'general'>('netflix');
+
 const isGeminiUnconfigured = computed(() => {
   return settings.value.activeProviderId === 'gemini-provider' && !settings.value.hasGeminiApiKey;
 });
@@ -91,6 +110,13 @@ const statusMessage = ref('');
 
 onMounted(async () => {
   try {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const currentUrl = tabs[0]?.url || '';
+    if (currentUrl.includes('netflix.com')) {
+      isNetflixTab.value = true;
+      activeMode.value = 'netflix';
+    }
+
     const s = await messageRouter.sendMessage({ type: 'GET_SETTINGS' });
     if (s) {
       settings.value.enabled = s.enabled;
@@ -98,14 +124,17 @@ onMounted(async () => {
       settings.value.activeProviderId = s.activeProviderId || 'mock-provider';
       settings.value.hasGeminiApiKey = Boolean(s.hasGeminiApiKey);
     }
-  } catch (e) {
-    console.error('Failed to load settings', e);
+  } catch (err) {
+    loggerWarn('Failed to initialize popup settings:', err);
   }
 });
 
-function onSettingsPartialUpdate(updated: Partial<typeof settings.value>) {
-  Object.assign(settings.value, updated);
-  save();
+function loggerWarn(...args: any[]) {
+  console.warn('[Popup]', ...args);
+}
+
+function onSettingsPartialUpdate(partial: Record<string, any>) {
+  settings.value = { ...settings.value, ...partial };
 }
 
 async function save() {
@@ -115,10 +144,11 @@ async function save() {
       settings: {
         enabled: settings.value.enabled,
         targetLanguage: settings.value.targetLanguage,
+        activeProviderId: settings.value.activeProviderId,
       },
     });
-  } catch (e) {
-    console.error('Failed to save settings', e);
+  } catch (err) {
+    errorMessage.value = '儲存設定失敗';
   }
 }
 
@@ -126,16 +156,15 @@ async function translateCurrentPage() {
   errorMessage.value = '';
   statusMessage.value = '';
   isTranslating.value = true;
-
   try {
     const res = await messageRouter.sendMessage({ type: 'TRANSLATE_ACTIVE_TAB' });
-    if (!res || !res.success) {
-      errorMessage.value = res?.error?.message || '翻譯失敗';
+    if (res?.success) {
+      statusMessage.value = `翻譯完成 (共 ${res.translatedCount || 0} 個段落)`;
     } else {
-      statusMessage.value = `成功翻譯 ${res.translatedCount ?? 0} 個區塊`;
+      errorMessage.value = res?.error?.message || '頁面翻譯失敗';
     }
   } catch (err: any) {
-    errorMessage.value = err?.message || '傳送翻譯請求失敗';
+    errorMessage.value = err?.message || '通訊錯誤，請確認頁面已載入';
   } finally {
     isTranslating.value = false;
   }
@@ -145,43 +174,47 @@ async function restorePage() {
   errorMessage.value = '';
   statusMessage.value = '';
   isRestoring.value = true;
-
   try {
     const res = await messageRouter.sendMessage({ type: 'RESTORE_ACTIVE_TAB' });
-    if (!res || !res.success) {
-      errorMessage.value = res?.error?.message || '還原失敗';
+    if (res?.success) {
+      statusMessage.value = `已還原頁面 (共 ${res.restoredCount || 0} 個段落)`;
     } else {
-      statusMessage.value = `已還原 ${res.restoredCount ?? 0} 個區塊`;
+      errorMessage.value = res?.error?.message || '頁面還原失敗';
     }
   } catch (err: any) {
-    errorMessage.value = err?.message || '傳送還原請求失敗';
+    errorMessage.value = err?.message || '通訊錯誤';
   } finally {
     isRestoring.value = false;
   }
 }
 
 function openOptions() {
-  browser.tabs.create({ url: browser.runtime.getURL('/options.html') });
+  if (browser.runtime.openOptionsPage) {
+    browser.runtime.openOptionsPage();
+  } else {
+    window.open(browser.runtime.getURL('/options.html'));
+  }
 }
 </script>
 
 <style scoped>
 .popup {
-  width: 320px;
-  background-color: var(--bg-secondary, #1e293b);
-  color: var(--text-primary, #f8fafc);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  width: 360px;
+  background: var(--owt-bg-primary, #0f172a);
+  color: var(--owt-text-primary, #f8fafc);
+  font-family: system-ui, -apple-system, sans-serif;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid var(--border-color, #334155);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .popup-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--owt-bg-secondary, #1e293b);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .header-left {
@@ -191,173 +224,94 @@ function openOptions() {
 }
 
 .logo {
-  background: rgba(255, 255, 255, 0.2);
-  padding: 4px 10px;
-  border-radius: 8px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
   font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 1px;
-  color: #fff;
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 6px;
 }
 
 .popup-header h1 {
+  font-size: 14px;
   margin: 0;
-  font-size: 15px;
+  font-weight: 700;
+}
+
+.tab-bar {
+  display: flex;
+  background: #1e293b;
+  padding: 4px 12px;
+  gap: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tab-bar button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 6px 0;
+  font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-bar button.active {
+  color: #38bdf8;
+  border-bottom-color: #38bdf8;
 }
 
 .popup-body {
-  padding: 16px 20px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.warning-banner {
-  background: var(--warning-bg, rgba(245, 158, 11, 0.15));
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  color: var(--warning-text, #fbbf24);
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.link-btn {
-  align-self: flex-end;
-  background: transparent;
-  border: none;
-  color: var(--primary-accent, #3b82f6);
-  cursor: pointer;
-  font-size: 11px;
-  text-decoration: underline;
+  gap: 12px;
 }
 
 .action-buttons {
   display: flex;
-  flex-direction: column;
   gap: 8px;
-  margin-top: 4px;
 }
 
 .btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s ease;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .btn-primary {
-  background-color: var(--primary-accent, #2563eb);
-  color: #ffffff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--primary-hover, #1d4ed8);
+  background: #3b82f6;
+  color: white;
 }
 
 .btn-secondary {
-  background-color: var(--bg-input, #0f172a);
-  border: 1px solid var(--border-color, #334155);
-  color: var(--text-secondary, #cbd5e1);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background-color: var(--border-color, #334155);
-  color: var(--text-primary, #f8fafc);
-}
-
-.spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
-  border-top-color: #ffffff;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.error-banner {
-  background: var(--danger-bg, rgba(239, 68, 68, 0.15));
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: var(--danger-text, #fca5a5);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.status-banner {
-  background: var(--accent-badge-bg, rgba(16, 185, 129, 0.15));
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  color: var(--accent-badge-text, #6ee7b7);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted, #888);
-  padding-top: 4px;
-  border-top: 1px solid var(--border-color, #334155);
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  transition: background 0.3s;
-}
-
-.dot.active {
-  background: #10b981;
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .popup-footer {
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-color, #334155);
-  text-align: center;
+  padding: 10px 16px;
+  background: #1e293b;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .popup-footer button {
   background: transparent;
-  color: var(--primary-accent, #3b82f6);
-  border: 1px solid var(--primary-accent, #3b82f6);
-  padding: 6px 18px;
-  border-radius: 6px;
-  cursor: pointer;
+  border: none;
+  color: #94a3b8;
   font-size: 12px;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.popup-footer button:hover {
-  background: var(--primary-accent, #3b82f6);
-  color: #fff;
+  cursor: pointer;
 }
 </style>

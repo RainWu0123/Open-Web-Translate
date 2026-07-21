@@ -37,7 +37,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     expect(() => adapter.init()).not.toThrow();
   });
 
-  it('injects control button into Netflix player controls container', () => {
+  it('injects control button using stable data-uia selector or fallback controls container', () => {
     Object.defineProperty(window, 'location', {
       value: { hostname: 'www.netflix.com', pathname: '/watch/123456', href: 'https://www.netflix.com/watch/123456' },
       writable: true,
@@ -45,10 +45,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     adapter = new NetflixCaptionAdapter();
 
     const controls = document.createElement('div');
-    controls.className = 'AkiraPlayerControls--bottom-controls';
-    const audioSubBtn = document.createElement('button');
-    audioSubBtn.setAttribute('data-uia', 'control-audio-subtitle');
-    controls.appendChild(audioSubBtn);
+    controls.setAttribute('data-uia', 'controls-standard');
     document.body.appendChild(controls);
 
     adapter.init();
@@ -56,5 +53,13 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement;
     expect(injectedBtn).not.toBeNull();
     expect(injectedBtn?.title).toBe('OWT 雙語字幕 (左鍵開關 / 右鍵副字幕選單)');
+  });
+
+  it('orchestrates sub-components (TrackManager, SyncEngine, OverlayRenderer, TranslationPipeline)', () => {
+    adapter = new NetflixCaptionAdapter();
+    expect(adapter.getTrackManager()).toBeDefined();
+    expect(adapter.getSyncEngine()).toBeDefined();
+    expect(adapter.getOverlayRenderer()).toBeDefined();
+    expect(adapter.getTranslationPipeline()).toBeDefined();
   });
 });

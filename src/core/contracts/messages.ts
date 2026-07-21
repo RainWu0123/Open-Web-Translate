@@ -59,7 +59,17 @@ export interface ExtensionSettings {
   localHttpModel?: string;
 }
 
-// ─── Messages (Content/Popup/Options → Background) ──────────────
+export interface NetflixConfig {
+  enabled: boolean;
+  primarySize: number;
+  secondarySize: number;
+  bottomPosition: number;
+  lineSpacing: number;
+  enableBitmapRescue: boolean;
+  learningMode: boolean;
+}
+
+// ─── Messages (Content/Popup/Options → Background/Tab) ────────────
 
 export interface TranslateRequestMessage {
   type: 'TRANSLATE_REQUEST';
@@ -115,6 +125,11 @@ export interface ClearVocabItemsMessage {
   type: 'CLEAR_VOCAB_ITEMS';
 }
 
+export interface UpdateNetflixConfigMessage {
+  type: 'UPDATE_NETFLIX_CONFIG';
+  payload: Partial<NetflixConfig>;
+}
+
 /** All messages that can be sent in the messaging system */
 export type BackgroundMessage =
   | TranslateRequestMessage
@@ -127,7 +142,8 @@ export type BackgroundMessage =
   | SaveVocabItemMessage
   | GetVocabItemsMessage
   | DeleteVocabItemMessage
-  | ClearVocabItemsMessage;
+  | ClearVocabItemsMessage
+  | UpdateNetflixConfigMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -172,6 +188,7 @@ export type ResponseMap = {
   GET_VOCAB_ITEMS: any[];
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
+  UPDATE_NETFLIX_CONFIG: boolean;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────
@@ -182,4 +199,3 @@ export interface SettingsChangedEvent {
 }
 
 export type BroadcastEvent = SettingsChangedEvent;
-

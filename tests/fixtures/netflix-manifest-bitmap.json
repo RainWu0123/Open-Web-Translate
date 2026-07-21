@@ -1,0 +1,40 @@
+{
+  "movieId": "80000001",
+  "tracks": [
+    {
+      "id": "track_zh_bitmap",
+      "label": "Traditional Chinese (Bitmap)",
+      "language": "zh-Hant",
+      "isCC": false,
+      "hydrated": true,
+      "isImageBased": true,
+      "downloadables": {
+        "imsc1.1-image": {
+          "isImage": true,
+          "downloadUrls": ["https://cdn.netflix.com/sub/imsc_bitmap.xml"],
+          "urls": ["https://cdn.netflix.com/sub/imsc_bitmap.xml"]
+        },
+        "dfxp-ls-sdh": {
+          "isImage": false,
+          "downloadUrls": ["https://cdn.netflix.com/sub/dfxp_text.xml"],
+          "urls": ["https://cdn.netflix.com/sub/dfxp_text.xml"]
+        }
+      }
+    },
+    {
+      "id": "track_en_text",
+      "label": "English",
+      "language": "en",
+      "isCC": false,
+      "hydrated": true,
+      "isImageBased": false,
+      "downloadables": {
+        "webvtt-lssdh": {
+          "isImage": false,
+          "downloadUrls": ["https://cdn.netflix.com/sub/en_vtt.xml"],
+          "urls": ["https://cdn.netflix.com/sub/en_vtt.xml"]
+        }
+      }
+    }
+  ]
+}

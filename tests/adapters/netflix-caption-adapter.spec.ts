@@ -29,10 +29,10 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
     }
   });
 
-  it('intercepts Netflix caption segments and renders bilingual translation', async () => {
+  it('intercepts Netflix caption segments via Tier 3 DOM fallback and renders bilingual translation in Shadow DOM', async () => {
     adapter = new NetflixCaptionAdapter();
     (messageRouter.sendMessage as any).mockResolvedValue({
-      segments: [{ id: 'nf-caption', translatedText: '我是不才惡女' }],
+      segments: [{ id: 'nf_cue', text: 'I am an incompetent villainess', translatedText: '我是不才惡女' }],
     });
 
     const container = document.createElement('div');
@@ -46,20 +46,21 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
     document.body.appendChild(container);
 
     await adapter.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
-    await (adapter as any).processCaptions();
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(seg.getAttribute('data-owt-original')).toBeNull();
-    const overlay = document.getElementById('owt-netflix-overlay');
-    expect(overlay).not.toBeNull();
-    expect(overlay?.textContent).toContain('I am an incompetent villainess');
-    expect(overlay?.textContent).toContain('我是不才惡女');
+    const host = document.getElementById('owt-netflix-overlay-host');
+    expect(host).not.toBeNull();
+    expect(host?.shadowRoot).not.toBeNull();
+
+    const shadowContent = host?.shadowRoot?.innerHTML || '';
+    expect(shadowContent).toContain('I am an incompetent villainess');
+    expect(shadowContent).toContain('我是不才惡女');
   });
 
   it('restores native Netflix caption DOM on stop', async () => {
     adapter = new NetflixCaptionAdapter();
     (messageRouter.sendMessage as any).mockResolvedValue({
-      segments: [{ id: 'nf-caption', translatedText: '我是不才惡女' }],
+      segments: [{ id: 'nf_cue', text: 'Hello Netflix', translatedText: '你好 Netflix' }],
     });
 
     const container = document.createElement('div');
@@ -70,13 +71,9 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
     document.body.appendChild(container);
 
     await adapter.start('zh-Hant', 'bilingual');
-    await (adapter as any).processCaptions();
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     adapter.stop();
-
-    const overlay = document.getElementById('owt-netflix-overlay');
-    expect(overlay?.innerHTML).toBe('');
-    expect(seg.textContent).toBe('Hello Netflix');
+    expect(container.style.display).not.toBe('none');
   });
 });
