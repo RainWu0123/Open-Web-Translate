@@ -683,7 +683,6 @@ export class NetflixCaptionAdapter {
     container.style.pointerEvents = 'auto';
     container.style.textAlign = 'center';
     container.style.boxShadow = '0 4px 16px rgba(0,0,0,0.6)';
-    container.style.backdropFilter = 'blur(4px)';
 
     const origLines = originalText.split('\n').filter(Boolean);
     const transLines = translatedText.split('\n').filter(Boolean);
@@ -730,14 +729,12 @@ export class NetflixCaptionAdapter {
     }
 
     const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
-    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
-
-    const rightGroup =
-      audioSubWrapper?.parentElement ||
-      document.querySelector('.player-controls .right-controls') ||
-      document.querySelector('.player-controls') ||
-      document.querySelector('[data-uia="player"]');
-    if (!rightGroup) return;
+    const rightControls = document.querySelector('.player-controls .right-controls') || document.querySelector('.player-controls');
+    
+    if (!audioSubBtn && !rightControls) {
+      // Do not fallback to generic player container to prevent top-left jumping
+      return;
+    }
 
     button = document.createElement('button');
     button.className = 'owt-netflix-toggle-btn';
@@ -778,10 +775,16 @@ export class NetflixCaptionAdapter {
     });
 
     try {
-      if (audioSubWrapper && audioSubWrapper.parentNode) {
-        audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
-      } else {
-        rightGroup.prepend(button);
+      if (audioSubBtn) {
+        const wrapper = audioSubBtn.closest('div');
+        const parent = wrapper?.parentElement || audioSubBtn.parentElement;
+        if (parent) {
+          parent.insertBefore(button, wrapper || audioSubBtn);
+        } else if (rightControls) {
+          rightControls.prepend(button);
+        }
+      } else if (rightControls) {
+        rightControls.prepend(button);
       }
     } catch (err) {
       // UI injection failure must never break the subtitle pipeline.
@@ -1065,9 +1068,16 @@ export class NetflixCaptionAdapter {
     if (!this.targetLang || this.discoveredTracks.length === 0) return;
 
     const targetPrefix = this.targetLang.split('-')[0].toLowerCase();
+    const isTargetChinese = targetPrefix === 'zh';
+
     const matchingTrack = this.discoveredTracks.find((t) => {
       if (t.id === this.selectedTrackId) return false;
       const lang = t.language.toLowerCase().replace('_', '-');
+      const label = t.label.toLowerCase();
+      
+      if (isTargetChinese) {
+        return lang.includes('zh') || lang.includes('hant') || lang.includes('cmn') || label.includes('中文') || label.includes('chinese');
+      }
       return lang.startsWith(targetPrefix);
     });
 

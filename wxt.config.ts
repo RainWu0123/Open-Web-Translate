@@ -28,7 +28,10 @@ export default defineConfig({
       open_in_tab: true,
     },
     web_accessible_resources: [
-      'netflix-main.js',
+      {
+        resources: ['netflix-main.js'],
+        matches: ['*://*.netflix.com/*'],
+      },
     ],
   }),
 });
