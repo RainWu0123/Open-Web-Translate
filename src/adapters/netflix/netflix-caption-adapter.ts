@@ -731,13 +731,13 @@ export class NetflixCaptionAdapter {
 
     // DOM path is fallback only (ai-translate when no TTML track selected).
     this.observer = new MutationObserver(() => {
-      if (this.isActive && this.selectedTrackId === 'ai-translate') {
+      if (this.isActive && (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0)) {
         this.processCaptions();
       }
     });
     this.observer.observe(targetNode, { childList: true, subtree: true, characterData: true });
 
-    if (this.selectedTrackId === 'ai-translate') {
+    if (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0) {
       this.processCaptions();
     }
   }
@@ -1160,7 +1160,7 @@ export class NetflixCaptionAdapter {
     }
 
     this.lastProcessedText = text;
-    void this.translateAndRender(text, currentMs, this.routeGeneration);
+    void this.translateAndRender(text, currentMs, this.routeGeneration, activeCue);
   }
 
   /**
@@ -1170,10 +1170,15 @@ export class NetflixCaptionAdapter {
    *   3. Google 翻譯
    *   4. 原生原文 (show original only)
    */
-  private async translateAndRender(originalText: string, currentMs: number, generation: number) {
+  private async translateAndRender(originalText: string, currentMs: number, generation: number, sourceCue?: SubtitleCue) {
     // Priority 1: Native professional human translation track
     if (this.nativeTranslationCues.length > 0) {
-      const nativeCue = findCueAt(this.nativeTranslationCues, currentMs);
+      let nativeCue = findCueAt(this.nativeTranslationCues, currentMs);
+      
+      if (!nativeCue && sourceCue) {
+        nativeCue = this.nativeTranslationCues.find(c => c.startMs < sourceCue.endMs && c.endMs > sourceCue.startMs);
+      }
+
       if (nativeCue?.text) {
         this.renderOverlay(originalText, nativeCue.text);
         return;
