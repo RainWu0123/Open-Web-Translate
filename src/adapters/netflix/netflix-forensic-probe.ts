@@ -40,13 +40,13 @@ export class NetflixForensicProbe {
         this.starting = false;
         return;
       }
-      this.createDebugPanel();
+      // this.createDebugPanel();
       this.checkInterval = setInterval(() => {
         this.discoverVideo();
       }, 1000);
-      this.updateTimer = setInterval(() => {
-        this.updateDebugPanel();
-      }, 800);
+      // this.updateTimer = setInterval(() => {
+      //   this.updateDebugPanel();
+      // }, 800);
       this.starting = false;
     };
 

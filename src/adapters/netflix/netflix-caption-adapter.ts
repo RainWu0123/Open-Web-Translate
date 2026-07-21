@@ -1107,6 +1107,7 @@ export class NetflixCaptionAdapter {
   }
 
   private renderDiagnostic(message: string, isError = false) {
+    return; // Disabled in production to hide debug/diagnostic messages on screen
     if (!this.isActive) return;
     if (!document.body && !document.documentElement) return;
 
