@@ -118,7 +118,7 @@ export class NetflixCaptionAdapter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastPingTs = 0;
   private missedPings = 0;
-  private clearGraceMs = 800;
+  private clearGraceMs = 2000;
   private lastCueRenderTs = 0;
   private nativeSubtitleElements = new Set<HTMLElement>();
   private pendingTtmlRequests = new Map<
@@ -793,7 +793,7 @@ export class NetflixCaptionAdapter {
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = 'owt-netflix-overlay';
-      overlay.style.position = 'absolute';
+      overlay.style.position = 'fixed';
       overlay.style.bottom = '12%';
       overlay.style.left = '50%';
       overlay.style.transform = 'translateX(-50%)';
@@ -805,12 +805,7 @@ export class NetflixCaptionAdapter {
       overlay.style.width = '90%';
       overlay.style.maxWidth = '1000px';
 
-      const container =
-        document.querySelector('.watch-video') ||
-        document.querySelector('[data-uia="watch-video"]') ||
-        document.body ||
-        document.documentElement;
-      container?.appendChild(overlay);
+      (document.body || document.documentElement)?.appendChild(overlay);
     }
     return overlay;
   }

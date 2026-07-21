@@ -8,7 +8,7 @@
 export default defineContentScript({
   matches: ['*://*.netflix.com/*'],
   world: 'MAIN',
-  runAt: 'document_idle',
+  runAt: 'document_start',
   main() {
     const SOURCE = 'owt-netflix-main';
     console.log('[OWT-MAIN] Netflix MAIN world script loaded');
