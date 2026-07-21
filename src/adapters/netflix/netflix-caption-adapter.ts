@@ -41,6 +41,7 @@ export class NetflixCaptionAdapter {
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private nativeTranslationCues: SubtitleCue[] = [];
   private hasAutoSelected = false;
+  private networkTrackPollerTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {}
 
@@ -127,6 +128,14 @@ export class NetflixCaptionAdapter {
           this.hasAutoSelected = false;
           this.clearOverlay();
           this.inlineTranslationCache.clear();
+
+          const win = (window as any).wrappedJSObject;
+          if (win && win._owtDiscoveredTracks) {
+            try {
+              win._owtDiscoveredTracks.length = 0;
+            } catch (e) {}
+          }
+
           this.tryAutoStart();
         }
         this.injectControlsButton();
@@ -180,6 +189,16 @@ export class NetflixCaptionAdapter {
 
     this.startObserver();
     this.startSubtitleSync();
+    this.startNetworkTrackPoller();
+
+    // Immediately show status to indicate rendering works and we are loading tracks
+    this.renderDiagnostic('[OWT] ⏳ 正在尋找/初始化字幕軌...');
+    setTimeout(() => {
+      if (this.isActive && this.discoveredTracks.length === 0) {
+        this.renderDiagnostic('[OWT] ⚠️ 未偵測到字幕軌。請確認影片字幕已開啟，或點選右鍵開啟選單/重整', true);
+      }
+    }, 6000);
+
     logger.info('NetflixCaptionAdapter started', { targetLang, displayMode });
   }
 
@@ -187,6 +206,13 @@ export class NetflixCaptionAdapter {
     this.isActive = false;
     this.forensicProbe.stop();
     this.stopSubtitleSync();
+    this.stopNetworkTrackPoller();
+    const win = (window as any).wrappedJSObject;
+    if (win && win._owtDiscoveredTracks) {
+      try {
+        win._owtDiscoveredTracks.length = 0;
+      } catch (e) {}
+    }
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
@@ -630,6 +656,11 @@ export class NetflixCaptionAdapter {
   private updateSubtitleSync() {
     if (!this.isActive) return;
 
+    if (this.selectedTrackId === 'ai-translate') {
+      // AI translation relies on MutationObserver to hook text from DOM
+      return;
+    }
+
     const video = document.querySelector('video') as HTMLVideoElement | null;
     if (!video) {
       this.clearOverlay();
@@ -640,11 +671,6 @@ export class NetflixCaptionAdapter {
     const nativeContainer = document.querySelector('.player-timedtext') as HTMLElement | null;
     if (nativeContainer && !nativeContainer.classList.contains('owt-hide-native')) {
       nativeContainer.classList.add('owt-hide-native');
-    }
-
-    if (this.selectedTrackId === 'ai-translate') {
-      // AI translation relies on MutationObserver to hook text from DOM
-      return;
     }
 
     // Loaded track mode (such as English text track loaded for Chinese image main track)
@@ -777,5 +803,137 @@ export class NetflixCaptionAdapter {
     } catch (e) {
       await this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
     }
+  }
+
+  private startNetworkTrackPoller() {
+    this.stopNetworkTrackPoller();
+    this.networkTrackPollerTimer = setInterval(() => {
+      if (!this.isActive) return;
+      this.pollNetworkInterceptedTracks();
+    }, 1500);
+  }
+
+  private stopNetworkTrackPoller() {
+    if (this.networkTrackPollerTimer) {
+      clearInterval(this.networkTrackPollerTimer);
+      this.networkTrackPollerTimer = null;
+    }
+  }
+
+  private pollNetworkInterceptedTracks() {
+    const win = (window as any).wrappedJSObject;
+    if (!win || !win._owtDiscoveredTracks) return;
+
+    const len = win._owtDiscoveredTracks.length;
+    for (let i = 0; i < len; i++) {
+      const t = win._owtDiscoveredTracks[i];
+      if (t && typeof t.url === 'string') {
+        const url = t.url;
+        if (!this.discoveredTracks.some((d) => d.url === url)) {
+          const trackId = `net-track-${Math.random().toString(36).substring(2, 11)}`;
+          const newTrack: DiscoveredTrack = {
+            id: trackId,
+            label: 'Analyzing track...',
+            language: 'unknown',
+            url: url,
+            isCC: false,
+          };
+          this.discoveredTracks.push(newTrack);
+          logger.info(`Discovered new network track: ${url}`);
+          void this.resolveSingleTrackLanguage(newTrack);
+        }
+      }
+    }
+  }
+
+  private async resolveSingleTrackLanguage(track: DiscoveredTrack) {
+    try {
+      this.renderDiagnostic(`[OWT] ⏳ 已偵測到字幕網址，正在下載與分析語系...`);
+      const xml = await fetch(track.url).then((res) => res.text());
+      const match = xml.match(/xml:lang="([^"]+)"/) || xml.match(/lang="([^"]+)"/);
+      if (match && match[1]) {
+        const langCode = match[1];
+        track.language = langCode;
+        track.label = this.getLanguageLabel(langCode);
+        logger.info(`Resolved language for track ${track.id}: ${track.label} (${langCode})`);
+        
+        this.updateSelectorMenuOptions();
+
+        // Auto-select Chinese track or default secondary track
+        if (this.selectedTrackId === 'ai-translate' && !this.hasAutoSelected) {
+          if (langCode.toLowerCase().startsWith('en') || track.label.toLowerCase().includes('english')) {
+            this.hasAutoSelected = true;
+            logger.info(`Auto-selecting default secondary track: ${track.label}`);
+            this.selectedTrackId = track.id;
+            this.secondaryCues = parseNetflixTtml(xml);
+            logger.info(`Auto-loaded secondary cues: ${this.secondaryCues.length}`);
+            this.renderDiagnostic(`[OWT] 🎬 字幕軌 [${track.label}] 載入就緒，等待播放時間對齊...`);
+            this.updateSelectorMenuOptions();
+            this.processCaptions();
+          }
+        }
+
+        await this.loadNativeTranslationTrack();
+      } else {
+        track.label = 'Subtitle (unknown language)';
+        this.updateSelectorMenuOptions();
+      }
+    } catch (err) {
+      logger.error(`Failed to resolve language for track ${track.url}:`, err);
+      track.label = 'Subtitle (failed to load)';
+      this.renderDiagnostic(`[OWT] ❌ 下載/解析字幕網址失敗，請開啟原生字幕或重試。`, true);
+      this.updateSelectorMenuOptions();
+    }
+  }
+
+  private getLanguageLabel(code: string): string {
+    const map: Record<string, string> = {
+      'zh': 'Chinese',
+      'zh-Hant': 'Chinese (Traditional)',
+      'zh-Hans': 'Chinese (Simplified)',
+      'en': 'English',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'pt': 'Portuguese',
+      'ru': 'Russian',
+      'vi': 'Vietnamese',
+      'th': 'Thai'
+    };
+    return map[code] || map[code.split('-')[0]] || `Subtitle (${code})`;
+  }
+
+  private renderDiagnostic(message: string, isError = false) {
+    const overlay = this.getOverlay();
+    overlay.innerHTML = '';
+
+    const container = document.createElement('div');
+    container.style.display = 'inline-flex';
+    container.style.flexDirection = 'column';
+    container.style.alignItems = 'center';
+    container.style.backgroundColor = isError ? 'rgba(185, 28, 28, 0.9)' : 'rgba(30, 41, 59, 0.9)';
+    container.style.padding = '8px 16px';
+    container.style.borderRadius = '6px';
+    container.style.border = isError ? '1px solid #ef4444' : '1px solid #3b82f6';
+    container.style.pointerEvents = 'auto';
+    container.style.textAlign = 'center';
+    container.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+    container.style.backdropFilter = 'blur(4px)';
+
+    const span = document.createElement('span');
+    span.style.display = 'block';
+    span.style.color = '#ffffff';
+    span.style.fontWeight = '600';
+    span.style.fontSize = '14px';
+    span.style.lineHeight = '1.4';
+    span.style.margin = '0';
+    span.style.textShadow = '0 1px 2px rgba(0,0,0,0.8)';
+    span.textContent = message;
+
+    container.appendChild(span);
+    overlay.appendChild(container);
   }
 }
