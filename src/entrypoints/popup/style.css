@@ -1,9 +1,12 @@
-:root {
-  --bg: #1a1a2e;
-  --text: #e0e0e0;
+@import '@/assets/styles/tokens.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
-* { margin: 0; padding: 0; box-sizing: border-box; }
+
 body {
-  background: var(--bg);
-  color: var(--text);
+  background-color: var(--bg-primary, #0f172a);
+  color: var(--text-primary, #f8fafc);
 }

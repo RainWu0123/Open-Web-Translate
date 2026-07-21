@@ -12,6 +12,7 @@ export interface ProviderConfigValidation {
 export interface TranslationProvider {
   readonly id: ProviderId;
   readonly displayName: string;
+  readonly isLocal?: boolean;
   readonly capabilities: ProviderCapabilities;
   validateConfig(config: unknown): ProviderConfigValidation;
   translate(request: TranslationRequest): Promise<TranslationResult>;

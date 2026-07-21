@@ -11,6 +11,6 @@ export interface GlossaryEntry {
 
 /** A compiled/resolved glossary ready for a translation request */
 export interface ResolvedGlossary {
-  id: string;
-  entries: GlossaryEntry[];
+  id?: string;
+  entries: GlossaryEntry[] | Map<string, string>;
 }

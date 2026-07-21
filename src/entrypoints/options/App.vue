@@ -1,5 +1,5 @@
 <template>
-  <div class="options-container">
+  <div class="options-container" data-testid="options-page">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -9,333 +9,99 @@
           <span>v0.1.0 — Phase 2</span>
         </div>
       </div>
+
       <nav class="sidebar-nav">
         <button
           :class="['nav-item', { active: activeTab === 'general' }]"
           @click="activeTab = 'general'"
+          data-testid="tab-general"
         >
           <span class="icon">⚙️</span> {{ t('general') }}
         </button>
         <button
           :class="['nav-item', { active: activeTab === 'providers' }]"
           @click="activeTab = 'providers'"
+          data-testid="tab-providers"
         >
           <span class="icon">🧩</span> {{ t('providers') }}
         </button>
         <button
           :class="['nav-item', { active: activeTab === 'vocabulary' }]"
           @click="activeTab = 'vocabulary'"
+          data-testid="tab-vocabulary"
         >
           <span class="icon">⭐️</span> {{ t('vocabulary') }}
         </button>
       </nav>
+
+      <div class="sidebar-footer">
+        <ThemeToggle v-model="theme" @change="onThemeChange" />
+      </div>
     </aside>
 
     <!-- Main Content Area -->
     <main class="main-content">
       <!-- General Settings Panel -->
-      <section v-if="activeTab === 'general'" class="panel-section">
+      <section v-if="activeTab === 'general'" class="panel-section" data-testid="panel-general">
         <h1 class="panel-title">{{ t('generalSettings') }}</h1>
-        <div class="card">
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('enableTranslation') }}</span>
-              <span class="desc">{{ t('enableTranslationDesc') }}</span>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" v-model="settings.enabled" @change="save" />
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('targetLanguage') }}</span>
-              <span class="desc">{{ t('targetLanguageDesc') }}</span>
-            </div>
-            <select v-model="settings.targetLanguage" @change="save">
-              <option value="en">English</option>
-              <option value="zh-Hant">繁體中文</option>
-              <option value="ja">日本語</option>
-              <option value="ko">한국어</option>
-              <option value="es">Español</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('displayLayoutMode') }}</span>
-              <span class="desc">{{ t('displayLayoutDesc') }}</span>
-            </div>
-            <select v-model="settings.displayMode" @change="save">
-              <option value="bilingual">雙語對照 (Bilingual)</option>
-              <option value="translation-first">譯文優先 (Translation-First)</option>
-              <option value="immersive">沉浸模式 (Immersive)</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('translationMode') }}</span>
-              <span class="desc">{{ t('translationModeDesc') }}</span>
-            </div>
-            <select v-model="settings.defaultTranslationMode" @change="save">
-              <option value="fast">Fast</option>
-              <option value="quality">Quality</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('interfaceLanguage') }}</span>
-              <span class="desc">{{ t('interfaceLanguageDesc') }}</span>
-            </div>
-            <select v-model="settings.uiLanguage" @change="save">
-              <option value="en">English</option>
-              <option value="zh-Hant">繁體中文</option>
-              <option value="ja">日本語</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('showFloatingButton') }}</span>
-              <span class="desc">{{ t('showFloatingButtonDesc') }}</span>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" v-model="settings.showFloatingButton" @change="save" />
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('subtitleOriginalFontSize') }}</span>
-              <span class="desc">{{ t('subtitleOriginalFontSizeDesc') }}</span>
-            </div>
-            <div class="range-control">
-              <input type="range" min="12" max="32" step="1" v-model.number="settings.subtitleOriginalFontSize" @change="save" />
-              <span class="range-val">{{ settings.subtitleOriginalFontSize }}px</span>
-            </div>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('subtitleTranslatedFontSize') }}</span>
-              <span class="desc">{{ t('subtitleTranslatedFontSizeDesc') }}</span>
-            </div>
-            <div class="range-control">
-              <input type="range" min="14" max="40" step="1" v-model.number="settings.subtitleTranslatedFontSize" @change="save" />
-              <span class="range-val">{{ settings.subtitleTranslatedFontSize }}px</span>
-            </div>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('subtitleOriginalColor') }}</span>
-              <span class="desc">{{ t('subtitleOriginalColorDesc') }}</span>
-            </div>
-            <div class="color-control">
-              <input type="color" v-model="settings.subtitleOriginalColor" @change="save" />
-              <span class="color-val">{{ settings.subtitleOriginalColor }}</span>
-            </div>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('subtitleTranslatedColor') }}</span>
-              <span class="desc">{{ t('subtitleTranslatedColorDesc') }}</span>
-            </div>
-            <div class="color-control">
-              <input type="color" v-model="settings.subtitleTranslatedColor" @change="save" />
-              <span class="color-val">{{ settings.subtitleTranslatedColor }}</span>
-            </div>
-          </div>
-        </div>
+        <DisplaySettings
+          :settings="settings"
+          :t="t"
+          @update:settings="onSettingsPartialUpdate"
+          @change="onSettingsChange"
+        />
       </section>
 
       <!-- Providers Panel -->
-      <section v-if="activeTab === 'providers'" class="panel-section">
+      <section v-if="activeTab === 'providers'" class="panel-section" data-testid="panel-providers">
         <h1 class="panel-title">{{ t('translationProviders') }}</h1>
-        <div class="card">
-          <div class="setting-item">
-            <div class="setting-label">
-              <span class="title">{{ t('selectProvider') }}</span>
-              <span class="desc">{{ t('selectProviderDesc') }}</span>
-            </div>
-            <select v-model="settings.activeProviderId" @change="save">
-              <option value="mock-provider">Mock Provider (Local Test)</option>
-              <option value="gemini-provider">Google Gemini API</option>
-              <option value="deepl-provider">DeepL Translate API</option>
-              <option value="google-provider">Google Translate (Free)</option>
-            </select>
-          </div>
-
-          <!-- Gemini Configuration -->
-          <div class="provider-key-section" v-if="settings.activeProviderId === 'gemini-provider'">
-            <div class="setting-item-inner">
-              <div class="setting-label">
-                <span class="title">{{ t('geminiModel') }}</span>
-                <span class="desc">{{ t('geminiModelDesc') }}</span>
-                <span class="verified-tag" v-if="currentModelEntry">
-                  {{ t('verified') }}: {{ currentModelEntry.lastVerifiedAt }}
-                </span>
-              </div>
-              <div class="model-select-col">
-                <select v-model="selectedModelPreset" @change="onModelPresetChange">
-                  <optgroup label="Verified Active Models">
-                    <option v-for="m in activeModels" :key="m.id" :value="m.id">
-                      {{ m.displayName }}{{ m.isDefaultCandidate ? ' (Recommended)' : '' }}
-                    </option>
-                  </optgroup>
-                  <optgroup label="Deprecated Models (Retiring Oct 2026)" v-if="deprecatedModels.length > 0">
-                    <option v-for="m in deprecatedModels" :key="m.id" :value="m.id">
-                      ⚠️ {{ m.displayName }}
-                    </option>
-                  </optgroup>
-                  <option value="custom">Custom Model ID (Advanced / Experimental)...</option>
-                </select>
-
-                <input
-                  v-if="selectedModelPreset === 'custom'"
-                  type="text"
-                  v-model="customModelInput"
-                  placeholder="e.g. gemini-3.5-flash"
-                  class="key-input custom-model-input"
-                  @blur="saveCustomModel"
-                />
-              </div>
-            </div>
-
-            <div v-if="modelValidationError" class="key-status-msg error-msg">
-              ❌ {{ modelValidationError }}
-            </div>
-
-            <div class="key-header margin-top-12">
-              <span class="title">{{ t('apiKey') }}</span>
-              <span :class="['badge', settings.hasGeminiApiKey ? 'configured' : 'unconfigured']">
-                {{ settings.hasGeminiApiKey ? t('configured') : t('unconfigured') }}
-              </span>
-            </div>
-            <p class="desc" v-if="settings.hasGeminiApiKey">
-              {{ t('apiKeyDesc') }} <code>{{ settings.geminiApiKeyMasked }}</code>
-            </p>
-
-            <div class="key-input-row">
-              <input
-                type="password"
-                v-model="apiKeyInput"
-                :placeholder="t('enterKey')"
-                class="key-input"
-              />
-              <button class="btn btn-save" @click="saveApiKey" :disabled="!apiKeyInput.trim()">
-                {{ t('save') }}
-              </button>
-              <button
-                class="btn btn-clear"
-                @click="clearApiKey"
-                :disabled="!settings.hasGeminiApiKey && !apiKeyInput"
-              >
-                {{ t('clear') }}
-              </button>
-            </div>
-
-            <div v-if="keyMessage" class="key-status-msg">
-              {{ keyMessage }}
-            </div>
-          </div>
-
-          <!-- DeepL Configuration -->
-          <div class="provider-key-section" v-if="settings.activeProviderId === 'deepl-provider'">
-            <div class="key-header">
-              <span class="title">{{ t('deeplKey') }}</span>
-              <span :class="['badge', settings.hasDeeplApiKey ? 'configured' : 'unconfigured']">
-                {{ settings.hasDeeplApiKey ? t('configured') : t('unconfigured') }}
-              </span>
-            </div>
-            <p class="desc" v-if="settings.hasDeeplApiKey">
-              {{ t('deeplKeyDesc') }} <code>{{ settings.deeplApiKeyMasked }}</code>
-            </p>
-
-            <div class="key-input-row">
-              <input
-                type="password"
-                v-model="deeplKeyInput"
-                :placeholder="t('enterKey')"
-                class="key-input"
-              />
-              <button class="btn btn-save" @click="saveDeeplKey" :disabled="!deeplKeyInput.trim()">
-                {{ t('save') }}
-              </button>
-              <button
-                class="btn btn-clear"
-                @click="clearDeeplKey"
-                :disabled="!settings.hasDeeplApiKey && !deeplKeyInput"
-              >
-                {{ t('clear') }}
-              </button>
-            </div>
-
-            <div v-if="deeplKeyMessage" class="key-status-msg">
-              {{ deeplKeyMessage }}
-            </div>
-          </div>
-        </div>
+        <ProviderConfigCard
+          :activeProviderId="settings.activeProviderId"
+          :hasGeminiApiKey="settings.hasGeminiApiKey"
+          :geminiApiKeyMasked="settings.geminiApiKeyMasked"
+          :geminiModel="settings.geminiModel"
+          :hasDeeplApiKey="settings.hasDeeplApiKey"
+          :deeplApiKeyMasked="settings.deeplApiKeyMasked"
+          :activeModels="activeModels"
+          :deprecatedModels="deprecatedModels"
+          :t="t"
+          @update:activeProviderId="onProviderIdUpdate"
+          @saveGeminiKey="saveApiKey"
+          @clearGeminiKey="clearApiKey"
+          @saveGeminiModel="saveModel"
+          @saveDeeplKey="saveDeeplKey"
+          @clearDeeplKey="clearDeeplKey"
+          @change="save"
+        />
       </section>
 
       <!-- Vocabulary Workbench Panel -->
-      <section v-if="activeTab === 'vocabulary'" class="panel-section">
-        <div class="panel-header">
-          <h1 class="panel-title">{{ t('vocabularyWorkbench') }}</h1>
-          <div class="header-actions">
-            <button class="btn btn-save btn-sm" @click="exportVocabulary" :disabled="vocabItems.length === 0">
-              {{ t('exportCsv') }}
-            </button>
-            <button class="btn btn-clear btn-sm" @click="clearVocabulary" :disabled="vocabItems.length === 0">
-              {{ t('clearAll') }}
-            </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="vocab-container">
-            <div v-if="vocabItems.length === 0" class="empty-state">
-              {{ t('vocabularyDesc') }}
-            </div>
-            <div v-else class="vocab-list">
-              <div v-for="item in vocabItems" :key="item.id" class="vocab-row">
-                <div class="vocab-main">
-                  <div class="vocab-word-row">
-                    <span class="vocab-word">{{ item.word }}</span>
-                    <span class="vocab-translation">{{ item.translation }}</span>
-                  </div>
-                  <div class="vocab-context">Context: "{{ item.context }}"</div>
-                  <a v-if="item.url" :href="item.url" target="_blank" class="vocab-link">
-                    View timestamped source video 📺
-                  </a>
-                </div>
-                <button class="btn-delete-item" @click="deleteVocabItem(item.id)">&times;</button>
-              </div>
-            </div>
-          </div>
-        </div>
+      <section v-if="activeTab === 'vocabulary'" class="panel-section" data-testid="panel-vocabulary">
+        <GlossaryManager
+          :items="vocabItems"
+          :t="t"
+          @deleteItem="deleteVocabItem"
+          @clearAll="clearVocabulary"
+          @exportCsv="exportVocabulary"
+        />
       </section>
-
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { VocabularyExporter } from '@/infrastructure/storage/repositories/vocabulary-exporter';
 import {
   getActiveVerifiedModels,
   getDeprecatedButFunctionalModels,
-  validateModelId,
-  findModelEntry,
   DEFAULT_MODEL_ID,
 } from '@/infrastructure/providers/gemini/model-registry';
+import ThemeToggle, { type ThemeMode } from '@/components/ThemeToggle.vue';
+import DisplaySettings from '@/components/DisplaySettings.vue';
+import ProviderConfigCard from '@/components/ProviderConfigCard.vue';
+import GlossaryManager from '@/components/GlossaryManager.vue';
 
 // i18n Dictionaries
 const translations = {
@@ -344,6 +110,7 @@ const translations = {
     providers: 'Providers',
     vocabulary: 'Vocabulary Workbench',
     generalSettings: 'General Settings',
+    translationProviders: 'Translation Providers',
     enableTranslation: 'Enable Translation',
     enableTranslationDesc: 'Toggle translation on all pages',
     targetLanguage: 'Target Language',
@@ -352,7 +119,6 @@ const translations = {
     displayLayoutDesc: 'Bilingual = side-by-side, Translation-First = muted original, Immersive = accessible toggle button',
     translationMode: 'Translation Mode',
     translationModeDesc: 'Fast = lower latency, Quality = better results',
-    translationProviders: 'Translation Providers',
     selectProvider: 'Translation Provider',
     selectProviderDesc: 'Select translation engine',
     geminiModel: 'Gemini Model',
@@ -389,6 +155,7 @@ const translations = {
     providers: '翻譯引擎設定',
     vocabulary: '生字庫工作站',
     generalSettings: '一般設定 (General)',
+    translationProviders: '翻譯引擎供應商',
     enableTranslation: '啟用網頁翻譯功能',
     enableTranslationDesc: '開啟或關閉所有網頁的雙語翻譯服務',
     targetLanguage: '目標翻譯語言',
@@ -397,7 +164,6 @@ const translations = {
     displayLayoutDesc: '雙語對照 = 左右/上下對齊，譯文優先 = 淡化原文，沉浸模式 = 顯示/隱藏原文切換按鈕',
     translationMode: '翻譯流暢度模式',
     translationModeDesc: 'Fast = 較低延遲優先，Quality = 翻譯品質優化優先',
-    translationProviders: '翻譯引擎供應商',
     selectProvider: '預設翻譯引擎',
     selectProviderDesc: '選擇翻譯服務提供商',
     geminiModel: 'Gemini 模型名稱',
@@ -434,6 +200,7 @@ const translations = {
     providers: '翻訳プロバイダー',
     vocabulary: '単語帳ワークベンチ',
     generalSettings: '一般設定',
+    translationProviders: '翻訳プロバイダー設定',
     enableTranslation: '翻訳機能を有効化',
     enableTranslationDesc: 'すべてのページで翻訳機能を有効/無効にします',
     targetLanguage: '翻訳先言語',
@@ -442,7 +209,6 @@ const translations = {
     displayLayoutDesc: '対訳表示 = 原文と訳文を並べる、訳文優先 = 原文を薄く表示、没入モード = アクセシブルな切り替えボタン',
     translationMode: '翻訳優先モード',
     translationModeDesc: 'Fast = 低遅延を優先、Quality = 翻訳品質を優先',
-    translationProviders: '翻訳プロバイダー設定',
     selectProvider: '翻訳エンジン',
     selectProviderDesc: '使用する翻訳エンジンを選択します',
     geminiModel: 'Gemini モデル',
@@ -473,13 +239,14 @@ const translations = {
     subtitleOriginalColorDesc: '原文字幕のテキストカラーを設定します',
     subtitleTranslatedColor: 'YouTube 訳文字幕カラー',
     subtitleTranslatedColorDesc: '翻訳字幕のテキストカラーを設定します',
-  }
+  },
 };
 
 const activeModels = getActiveVerifiedModels();
 const deprecatedModels = getDeprecatedButFunctionalModels();
 
 const activeTab = ref('general');
+const theme = ref<ThemeMode>('system');
 
 const settings = ref({
   enabled: true,
@@ -501,21 +268,13 @@ const settings = ref({
   subtitleTranslatedColor: '#818cf8',
 });
 
-const apiKeyInput = ref('');
-const keyMessage = ref('');
-const deeplKeyInput = ref('');
-const deeplKeyMessage = ref('');
-const selectedModelPreset = ref(DEFAULT_MODEL_ID);
-const customModelInput = ref('');
-const modelValidationError = ref('');
 const vocabItems = ref<any[]>([]);
 
-const currentModelEntry = computed(() => findModelEntry(settings.value.geminiModel));
-
-const t = (key: keyof typeof translations['en']) => {
+const t = (key: string): string => {
   const lang = (settings.value.uiLanguage || 'zh-Hant') as keyof typeof translations;
   const dict = translations[lang] || translations['zh-Hant'];
-  return dict[key] || translations['en'][key] || key;
+  const dictKey = key as keyof typeof translations['en'];
+  return dict[dictKey] || translations['en'][dictKey] || key;
 };
 
 onMounted(async () => {
@@ -575,43 +334,29 @@ async function loadSettings() {
       settings.value.subtitleTranslatedFontSize = s.subtitleTranslatedFontSize || 22;
       settings.value.subtitleOriginalColor = s.subtitleOriginalColor || '#ffffff';
       settings.value.subtitleTranslatedColor = s.subtitleTranslatedColor || '#818cf8';
-
-      const currentModel = s.geminiModel || DEFAULT_MODEL_ID;
-      settings.value.geminiModel = currentModel;
-
-      const known = [...activeModels, ...deprecatedModels].some((m) => m.id === currentModel);
-      if (known) {
-        selectedModelPreset.value = currentModel;
-        customModelInput.value = '';
-      } else {
-        selectedModelPreset.value = 'custom';
-        customModelInput.value = currentModel;
-      }
+      settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
     }
   } catch (e) {
     console.error('Failed to load settings', e);
   }
 }
 
-async function onModelPresetChange() {
-  modelValidationError.value = '';
-  if (selectedModelPreset.value !== 'custom') {
-    await saveModel(selectedModelPreset.value);
-  }
+function onSettingsPartialUpdate(updated: Partial<typeof settings.value>) {
+  Object.assign(settings.value, updated);
+  save();
 }
 
-async function saveCustomModel() {
-  modelValidationError.value = '';
-  const input = customModelInput.value.trim();
-  if (!input) return;
+function onSettingsChange() {
+  save();
+}
 
-  const validation = validateModelId(input);
-  if (!validation.valid) {
-    modelValidationError.value = validation.message;
-    return;
-  }
+function onProviderIdUpdate(providerId: string) {
+  settings.value.activeProviderId = providerId;
+  save();
+}
 
-  await saveModel(validation.modelId);
+function onThemeChange(newTheme: ThemeMode) {
+  theme.value = newTheme;
 }
 
 async function saveModel(modelName: string) {
@@ -652,8 +397,7 @@ async function save() {
   }
 }
 
-async function saveApiKey() {
-  const key = apiKeyInput.value.trim();
+async function saveApiKey(key: string) {
   if (!key) return;
   try {
     await messageRouter.sendMessage({
@@ -662,15 +406,9 @@ async function saveApiKey() {
         geminiApiKey: key,
       },
     });
-    apiKeyInput.value = '';
-    keyMessage.value = 'Gemini API Key saved successfully.';
     await loadSettings();
-    setTimeout(() => {
-      keyMessage.value = '';
-    }, 3000);
   } catch (e) {
     console.error('Failed to save API key', e);
-    keyMessage.value = 'Failed to save API key.';
   }
 }
 
@@ -682,20 +420,13 @@ async function clearApiKey() {
         geminiApiKey: '',
       },
     });
-    apiKeyInput.value = '';
-    keyMessage.value = 'Gemini API Key cleared.';
     await loadSettings();
-    setTimeout(() => {
-      keyMessage.value = '';
-    }, 3000);
   } catch (e) {
     console.error('Failed to clear API key', e);
-    keyMessage.value = 'Failed to clear API key.';
   }
 }
 
-async function saveDeeplKey() {
-  const key = deeplKeyInput.value.trim();
+async function saveDeeplKey(key: string) {
   if (!key) return;
   try {
     await messageRouter.sendMessage({
@@ -704,15 +435,9 @@ async function saveDeeplKey() {
         deeplApiKey: key,
       },
     });
-    deeplKeyInput.value = '';
-    deeplKeyMessage.value = 'DeepL API Key saved successfully.';
     await loadSettings();
-    setTimeout(() => {
-      deeplKeyMessage.value = '';
-    }, 3000);
   } catch (e) {
     console.error('Failed to save DeepL API key', e);
-    deeplKeyMessage.value = 'Failed to save DeepL API key.';
   }
 }
 
@@ -724,15 +449,9 @@ async function clearDeeplKey() {
         deeplApiKey: '',
       },
     });
-    deeplKeyInput.value = '';
-    deeplKeyMessage.value = 'DeepL API Key cleared.';
     await loadSettings();
-    setTimeout(() => {
-      deeplKeyMessage.value = '';
-    }, 3000);
   } catch (e) {
     console.error('Failed to clear DeepL API key', e);
-    deeplKeyMessage.value = 'Failed to clear DeepL API key.';
   }
 }
 </script>
@@ -741,16 +460,16 @@ async function clearDeeplKey() {
 .options-container {
   display: flex;
   min-height: 100vh;
-  background-color: #0f172a;
-  color: #f1f5f9;
+  background-color: var(--bg-primary, #0f172a);
+  color: var(--text-primary, #f8fafc);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Sidebar Navigation */
 .sidebar {
   width: 260px;
-  background-color: #1e293b;
-  border-right: 1px solid #334155;
+  background-color: var(--bg-secondary, #1e293b);
+  border-right: 1px solid var(--border-color, #334155);
   display: flex;
   flex-direction: column;
   padding: 24px 0;
@@ -762,7 +481,7 @@ async function clearDeeplKey() {
   align-items: center;
   gap: 12px;
   padding: 0 24px 24px 24px;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--border-color, #334155);
 }
 
 .logo-icon {
@@ -780,7 +499,7 @@ async function clearDeeplKey() {
 
 .logo-text span {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-muted, #94a3b8);
 }
 
 .sidebar-nav {
@@ -788,6 +507,7 @@ async function clearDeeplKey() {
   flex-direction: column;
   gap: 4px;
   padding: 24px 16px;
+  flex: 1;
 }
 
 .nav-item {
@@ -798,35 +518,35 @@ async function clearDeeplKey() {
   background: none;
   border: none;
   border-radius: 8px;
-  color: #94a3b8;
+  color: var(--text-secondary, #cbd5e1);
   font-size: 14px;
   font-weight: 500;
-  text-align: left;
   cursor: pointer;
+  text-align: left;
   transition: all 0.2s ease;
 }
 
 .nav-item:hover {
   background-color: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
+  color: var(--text-primary, #f8fafc);
 }
 
 .nav-item.active {
-  background-color: #2563eb;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  background-color: var(--nav-active-bg, rgba(59, 130, 246, 0.15));
+  color: var(--nav-active-text, #60a5fa);
+  font-weight: 600;
 }
 
-.nav-item .icon {
-  font-size: 16px;
+.sidebar-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color, #334155);
 }
 
 /* Main Content Area */
 .main-content {
   flex: 1;
-  padding: 40px 48px;
-  max-width: 800px;
-  overflow-y: auto;
+  padding: 40px;
+  max-width: 900px;
 }
 
 .panel-section {
@@ -835,388 +555,9 @@ async function clearDeeplKey() {
   gap: 24px;
 }
 
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .panel-title {
   font-size: 24px;
   font-weight: 700;
-  margin: 0;
-  color: #f8fafc;
-}
-
-.card {
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 12px 0;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-}
-
-.setting-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.setting-item:last-child {
-  border-bottom: none;
-}
-
-.setting-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.desc {
-  font-size: 12px;
-  color: #94a3b8;
-  max-width: 440px;
-  line-height: 1.4;
-}
-
-/* Toggle Switch */
-.toggle {
-  position: relative;
-  width: 48px;
-  height: 26px;
-  flex-shrink: 0;
-}
-
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  inset: 0;
-  background-color: #475569;
-  border-radius: 26px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.slider::before {
-  content: '';
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  left: 3px;
-  bottom: 3px;
-  background-color: #f1f5f9;
-  border-radius: 50%;
-  transition: transform 0.2s ease;
-}
-
-.toggle input:checked + .slider {
-  background-color: #2563eb;
-}
-
-.toggle input:checked + .slider::before {
-  transform: translateX(22px);
-}
-
-select {
-  background-color: #0f172a;
-  color: #f1f5f9;
-  border: 1px solid #334155;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color 0.2s ease;
-}
-
-select:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-
-.provider-key-section {
-  padding: 20px 24px;
-  background-color: rgba(15, 23, 42, 0.3);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.setting-item-inner {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
-}
-
-.model-select-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.custom-model-input {
-  width: 220px;
-}
-
-.verified-tag {
-  font-size: 11px;
-  color: #10b981;
-  background-color: rgba(16, 185, 129, 0.1);
-  padding: 2px 6px;
-  border-radius: 4px;
-  align-self: flex-start;
-  margin-top: 4px;
-}
-
-.key-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.badge {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-.badge.configured {
-  background-color: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.badge.unconfigured {
-  background-color: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.key-input-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.key-input {
-  flex: 1;
-  background-color: #0f172a;
-  border: 1px solid #334155;
-  color: #ffffff;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 13px;
-  transition: border-color 0.2s ease;
-}
-
-.key-input:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-
-.btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  transition: background-color 0.2s ease;
-}
-
-.btn-sm {
-  padding: 6px 12px;
-  font-size: 12px;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-save {
-  background-color: #2563eb;
-  color: #ffffff;
-}
-
-.btn-save:hover:not(:disabled) {
-  background-color: #1d4ed8;
-}
-
-.btn-clear {
-  background-color: #334155;
-  color: #cbd5e1;
-}
-
-.btn-clear:hover:not(:disabled) {
-  background-color: #475569;
-}
-
-.key-status-msg {
-  font-size: 12px;
-  color: #34d399;
-  margin-top: 8px;
-}
-
-.error-msg {
-  color: #f87171 !important;
-}
-
-/* Vocabulary Workbench Styles */
-.vocab-container {
-  max-height: 480px;
-  overflow-y: auto;
-  padding: 12px 24px;
-}
-
-.empty-state {
-  text-align: center;
-  color: #64748b;
-  font-size: 14px;
-  padding: 40px 0;
-  font-style: italic;
-}
-
-.vocab-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.vocab-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: #0f172a;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #334155;
-}
-
-.vocab-main {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.vocab-word-row {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-}
-
-.vocab-word {
-  font-size: 16px;
-  font-weight: 700;
-  color: #38bdf8;
-}
-
-.vocab-translation {
-  font-size: 14px;
-  color: #cbd5e1;
-}
-
-.vocab-context {
-  font-size: 12px;
-  color: #94a3b8;
-  font-style: italic;
-}
-
-.vocab-link {
-  font-size: 11px;
-  color: #2563eb;
-  text-decoration: none;
-  align-self: flex-start;
-  margin-top: 4px;
-}
-
-.vocab-link:hover {
-  text-decoration: underline;
-}
-
-.btn-delete-item {
-  background: none;
-  border: none;
-  color: #ef4444;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px;
-  transition: color 0.2s ease;
-}
-
-.btn-delete-item:hover {
-  color: #f87171;
-}
-
-.margin-top-12 {
-  margin-top: 12px;
-}
-
-.privacy-notice {
-  font-size: 12px;
-  color: #94a3b8;
-  line-height: 1.4;
-  background-color: rgba(15, 23, 42, 0.4);
-  padding: 12px 16px;
-  border-radius: 8px;
-  border-left: 3px solid #2563eb;
-  margin-top: 20px;
-}
-
-.range-control {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.range-control input[type='range'] {
-  accent-color: #818cf8;
-  cursor: pointer;
-  width: 140px;
-}
-
-.range-val {
-  font-size: 14px;
-  font-weight: 600;
-  color: #818cf8;
-  min-width: 42px;
-  text-align: right;
-}
-
-.color-control {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.color-control input[type='color'] {
-  -webkit-appearance: none;
-  border: 1px solid #334155;
-  width: 36px;
-  height: 32px;
-  border-radius: 6px;
-  cursor: pointer;
-  background: none;
-  padding: 2px;
-}
-
-.color-val {
-  font-size: 13px;
-  font-family: monospace;
-  color: #94a3b8;
-  min-width: 65px;
+  color: var(--text-primary, #f8fafc);
 }
 </style>

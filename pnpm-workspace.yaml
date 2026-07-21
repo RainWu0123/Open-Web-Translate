@@ -1,0 +1,5 @@
+packages:
+  - '.'
+overrides:
+  define-lazy-prop: "2.0.0"
+  estree-walker: "2.0.2"

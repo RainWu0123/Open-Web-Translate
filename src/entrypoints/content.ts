@@ -8,18 +8,16 @@
  */
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import {
-  extractTranslatableTargets,
-  renderBilingualBlock,
-  removeAllBilingualBlocks,
-} from '@/features/page-translation';
+import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
 import { MessageErrorCode } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '@/adapters/youtube/youtube-caption-adapter';
 import { NetflixCaptionAdapter } from '@/adapters/netflix/netflix-caption-adapter';
 import { createLogger } from '@/shared/logger';
 import '../assets/netflix.css';
+import '../assets/youtube.css';
 
 const logger = createLogger('ContentScript');
+const genericDomAdapter = new GenericDomAdapter();
 const youtubeAdapter = new YouTubeCaptionAdapter();
 const netflixAdapter = new NetflixCaptionAdapter();
 
@@ -66,13 +64,10 @@ export default defineContentScript({
   async main() {
     logger.info('Content script loaded on', window.location.href);
 
-    // Initialize adapters
+    // Initialize site-specific adapters if applicable
     if (window.location.hostname.includes('youtube.com')) {
       youtubeAdapter.init();
     } else if (window.location.hostname.includes('netflix.com')) {
-      // Primary path: inject MAIN-world Cadmium probe (required on Firefox MV2
-      // where world:'MAIN' content scripts may not auto-load). Do NOT patch
-      // page fetch/XHR from the isolated world — that hits Xray/CSP issues.
       injectNetflixMainWorldScript();
       netflixAdapter.init();
     }
@@ -86,6 +81,15 @@ export default defineContentScript({
     messageRouter.registerHandler('RESTORE_PAGE_TRANSLATION', async () => {
       logger.info('Received RESTORE_PAGE_TRANSLATION');
       return await executePageRestore();
+    });
+
+    messageRouter.registerHandler('EXECUTE_SELECTION_TRANSLATION' as any, async () => {
+      logger.info('Received EXECUTE_SELECTION_TRANSLATION');
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) {
+        return { success: false, error: 'No active selection' };
+      }
+      return await executeSelectionTranslation(selection);
     });
 
     messageRouter.listen();
@@ -108,9 +112,8 @@ export default defineContentScript({
   },
 });
 
-// ─── Shared Page Translation Service ─────────────────────────────
-// Used by Badge click, Popup relay, and Context Menu relay.
-// Single source of truth — no duplication.
+// ─── Shared Page & Selection Translation Services ────────────────
+// Uses GenericDomAdapter for translating selected text and HTML content blocks via Shadow DOM.
 
 async function executePageTranslation(): Promise<any> {
   try {
@@ -136,53 +139,37 @@ async function executePageTranslation(): Promise<any> {
       netflixAdapter.start(targetLang, displayMode, origSize, transSize, origColor, transColor);
     }
 
-    // Extract targets for page DOM elements
-    const extractResult = extractTranslatableTargets(document);
-    if (!extractResult.success) {
-      logger.warn('Extraction returned error or no targets', extractResult.error);
-      updateBadgeState(isVideoSite ? 'translated' : 'idle');
-      return {
-        success: isVideoSite, // Subtitles active on video sites
-        error: isVideoSite ? undefined : extractResult.error,
-      };
-    }
-
-    const { targets } = extractResult;
-
-    // Clear existing bilingual blocks before rendering new ones (idempotent)
-    removeAllBilingualBlocks(document);
-
-    // Send translate request to background (Provider via Background)
-    const translationResult = await messageRouter.sendMessage({
-      type: 'TRANSLATE_REQUEST',
-      segments: targets.map((t) => ({ id: t.id, text: t.text })),
-      sourceLanguage: 'auto',
+    // Use GenericDomAdapter for page translation via Shadow DOM
+    const result = await genericDomAdapter.translatePage(document, {
       targetLanguage: targetLang,
+      displayMode,
+      translateFn: async (segments) => {
+        const translationResult = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          segments,
+          sourceLanguage: 'auto',
+          targetLanguage: targetLang,
+        });
+        return translationResult?.segments || [];
+      },
     });
 
-    if (!translationResult || !translationResult.segments) {
+    if (!result.success && !isVideoSite) {
       updateBadgeState('idle');
       return {
         success: false,
         error: {
-          code: MessageErrorCode.TRANSLATION_FAILED,
-          message: 'Background service failed to return translated segments',
+          code: MessageErrorCode.NO_TARGETS_FOUND,
+          message: 'No translatable DOM targets found on current page',
         },
       };
     }
 
-    // Render bilingual blocks with configured displayMode
-    targets.forEach((target, idx) => {
-      const seg = translationResult.segments[idx];
-      const translatedText = seg ? seg.translatedText : '[翻譯不可用]';
-      renderBilingualBlock(target.element, target.id, target.text, translatedText, displayMode);
-    });
-
-    logger.info(`Successfully translated ${targets.length} segments`);
+    logger.info(`Successfully translated ${result.translatedCount} segments via GenericDomAdapter`);
     updateBadgeState('translated');
     return {
       success: true,
-      translatedCount: targets.length,
+      translatedCount: result.translatedCount,
     };
   } catch (err: any) {
     logger.error('Failed during page translation', err);
@@ -197,17 +184,47 @@ async function executePageTranslation(): Promise<any> {
   }
 }
 
+async function executeSelectionTranslation(selectionOrRange: Selection | Range): Promise<any> {
+  try {
+    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+    const targetLang = settings?.targetLanguage || 'zh-Hant';
+    const displayMode = settings?.displayMode || 'bilingual';
+
+    const result = await genericDomAdapter.translateSelection(selectionOrRange, document, {
+      targetLanguage: targetLang,
+      displayMode,
+      translateFn: async (segments) => {
+        const translationResult = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          segments,
+          sourceLanguage: 'auto',
+          targetLanguage: targetLang,
+        });
+        return translationResult?.segments || [];
+      },
+    });
+
+    return result;
+  } catch (err: any) {
+    logger.error('Failed during selection translation', err);
+    return {
+      success: false,
+      error: err?.message || 'Selection translation failed',
+    };
+  }
+}
+
 async function executePageRestore(): Promise<any> {
   try {
-    const count = removeAllBilingualBlocks(document);
-    
+    const count = genericDomAdapter.restorePage(document);
+
     if (window.location.hostname.includes('youtube.com')) {
       youtubeAdapter.stop();
     } else if (window.location.hostname.includes('netflix.com')) {
       netflixAdapter.stop();
     }
-    
-    logger.info(`Restored ${count} elements`);
+
+    logger.info(`Restored ${count} Shadow DOM translation blocks`);
     updateBadgeState('idle');
     return {
       success: true,
@@ -391,7 +408,6 @@ function setupSettingsListener(): void {
         if (showBadge && !badgeExists) {
           addFloatingBadge();
         } else if (!showBadge && badgeExists) {
-          // Only remove badge UI; do NOT auto-restore translations
           removeFloatingBadge();
         }
       }
@@ -409,17 +425,30 @@ function setupSpaNavigationListener(): void {
     if (currentUrl !== lastUrl) {
       logger.info('URL changed, restoring original page state', { oldUrl: lastUrl, newUrl: currentUrl });
       lastUrl = currentUrl;
-      removeAllBilingualBlocks(document);
-      
+      genericDomAdapter.restorePage(document);
+
       if (window.location.hostname.includes('youtube.com')) {
         youtubeAdapter.stop();
       } else if (window.location.hostname.includes('netflix.com')) {
         netflixAdapter.stop();
       }
-      
+
       // Reset badge state on navigation
       updateBadgeState('idle');
     }
+  };
+
+  // Intercept pushState and replaceState used by SPA client-side routers
+  const originalPushState = history.pushState.bind(history);
+  history.pushState = function (...args) {
+    originalPushState(...args);
+    handleUrlChange();
+  };
+
+  const originalReplaceState = history.replaceState.bind(history);
+  history.replaceState = function (...args) {
+    originalReplaceState(...args);
+    handleUrlChange();
   };
 
   window.addEventListener('popstate', handleUrlChange);

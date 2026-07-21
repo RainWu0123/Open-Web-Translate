@@ -23,6 +23,7 @@
     "vue": "^3.5.29"
   },
   "devDependencies": {
+    "@vue/test-utils": "^2.4.11",
     "@wxt-dev/module-vue": "^1.0.3",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^26.0.0",
@@ -30,5 +31,9 @@
     "vitest": "^3.0.0",
     "vue-tsc": "^3.2.5",
     "wxt": "^0.20.27"
+  },
+  "overrides": {
+    "define-lazy-prop": "2.0.0",
+    "estree-walker": "2.0.2"
   }
 }

@@ -7,10 +7,7 @@
  */
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { MockProvider } from '@/infrastructure/providers/mock-provider';
-import { GeminiProvider } from '@/infrastructure/providers/gemini-provider';
-import { DeepLProvider } from '@/infrastructure/providers/deepl-provider';
-import { GoogleTranslateProvider } from '@/infrastructure/providers/google-provider';
+import { MockProvider, GoogleTranslateProvider, getProvider } from '@/infrastructure/providers';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
 import { VocabularyRepository } from '@/infrastructure/storage/repositories/vocabulary-repository';
 import type { TranslationProvider } from '@/core/contracts/provider';
@@ -22,31 +19,19 @@ const logger = createLogger('Background');
 export default defineBackground(() => {
   logger.info('Service worker starting', { id: browser.runtime.id });
 
-  const mockProvider = new MockProvider();
-  const geminiProvider = new GeminiProvider();
-  const deeplProvider = new DeepLProvider();
   const googleProvider = new GoogleTranslateProvider();
+  const mockProvider = new MockProvider();
   const cacheRepo = new CacheRepository();
 
-  function getProvider(activeProviderId: string): TranslationProvider {
-    if (activeProviderId === 'gemini-provider') {
-      return geminiProvider;
-    }
-    if (activeProviderId === 'deepl-provider') {
-      return deeplProvider;
-    }
-    if (activeProviderId === 'google-provider' || activeProviderId === 'mock-provider') {
-      return googleProvider;
-    }
-    return googleProvider;
-  }
+  // Purge expired cache entries on service worker launch
+  cacheRepo.purgeExpired().catch(() => {});
 
   // ── TRANSLATE_REQUEST ──────────────────────────────────────────
   messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
     try {
       const settings = await SettingsStorage.getSettings();
       const activeProviderId = msg.forceProvider || settings.activeProviderId || 'mock-provider';
-      const provider = getProvider(activeProviderId);
+      const provider = getProvider(activeProviderId, settings);
 
       const segmentsToTranslate: Array<{ id: string; text: string }> = [];
       const resultsMap = new Map<string, string>();
@@ -54,6 +39,10 @@ export default defineBackground(() => {
       const providerFingerprint =
         activeProviderId === 'gemini-provider'
           ? settings.geminiModel?.trim() || 'gemini-2.0-flash'
+          : activeProviderId === 'ollama-provider'
+          ? settings.ollamaModel?.trim() || 'llama3'
+          : activeProviderId === 'local-http-provider'
+          ? settings.localHttpModel?.trim() || 'local-model'
           : 'default';
 
       // 1. Check cache FIRST for each segment
@@ -84,7 +73,7 @@ export default defineBackground(() => {
         };
       }
 
-      // 3. For cache misses, call active provider with auto-failover to MockProvider
+      // 3. For cache misses, call active provider with auto-failover (unless local provider)
       logger.info(
         `Cache miss for ${segmentsToTranslate.length}/${msg.segments.length} segments, calling provider ${activeProviderId}`,
       );
@@ -97,15 +86,38 @@ export default defineBackground(() => {
           mode: settings.defaultTranslationMode || 'fast',
         });
       } catch (err: any) {
-        logger.warn(`Primary provider ${activeProviderId} failed, falling back to MockProvider`, err);
+        // Enforce Strict Privacy Boundary: DO NOT auto-fallback to cloud or mock providers when active provider is local/private
+        if (provider.isLocal) {
+          logger.error(
+            `Local private provider ${activeProviderId} failed. Privacy boundary enforced (no cloud/mock fallback).`,
+            err,
+          );
+          throw err;
+        }
 
-        // Failover fallback to MockProvider
-        providerResult = await mockProvider.translate({
-          segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
-          sourceLanguage: msg.sourceLanguage as any,
-          targetLanguage: msg.targetLanguage as any,
-          mode: settings.defaultTranslationMode || 'fast',
-        });
+        logger.warn(`Primary provider ${activeProviderId} failed, trying GoogleTranslateProvider fallback`, err);
+
+        // Failover fallback (GoogleTranslateProvider first, then MockProvider)
+        try {
+          if (activeProviderId !== 'google-provider' && activeProviderId !== 'google') {
+            providerResult = await googleProvider.translate({
+              segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
+              sourceLanguage: msg.sourceLanguage as any,
+              targetLanguage: msg.targetLanguage as any,
+              mode: settings.defaultTranslationMode || 'fast',
+            });
+          } else {
+            throw err;
+          }
+        } catch (fallbackErr: any) {
+          logger.warn(`Fallback provider failed, attempting final MockProvider failover`, fallbackErr);
+          providerResult = await mockProvider.translate({
+            segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
+            sourceLanguage: msg.sourceLanguage as any,
+            targetLanguage: msg.targetLanguage as any,
+            mode: settings.defaultTranslationMode || 'fast',
+          });
+        }
       }
 
       // 4. Save newly translated segments in cache
@@ -151,8 +163,11 @@ export default defineBackground(() => {
     return await SettingsStorage.getSettings() as any;
   });
 
-  // ── TRANSLATE_ACTIVE_TAB ───────────────────────────────────────
-  messageRouter.registerHandler('TRANSLATE_ACTIVE_TAB', async () => {
+  // ── Helper: Relay active tab commands ───────────────────────────
+  async function relayCommandToActiveTab(
+    commandType: 'EXECUTE_PAGE_TRANSLATION' | 'RESTORE_PAGE_TRANSLATION',
+    errorMessages: { tabNotFound: string; scriptUnavailable: string; executionFailed: string },
+  ): Promise<any> {
     try {
       const tabs = await browser.tabs.query({ active: true, currentWindow: true });
       const activeTab = tabs[0];
@@ -161,16 +176,14 @@ export default defineBackground(() => {
           success: false,
           error: {
             code: MessageErrorCode.ACTIVE_TAB_NOT_FOUND,
-            message: '找不到作用中的分頁 (Active tab not found)',
+            message: errorMessages.tabNotFound,
           },
         };
       }
 
       let res: any;
       try {
-        res = await browser.tabs.sendMessage(activeTab.id, {
-          type: 'EXECUTE_PAGE_TRANSLATION',
-        });
+        res = await browser.tabs.sendMessage(activeTab.id, { type: commandType });
       } catch (initialErr) {
         logger.info('Content script missing or detached, injecting on the fly into tab', activeTab.id);
         try {
@@ -185,9 +198,7 @@ export default defineBackground(() => {
             });
           }
           await new Promise((resolve) => setTimeout(resolve, 150));
-          res = await browser.tabs.sendMessage(activeTab.id, {
-            type: 'EXECUTE_PAGE_TRANSLATION',
-          });
+          res = await browser.tabs.sendMessage(activeTab.id, { type: commandType });
         } catch (injectErr) {
           throw initialErr;
         }
@@ -201,102 +212,53 @@ export default defineBackground(() => {
           success: false,
           error: {
             code: MessageErrorCode.UNKNOWN_ERROR,
-            message: res.error || '翻譯執行失敗',
+            message: res.error || errorMessages.executionFailed,
           },
         };
       }
       return res || { success: true };
     } catch (err: any) {
-      logger.error('Failed to communicate with content script for TRANSLATE_ACTIVE_TAB', err);
+      logger.error(`Failed to communicate with content script for ${commandType}`, err);
       return {
         success: false,
         error: {
           code: MessageErrorCode.CONTENT_SCRIPT_UNAVAILABLE,
-          message: '無法在目前的頁面上執行翻譯（Content Script 未回應）',
+          message: errorMessages.scriptUnavailable,
           details: err?.message,
         },
       };
     }
+  }
+
+  // ── TRANSLATE_ACTIVE_TAB ───────────────────────────────────────
+  messageRouter.registerHandler('TRANSLATE_ACTIVE_TAB', async () => {
+    return relayCommandToActiveTab('EXECUTE_PAGE_TRANSLATION', {
+      tabNotFound: '找不到作用中的分頁 (Active tab not found)',
+      scriptUnavailable: '無法在目前的頁面上執行翻譯（Content Script 未回應）',
+      executionFailed: '翻譯執行失敗',
+    });
   });
 
   // ── RESTORE_ACTIVE_TAB ─────────────────────────────────────────
   messageRouter.registerHandler('RESTORE_ACTIVE_TAB', async () => {
-    try {
-      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-      const activeTab = tabs[0];
-      if (!activeTab || typeof activeTab.id !== 'number') {
-        return {
-          success: false,
-          error: {
-            code: MessageErrorCode.ACTIVE_TAB_NOT_FOUND,
-            message: '找不到作用中的分頁 (Active tab not found)',
-          },
-        };
-      }
-
-      let res: any;
-      try {
-        res = await browser.tabs.sendMessage(activeTab.id, {
-          type: 'RESTORE_PAGE_TRANSLATION',
-        });
-      } catch (initialErr) {
-        logger.info('Content script missing or detached, injecting on the fly into tab', activeTab.id);
-        try {
-          if (browser.scripting) {
-            await browser.scripting.executeScript({
-              target: { tabId: activeTab.id },
-              files: ['/content-scripts/content.js'],
-            });
-          } else if ((browser.tabs as any).executeScript) {
-            await (browser.tabs as any).executeScript(activeTab.id, {
-              file: 'content-scripts/content.js',
-            });
-          }
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          res = await browser.tabs.sendMessage(activeTab.id, {
-            type: 'RESTORE_PAGE_TRANSLATION',
-          });
-        } catch (injectErr) {
-          throw initialErr;
-        }
-      }
-
-      if (res && res.ok) {
-        return res.payload;
-      }
-      if (res && res.ok === false) {
-        return {
-          success: false,
-          error: {
-            code: MessageErrorCode.UNKNOWN_ERROR,
-            message: res.error || '還原執行失敗',
-          },
-        };
-      }
-      return res || { success: true };
-    } catch (err: any) {
-      logger.error('Failed to communicate with content script for RESTORE_ACTIVE_TAB', err);
-      return {
-        success: false,
-        error: {
-          code: MessageErrorCode.CONTENT_SCRIPT_UNAVAILABLE,
-          message: '無法在目前的頁面上執行還原（Content Script 未回應）',
-          details: err?.message,
-        },
-      };
-    }
+    return relayCommandToActiveTab('RESTORE_PAGE_TRANSLATION', {
+      tabNotFound: '找不到作用中的分頁 (Active tab not found)',
+      scriptUnavailable: '無法在目前的頁面上執行還原（Content Script 未回應）',
+      executionFailed: '還原執行失敗',
+    });
   });
+
   // ── VOCABULARY & DIAGNOSTICS ───────────────────────────────────
   const vocabRepo = new VocabularyRepository();
 
-  messageRouter.registerHandler('SAVE_VOCAB_ITEM' as any, async (msg: any) => {
+  messageRouter.registerHandler('SAVE_VOCAB_ITEM', async (msg) => {
     try {
       const id = `${msg.word}-${Date.now()}`;
       await vocabRepo.add({
         id,
         word: msg.word,
         translation: msg.translation,
-        context: msg.context,
+        context: msg.context || '',
         url: msg.url,
       });
       return { success: true };
@@ -306,16 +268,16 @@ export default defineBackground(() => {
     }
   });
 
-  messageRouter.registerHandler('GET_VOCAB_ITEMS' as any, async () => {
+  messageRouter.registerHandler('GET_VOCAB_ITEMS', async () => {
     return await vocabRepo.getAll();
   });
 
-  messageRouter.registerHandler('DELETE_VOCAB_ITEM' as any, async (msg: any) => {
+  messageRouter.registerHandler('DELETE_VOCAB_ITEM', async (msg) => {
     await vocabRepo.delete(msg.id);
     return true;
   });
 
-  messageRouter.registerHandler('CLEAR_VOCAB_ITEMS' as any, async () => {
+  messageRouter.registerHandler('CLEAR_VOCAB_ITEMS', async () => {
     await vocabRepo.clear();
     return true;
   });

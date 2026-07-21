@@ -237,4 +237,9 @@ export class CacheRepository {
       throw err;
     }
   }
+
+  /** Purge expired cache entries (alias for startup purge) */
+  async purgeExpired(): Promise<number> {
+    return this.evictExpiredAndLRU();
+  }
 }

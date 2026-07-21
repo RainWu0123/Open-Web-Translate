@@ -108,12 +108,18 @@ export class NetflixCaptionAdapter {
 
   private inlineTranslationCache = new Map<string, string>();
   private lastProcessedText = '';
+  private translationRequestVersion = 0;
   private forensicProbe = new NetflixForensicProbe();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private nativeTranslationCues: SubtitleCue[] = [];
   private hasAutoSelected = false;
   private channelAlive = false;
   private lastProbeStatus: { pollCount: number; trackCount: number; ts: number } | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPingTs = 0;
+  private missedPings = 0;
+  private clearGraceMs = 200;
+  private lastCueRenderTs = 0;
   private pendingTtmlRequests = new Map<
     string,
     { resolve: (xml: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -143,6 +149,7 @@ export class NetflixCaptionAdapter {
     this.setupSettingsListener();
     this.setupMouseMoveInjectionListener();
     this.startControlsPoller();
+    this.startHeartbeat();
 
     // Defer any DOM writes until body exists (document_start race).
     this.whenDomReady(() => {
@@ -192,6 +199,26 @@ export class NetflixCaptionAdapter {
     return !!(document.body && document.body.contains(el));
   }
 
+  private startHeartbeat() {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      this.lastPingTs = Date.now();
+      try {
+        window.postMessage({ source: CONTENT_SOURCE, type: 'OWT_NETFLIX_PING', ts: this.lastPingTs }, '*');
+      } catch { /* ignore */ }
+      if (this.isActive && this.discoveredTracks.length === 0 && this.channelAlive) {
+        try {
+          window.postMessage({ source: CONTENT_SOURCE, type: 'OWT_NETFLIX_REQUEST_TRACKS' }, '*');
+        } catch { /* ignore */ }
+      }
+    }, 3000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    this.missedPings = 0;
+  }
+
   private setupMainWorldMessageListener() {
     if (this.messageListenerBound) return;
     this.messageListenerBound = true;
@@ -216,7 +243,13 @@ export class NetflixCaptionAdapter {
       switch (data.type) {
         case 'OWT_TEST_PING':
           this.channelAlive = true;
+          this.missedPings = 0;
           logger.info('MAIN-world channel PING received', data.payload || data);
+          break;
+
+        case 'OWT_NETFLIX_PONG':
+          this.channelAlive = true;
+          this.missedPings = 0;
           break;
 
         case 'OWT_NETFLIX_PROBE_STATUS':
@@ -657,6 +690,7 @@ export class NetflixCaptionAdapter {
 
   stop() {
     this.isActive = false;
+    this.stopHeartbeat();
     this.forensicProbe.stop();
     this.stopSubtitleSync();
 
@@ -820,6 +854,12 @@ export class NetflixCaptionAdapter {
 
   private onNewSubtitleText(text: string) {
     const cleanText = text.replace(/<[^>]*>/g, '').trim();
+
+    logger.info('[NF] DOM fallback subtitle detected', {
+      cleanText,
+      selectedTrackId: this.selectedTrackId,
+    });
+
     if (!cleanText) {
       this.clearOverlay();
       this.lastProcessedText = '';
@@ -832,10 +872,10 @@ export class NetflixCaptionAdapter {
     }
     this.lastProcessedText = cleanText;
 
-    // DOM fallback path must still honour: 原生譯文 > AI > Google > 原文
+    const requestVersion = ++this.translationRequestVersion;
     const video = document.querySelector('video') as HTMLVideoElement | null;
     const currentMs = video ? Math.round(video.currentTime * 1000) : 0;
-    void this.translateAndRender(cleanText, currentMs, this.routeGeneration);
+    void this.translateAndRender(cleanText, currentMs, this.routeGeneration, undefined, requestVersion);
   }
 
   private renderOverlay(originalText: string, translatedText: string) {
@@ -912,8 +952,20 @@ export class NetflixCaptionAdapter {
       return;
     }
 
-    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
-    const rightControls = document.querySelector('.player-controls .right-controls') || document.querySelector('.player-controls');
+    const audioSubBtn =
+      document.querySelector('[data-uia="control-audio-subtitle"]') ||
+      document.querySelector('[data-uia="player-audio-subtitle-button"]') ||
+      document.querySelector('[aria-label*="Audio"]') ||
+      document.querySelector('[aria-label*="Subtitle"]') ||
+      document.querySelector('[aria-label*="音訊"]') ||
+      document.querySelector('[aria-label*="字幕"]');
+
+    const rightControls =
+      document.querySelector('.player-controls .right-controls') ||
+      document.querySelector('.watch-video--bottom-controls .controls') ||
+      document.querySelector('[data-uia="controls-standard"]') ||
+      document.querySelector('[data-uia="player-controls"]') ||
+      document.querySelector('.player-controls');
     
     if (!audioSubBtn && !rightControls) {
       // Do not fallback to generic player container to prevent top-left jumping
@@ -1137,7 +1189,7 @@ export class NetflixCaptionAdapter {
     this.stopSubtitleSync();
     this.syncTimer = setInterval(() => {
       this.updateSubtitleSync();
-    }, 100);
+    }, 50);
   }
 
   private stopSubtitleSync() {
@@ -1153,11 +1205,7 @@ export class NetflixCaptionAdapter {
    */
   private updateSubtitleSync() {
     if (!this.isActive) return;
-
-    // No TTML loaded → DOM fallback observer handles it.
-    if (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0) {
-      return;
-    }
+    if (this.selectedTrackId === 'ai-translate' || this.secondaryCues.length === 0) return;
 
     const video = document.querySelector('video') as HTMLVideoElement | null;
     if (!video) return;
@@ -1166,8 +1214,8 @@ export class NetflixCaptionAdapter {
     const activeCue = findCueAt(this.secondaryCues, currentMs);
 
     if (!activeCue) {
-      // Between cues: clear overlay. If TTML never worked, fall back to DOM scrape.
-      if (this.lastProcessedText !== '') {
+      const sinceLastCue = Date.now() - this.lastCueRenderTs;
+      if (this.lastProcessedText !== '' && sinceLastCue > this.clearGraceMs) {
         this.clearOverlay();
         this.lastProcessedText = '';
       }
@@ -1178,14 +1226,14 @@ export class NetflixCaptionAdapter {
     }
 
     this.ttmlMatchCount += 1;
+    this.lastCueRenderTs = Date.now();
 
     const text = activeCue.text;
-    if (this.lastProcessedText === text) {
-      return;
-    }
+    if (this.lastProcessedText === text) return;
 
     this.lastProcessedText = text;
-    void this.translateAndRender(text, currentMs, this.routeGeneration, activeCue);
+    const requestVersion = ++this.translationRequestVersion;
+    void this.translateAndRender(text, currentMs, this.routeGeneration, activeCue, requestVersion);
   }
 
   /**
@@ -1195,7 +1243,22 @@ export class NetflixCaptionAdapter {
    *   3. Google 翻譯
    *   4. 原生原文 (show original only)
    */
-  private async translateAndRender(originalText: string, currentMs: number, generation: number, sourceCue?: SubtitleCue) {
+  private async translateAndRender(
+    originalText: string,
+    currentMs: number,
+    generation: number,
+    sourceCue?: SubtitleCue,
+    requestVersion?: number,
+  ) {
+    logger.info('[NF] translateAndRender start', {
+      originalText,
+      currentMs,
+      generation,
+      selectedTrackId: this.selectedTrackId,
+      displayMode: this.displayMode,
+      hasNativeTranslation: this.nativeTranslationCues.length > 0,
+    });
+
     // Priority 1: Native professional human translation track
     if (this.nativeTranslationCues.length > 0) {
       let nativeCue = findCueAt(this.nativeTranslationCues, currentMs);
@@ -1205,6 +1268,18 @@ export class NetflixCaptionAdapter {
       }
 
       if (nativeCue?.text) {
+        if (
+          !this.isActive ||
+          this.routeGeneration !== generation ||
+          (requestVersion !== undefined && requestVersion !== this.translationRequestVersion)
+        ) {
+          return;
+        }
+        logger.info('[NF] render overlay (native TTML)', {
+          originalText,
+          translatedText: nativeCue.text,
+          overlayExists: Boolean(document.getElementById('owt-netflix-overlay')),
+        });
         this.renderOverlay(originalText, nativeCue.text);
         return;
       }
@@ -1213,12 +1288,29 @@ export class NetflixCaptionAdapter {
     const fingerprint = `${this.currentVideoId}|${originalText}|${this.targetLang}|${this.displayMode}`;
     const cached = this.inlineTranslationCache.get(fingerprint);
     if (cached) {
+      if (
+        !this.isActive ||
+        this.routeGeneration !== generation ||
+        (requestVersion !== undefined && requestVersion !== this.translationRequestVersion)
+      ) {
+        return;
+      }
+      logger.info('[NF] render overlay (cache)', {
+        originalText,
+        translatedText: cached,
+        overlayExists: Boolean(document.getElementById('owt-netflix-overlay')),
+      });
       this.renderOverlay(originalText, cached);
       return;
     }
 
     // Priority 2: AI / configured provider
     try {
+      logger.info('[NF] sending TRANSLATE_REQUEST', {
+        originalText,
+        targetLang: this.targetLang,
+      });
+
       const response = await messageRouter.sendMessage({
         type: 'TRANSLATE_REQUEST',
         segments: [{ id: 'nf-overlay', text: originalText }],
@@ -1226,10 +1318,27 @@ export class NetflixCaptionAdapter {
         targetLanguage: this.targetLang,
       });
 
-      if (this.isActive && this.routeGeneration === generation) {
-        const translatedText = response?.segments?.[0]?.translatedText;
+      const translatedText = response?.segments?.[0]?.translatedText;
+      logger.info('[NF] response received', {
+        originalText,
+        translatedText,
+        active: this.isActive,
+        generation,
+        currentGeneration: this.routeGeneration,
+      });
+
+      if (
+        this.isActive &&
+        this.routeGeneration === generation &&
+        (requestVersion === undefined || requestVersion === this.translationRequestVersion)
+      ) {
         if (translatedText) {
           this.inlineTranslationCache.set(fingerprint, translatedText);
+          logger.info('[NF] render overlay (AI)', {
+            originalText,
+            translatedText,
+            overlayExists: Boolean(document.getElementById('owt-netflix-overlay')),
+          });
           this.renderOverlay(originalText, translatedText);
           return;
         }
@@ -1248,10 +1357,19 @@ export class NetflixCaptionAdapter {
         targetLanguage: this.targetLang,
       });
 
-      if (this.isActive && this.routeGeneration === generation) {
-        const translatedText = response?.segments?.[0]?.translatedText;
+      const translatedText = response?.segments?.[0]?.translatedText;
+      if (
+        this.isActive &&
+        this.routeGeneration === generation &&
+        (requestVersion === undefined || requestVersion === this.translationRequestVersion)
+      ) {
         if (translatedText) {
           this.inlineTranslationCache.set(fingerprint, translatedText);
+          logger.info('[NF] render overlay (Google fallback)', {
+            originalText,
+            translatedText,
+            overlayExists: Boolean(document.getElementById('owt-netflix-overlay')),
+          });
           this.renderOverlay(originalText, translatedText);
           return;
         }
@@ -1260,7 +1378,18 @@ export class NetflixCaptionAdapter {
       logger.error('Google Translate fallback failed:', err);
     }
 
-    this.renderOverlay(originalText, originalText);
+    if (
+      this.isActive &&
+      this.routeGeneration === generation &&
+      (requestVersion === undefined || requestVersion === this.translationRequestVersion)
+    ) {
+      logger.info('[NF] render overlay (original fallback)', {
+        originalText,
+        translatedText: originalText,
+        overlayExists: Boolean(document.getElementById('owt-netflix-overlay')),
+      });
+      this.renderOverlay(originalText, originalText);
+    }
   }
 
   private async loadNativeTranslationTrack() {
@@ -1352,7 +1481,7 @@ export class NetflixCaptionAdapter {
   }
 
   private renderDiagnostic(message: string, isError = false) {
-    return; // Disabled in production to hide debug/diagnostic messages on screen
+    if (!isError) return; // Only show errors to users in production
     if (!this.isActive) return;
     if (!document.body && !document.documentElement) return;
 

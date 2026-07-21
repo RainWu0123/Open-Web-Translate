@@ -1,9 +1,10 @@
 /**
  * Shared Logger Module
  *
+ * Supports variadic arguments: ...args: any[]
  * In production builds, only warn and error are logged to minimize console overhead.
  */
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
@@ -12,14 +13,24 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   error: 3,
 };
 
-// In production, only log warn+ to avoid unnecessary console output and regex sanitization
-const MIN_LEVEL: LogLevel = import.meta.env.DEV ? 'debug' : 'warn';
+export class Logger {
+  private customLevel?: LogLevel;
 
-class Logger {
-  constructor(private moduleName: string) {}
+  constructor(public readonly moduleName: string) {}
 
-  private log(level: LogLevel, message: string, data?: any) {
-    if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[MIN_LEVEL]) {
+  setLevel(level: LogLevel) {
+    this.customLevel = level;
+  }
+
+  private log(level: LogLevel, ...args: any[]) {
+    const minLevel: LogLevel = this.customLevel ?? (
+      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') ||
+      import.meta.env?.DEV !== false
+        ? 'debug'
+        : 'warn'
+    );
+
+    if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[minLevel]) {
       return;
     }
 
@@ -27,24 +38,24 @@ class Logger {
 
     switch (level) {
       case 'debug':
-        console.debug(prefix, message, data ?? '');
+        console.debug(prefix, ...args);
         break;
       case 'info':
-        console.info(prefix, message, data ?? '');
+        console.info(prefix, ...args);
         break;
       case 'warn':
-        console.warn(prefix, message, data ?? '');
+        console.warn(prefix, ...args);
         break;
       case 'error':
-        console.error(prefix, message, data ?? '');
+        console.error(prefix, ...args);
         break;
     }
   }
 
-  debug(message: string, data?: any) { this.log('debug', message, data); }
-  info(message: string, data?: any) { this.log('info', message, data); }
-  warn(message: string, data?: any) { this.log('warn', message, data); }
-  error(message: string, data?: any) { this.log('error', message, data); }
+  debug(...args: any[]): void { this.log('debug', ...args); }
+  info(...args: any[]): void { this.log('info', ...args); }
+  warn(...args: any[]): void { this.log('warn', ...args); }
+  error(...args: any[]): void { this.log('error', ...args); }
 }
 
 export const createLogger = (moduleName: string) => new Logger(moduleName);

@@ -1,31 +1,22 @@
 <template>
-  <div class="popup">
+  <div class="popup" data-testid="popup-page">
     <header class="popup-header">
-      <div class="logo">OWT</div>
-      <h1>Open Web Translate</h1>
+      <div class="header-left">
+        <div class="logo">OWT</div>
+        <h1>Open Web Translate</h1>
+      </div>
+      <ThemeToggle compact v-model="theme" />
     </header>
 
     <div class="popup-body">
-      <div class="setting-row">
-        <span class="label">Translation</span>
-        <label class="toggle">
-          <input type="checkbox" v-model="settings.enabled" @change="save" />
-          <span class="slider"></span>
-        </label>
-      </div>
+      <DisplaySettings
+        compact
+        :settings="settings"
+        @update:settings="onSettingsPartialUpdate"
+        @change="save"
+      />
 
-      <div class="setting-row">
-        <span class="label">Target</span>
-        <select v-model="settings.targetLanguage" @change="save">
-          <option value="en">English</option>
-          <option value="zh-Hant">繁體中文</option>
-          <option value="ja">日本語</option>
-          <option value="ko">한국어</option>
-          <option value="es">Español</option>
-        </select>
-      </div>
-
-      <div v-if="isGeminiUnconfigured" class="warning-banner">
+      <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
         <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
         <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
       </div>
@@ -35,6 +26,7 @@
           class="btn btn-primary"
           :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
           @click="translateCurrentPage"
+          data-testid="translate-page-btn"
         >
           <span v-if="isTranslating" class="spinner"></span>
           {{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}
@@ -44,17 +36,18 @@
           class="btn btn-secondary"
           :disabled="isLoading || !settings.enabled"
           @click="restorePage"
+          data-testid="restore-page-btn"
         >
           <span v-if="isRestoring" class="spinner"></span>
           {{ isRestoring ? '還原中...' : '還原頁面' }}
         </button>
       </div>
 
-      <div v-if="errorMessage" class="error-banner">
+      <div v-if="errorMessage" class="error-banner" data-testid="error-banner">
         <span>⚠️ {{ errorMessage }}</span>
       </div>
 
-      <div v-if="statusMessage" class="status-banner">
+      <div v-if="statusMessage" class="status-banner" data-testid="status-banner">
         <span>ℹ️ {{ statusMessage }}</span>
       </div>
 
@@ -65,7 +58,7 @@
     </div>
 
     <footer class="popup-footer">
-      <button @click="openOptions">⚙ Settings</button>
+      <button @click="openOptions" data-testid="options-link-btn">⚙ Settings</button>
     </footer>
   </div>
 </template>
@@ -74,6 +67,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import DisplaySettings from '@/components/DisplaySettings.vue';
+import ThemeToggle from '@/components/ThemeToggle.vue';
 
 const settings = ref({
   enabled: true,
@@ -82,6 +77,7 @@ const settings = ref({
   hasGeminiApiKey: false,
 });
 
+const theme = ref<'light' | 'dark' | 'system'>('system');
 const isTranslating = ref(false);
 const isRestoring = ref(false);
 const isLoading = computed(() => isTranslating.value || isRestoring.value);
@@ -106,6 +102,11 @@ onMounted(async () => {
     console.error('Failed to load settings', e);
   }
 });
+
+function onSettingsPartialUpdate(updated: Partial<typeof settings.value>) {
+  Object.assign(settings.value, updated);
+  save();
+}
 
 async function save() {
   try {
@@ -167,19 +168,26 @@ function openOptions() {
 <style scoped>
 .popup {
   width: 320px;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background-color: var(--bg-secondary, #1e293b);
+  color: var(--text-primary, #f8fafc);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   border-radius: 12px;
   overflow: hidden;
+  border: 1px solid var(--border-color, #334155);
 }
 
 .popup-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 20px;
+  justify-content: space-between;
+  padding: 14px 16px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .logo {
@@ -189,6 +197,7 @@ function openOptions() {
   font-weight: 800;
   font-size: 13px;
   letter-spacing: 1px;
+  color: #fff;
 }
 
 .popup-header h1 {
@@ -205,56 +214,10 @@ function openOptions() {
   gap: 14px;
 }
 
-.setting-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.label {
-  font-size: 13px;
-  color: #aaa;
-}
-
-/* Toggle switch */
-.toggle { position: relative; width: 44px; height: 24px; }
-.toggle input { opacity: 0; width: 0; height: 0; }
-.slider {
-  position: absolute; inset: 0;
-  background: #444;
-  border-radius: 24px;
-  transition: 0.3s;
-  cursor: pointer;
-}
-.slider::before {
-  content: '';
-  position: absolute;
-  width: 18px; height: 18px;
-  left: 3px; bottom: 3px;
-  background: #ccc;
-  border-radius: 50%;
-  transition: 0.3s;
-}
-.toggle input:checked + .slider { background: #667eea; }
-.toggle input:checked + .slider::before {
-  transform: translateX(20px);
-  background: #fff;
-}
-
-select {
-  background: #16213e;
-  color: #e0e0e0;
-  border: 1px solid #334;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
 .warning-banner {
-  background: rgba(245, 158, 11, 0.15);
+  background: var(--warning-bg, rgba(245, 158, 11, 0.15));
   border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  color: var(--warning-text, #fbbf24);
   padding: 10px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -268,7 +231,7 @@ select {
   align-self: flex-end;
   background: transparent;
   border: none;
-  color: #667eea;
+  color: var(--primary-accent, #3b82f6);
   cursor: pointer;
   font-size: 11px;
   text-decoration: underline;
@@ -301,22 +264,23 @@ select {
 }
 
 .btn-primary {
-  background: #667eea;
+  background-color: var(--primary-accent, #2563eb);
   color: #ffffff;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #5a67d8;
+  background-color: var(--primary-hover, #1d4ed8);
 }
 
 .btn-secondary {
-  background: #334155;
-  color: #cbd5e1;
+  background-color: var(--bg-input, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  color: var(--text-secondary, #cbd5e1);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: #475569;
-  color: #ffffff;
+  background-color: var(--border-color, #334155);
+  color: var(--text-primary, #f8fafc);
 }
 
 .spinner {
@@ -333,9 +297,9 @@ select {
 }
 
 .error-banner {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--danger-bg, rgba(239, 68, 68, 0.15));
   border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #fca5a5;
+  color: var(--danger-text, #fca5a5);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -343,9 +307,9 @@ select {
 }
 
 .status-banner {
-  background: rgba(16, 185, 129, 0.15);
+  background: var(--accent-badge-bg, rgba(16, 185, 129, 0.15));
   border: 1px solid rgba(16, 185, 129, 0.4);
-  color: #6ee7b7;
+  color: var(--accent-badge-text, #6ee7b7);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -357,29 +321,33 @@ select {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted, #888);
   padding-top: 4px;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--border-color, #334155);
 }
 
 .dot {
-  width: 8px; height: 8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #f44;
+  background: #ef4444;
   transition: background 0.3s;
 }
-.dot.active { background: #4caf50; }
+
+.dot.active {
+  background: #10b981;
+}
 
 .popup-footer {
   padding: 12px 20px;
-  border-top: 1px solid #222;
+  border-top: 1px solid var(--border-color, #334155);
   text-align: center;
 }
 
 .popup-footer button {
   background: transparent;
-  color: #667eea;
-  border: 1px solid #667eea;
+  color: var(--primary-accent, #3b82f6);
+  border: 1px solid var(--primary-accent, #3b82f6);
   padding: 6px 18px;
   border-radius: 6px;
   cursor: pointer;
@@ -387,8 +355,9 @@ select {
   font-weight: 600;
   transition: all 0.2s;
 }
+
 .popup-footer button:hover {
-  background: #667eea;
+  background: var(--primary-accent, #3b82f6);
   color: #fff;
 }
 </style>

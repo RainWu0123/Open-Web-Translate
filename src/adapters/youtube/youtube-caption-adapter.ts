@@ -139,6 +139,29 @@ export class YouTubeCaptionAdapter {
     }
   }
 
+  private maxConcurrentRequests = 3;
+  private activeRequestCount = 0;
+  private requestQueue: Array<() => void> = [];
+
+  private async acquireSlot(): Promise<void> {
+    if (this.activeRequestCount < this.maxConcurrentRequests) {
+      this.activeRequestCount++;
+      return;
+    }
+    return new Promise((resolve) => {
+      this.requestQueue.push(() => {
+        this.activeRequestCount++;
+        resolve();
+      });
+    });
+  }
+
+  private releaseSlot(): void {
+    this.activeRequestCount--;
+    const next = this.requestQueue.shift();
+    if (next) next();
+  }
+
   private injectControlsButton() {
     if (typeof document === 'undefined') return;
 
@@ -162,10 +185,6 @@ export class YouTubeCaptionAdapter {
     btn.className = 'ytp-button owt-yt-toggle-btn';
     btn.setAttribute('aria-label', 'OWT 雙語字幕');
     btn.setAttribute('title', 'OWT 雙語字幕 (點擊開啟/關閉)');
-    btn.setAttribute(
-      'style',
-      'display: inline-flex !important; width: 48px !important; height: 100% !important; align-items: center !important; justify-content: center !important; position: relative !important; vertical-align: top !important; border: none !important; background: transparent !important; cursor: pointer !important; padding: 0 !important; opacity: 0.9 !important; z-index: 60 !important;'
-    );
 
     btn.innerHTML = `
       <svg height="100%" viewBox="0 0 36 36" width="100%" style="padding: 6px; box-sizing: border-box; display: block; width: 100%; height: 100%;">
@@ -193,6 +212,12 @@ export class YouTubeCaptionAdapter {
 
   private updateControlsButtonState() {
     if (!this.controlsButton) return;
+    if (this.isActive) {
+      this.controlsButton.classList.add('owt-active');
+    } else {
+      this.controlsButton.classList.remove('owt-active');
+    }
+
     const svg = this.controlsButton.querySelector('svg');
     if (svg) {
       const color = this.isActive ? '#818cf8' : 'rgba(255, 255, 255, 0.85)';
@@ -234,6 +259,8 @@ export class YouTubeCaptionAdapter {
       this.debounceTimer = null;
     }
 
+    this.requestQueue = [];
+    this.activeRequestCount = 0;
     this.inlineTranslationCache.clear();
     this.abortPendingRequests();
     this.restoreNativeSegments();
@@ -293,52 +320,63 @@ export class YouTubeCaptionAdapter {
     this.processCaptions();
   }
 
-  private isProcessing = false;
+  private processCaptions(): void {
+    if (!this.isActive) return;
 
-  private processCaptions() {
-    if (!this.isActive || this.isProcessing) return;
-    this.isProcessing = true;
+    const segments = document.querySelectorAll('.ytp-caption-segment, .caption-visual-line');
+    if (segments.length === 0) return;
 
-    try {
-      const segments = document.querySelectorAll('.ytp-caption-segment, .caption-visual-line');
-      if (segments.length === 0) return;
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i] as HTMLElement;
 
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i] as HTMLElement;
+      let originalText = seg.getAttribute('data-owt-original');
+      if (!originalText) {
+        originalText = (seg.textContent || '').trim();
+        if (!originalText) continue;
+        seg.setAttribute('data-owt-original', originalText);
+      }
 
-        let originalText = seg.getAttribute('data-owt-original');
-        if (!originalText) {
-          originalText = (seg.textContent || '').trim();
-          if (!originalText) continue;
-          seg.setAttribute('data-owt-original', originalText);
+      const fingerprint = `${this.currentVideoId}|${originalText}|${this.targetLang}|${this.displayMode}|${this.subtitleOriginalFontSize}|${this.subtitleTranslatedFontSize}|${this.subtitleOriginalColor}|${this.subtitleTranslatedColor}`;
+      
+      const cached = this.inlineTranslationCache.get(fingerprint);
+      if (cached) {
+        if (seg.getAttribute('data-owt-fingerprint') !== fingerprint) {
+          seg.setAttribute('data-owt-fingerprint', fingerprint);
+          seg.style.opacity = '1';
+          this.renderInlineSegment(seg, originalText, cached);
         }
+        continue;
+      }
 
-        const fingerprint = `${this.currentVideoId}|${originalText}|${this.targetLang}|${this.displayMode}|${this.subtitleOriginalFontSize}|${this.subtitleTranslatedFontSize}|${this.subtitleOriginalColor}|${this.subtitleTranslatedColor}`;
-        
-        const cached = this.inlineTranslationCache.get(fingerprint);
-        if (cached) {
-          if (seg.getAttribute('data-owt-fingerprint') !== fingerprint) {
-            seg.setAttribute('data-owt-fingerprint', fingerprint);
-            seg.style.opacity = '1';
-            this.renderInlineSegment(seg, originalText, cached);
-          }
-          continue;
-        }
+      if (seg.getAttribute('data-owt-fingerprint') === fingerprint) {
+        continue;
+      }
 
-        if (seg.getAttribute('data-owt-fingerprint') === fingerprint) {
-          continue;
-        }
-
+      if (this.pendingRequests.has(fingerprint)) {
         seg.setAttribute('data-owt-fingerprint', fingerprint);
         seg.style.opacity = '0';
-        this.fetchInlineTranslation(seg, originalText, fingerprint, this.routeGeneration);
+        continue;
       }
-    } finally {
-      this.isProcessing = false;
+
+      seg.setAttribute('data-owt-fingerprint', fingerprint);
+      seg.style.opacity = '0';
+      this.fetchInlineTranslation(seg, originalText, fingerprint, this.routeGeneration);
     }
   }
 
+  private getElementsWithFingerprint(fingerprint: string): HTMLElement[] {
+    const all = document.querySelectorAll('[data-owt-fingerprint]');
+    const results: HTMLElement[] = [];
+    all.forEach((el) => {
+      if (el.getAttribute('data-owt-fingerprint') === fingerprint) {
+        results.push(el as HTMLElement);
+      }
+    });
+    return results;
+  }
+
   private async fetchInlineTranslation(seg: HTMLElement, originalText: string, fingerprint: string, generation: number) {
+    await this.acquireSlot();
     const abortController = new AbortController();
     this.pendingRequests.set(fingerprint, { fingerprint, abortController });
 
@@ -356,19 +394,31 @@ export class YouTubeCaptionAdapter {
 
       const translatedText = response?.segments?.[0]?.translatedText;
       if (!translatedText) {
-        seg.style.opacity = '1';
+        const targets = this.getElementsWithFingerprint(fingerprint);
+        targets.forEach((t) => (t.style.opacity = '1'));
         return;
       }
 
       this.inlineTranslationCache.set(fingerprint, translatedText);
-      seg.style.opacity = '1';
-      this.renderInlineSegment(seg, originalText, translatedText);
+
+      const targets = this.getElementsWithFingerprint(fingerprint);
+      if (targets.length > 0) {
+        targets.forEach((t) => {
+          t.style.opacity = '1';
+          this.renderInlineSegment(t, originalText, translatedText);
+        });
+      } else if (document.body.contains(seg)) {
+        seg.style.opacity = '1';
+        this.renderInlineSegment(seg, originalText, translatedText);
+      }
     } catch (err) {
       if (this.routeGeneration !== generation || abortController.signal.aborted) return;
-      seg.style.opacity = '1';
+      const targets = this.getElementsWithFingerprint(fingerprint);
+      targets.forEach((t) => (t.style.opacity = '1'));
       logger.error('Subtitle inline translation failed', err);
     } finally {
       this.pendingRequests.delete(fingerprint);
+      this.releaseSlot();
     }
   }
 

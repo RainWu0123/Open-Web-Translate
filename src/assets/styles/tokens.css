@@ -1,0 +1,116 @@
+/* CSS Design Tokens for Light, Dark, and System modes */
+
+:root {
+  /* Default (Dark Theme) Tokens */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --bg-input: #0f172a;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-color: #334155;
+  --primary-accent: #3b82f6;
+  --primary-hover: #2563eb;
+  --accent-badge-bg: rgba(16, 185, 129, 0.15);
+  --accent-badge-text: #34d399;
+  --danger-bg: rgba(239, 68, 68, 0.15);
+  --danger-text: #fca5a5;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-text: #fbbf24;
+  --nav-active-bg: rgba(59, 130, 246, 0.15);
+  --nav-active-text: #60a5fa;
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --bg-input: #0f172a;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-color: #334155;
+  --primary-accent: #3b82f6;
+  --primary-hover: #2563eb;
+  --accent-badge-bg: rgba(16, 185, 129, 0.15);
+  --accent-badge-text: #34d399;
+  --danger-bg: rgba(239, 68, 68, 0.15);
+  --danger-text: #fca5a5;
+  --warning-bg: rgba(245, 158, 11, 0.15);
+  --warning-text: #fbbf24;
+  --nav-active-bg: rgba(59, 130, 246, 0.15);
+  --nav-active-text: #60a5fa;
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-input: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --border-color: #e2e8f0;
+  --primary-accent: #2563eb;
+  --primary-hover: #1d4ed8;
+  --accent-badge-bg: rgba(16, 185, 129, 0.1);
+  --accent-badge-text: #059669;
+  --danger-bg: #fee2e2;
+  --danger-text: #dc2626;
+  --warning-bg: #fef3c7;
+  --warning-text: #d97706;
+  --nav-active-bg: #eff6ff;
+  --nav-active-text: #2563eb;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg-primary: #f8fafc;
+    --bg-secondary: #ffffff;
+    --bg-card: #ffffff;
+    --bg-input: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --border-color: #e2e8f0;
+    --primary-accent: #2563eb;
+    --primary-hover: #1d4ed8;
+    --accent-badge-bg: rgba(16, 185, 129, 0.1);
+    --accent-badge-text: #059669;
+    --danger-bg: #fee2e2;
+    --danger-text: #dc2626;
+    --warning-bg: #fef3c7;
+    --warning-text: #d97706;
+    --nav-active-bg: #eff6ff;
+    --nav-active-text: #2563eb;
+    --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-card: #1e293b;
+    --bg-input: #0f172a;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border-color: #334155;
+    --primary-accent: #3b82f6;
+    --primary-hover: #2563eb;
+    --accent-badge-bg: rgba(16, 185, 129, 0.15);
+    --accent-badge-text: #34d399;
+    --danger-bg: rgba(239, 68, 68, 0.15);
+    --danger-text: #fca5a5;
+    --warning-bg: rgba(245, 158, 11, 0.15);
+    --warning-text: #fbbf24;
+    --nav-active-bg: rgba(59, 130, 246, 0.15);
+    --nav-active-text: #60a5fa;
+    --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  }
+}

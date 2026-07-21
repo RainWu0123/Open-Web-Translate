@@ -1,6 +1,13 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
+@import '@/assets/styles/tokens.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background-color: var(--bg-primary, #0f172a);
+  color: var(--text-primary, #f8fafc);
   min-height: 100vh;
 }

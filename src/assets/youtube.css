@@ -1,0 +1,31 @@
+/* YouTube caption adapter controls button styles */
+.owt-yt-toggle-btn {
+  display: inline-flex !important;
+  width: 48px !important;
+  height: 100% !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative !important;
+  vertical-align: top !important;
+  border: none !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  opacity: 0.9 !important;
+  z-index: 60 !important;
+  transition: opacity 0.2s ease;
+}
+
+.owt-yt-toggle-btn:hover {
+  opacity: 1 !important;
+}
+
+.owt-yt-toggle-btn.owt-active svg path {
+  fill: #818cf8 !important;
+}
+
+.owt-yt-toggle-btn.owt-active svg {
+  fill: #818cf8 !important;
+  color: #818cf8 !important;
+  filter: drop-shadow(0 0 6px rgba(129, 140, 248, 0.9)) !important;
+}

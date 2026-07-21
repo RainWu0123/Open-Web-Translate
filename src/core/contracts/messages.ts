@@ -51,6 +51,12 @@ export interface ExtensionSettings {
   subtitleTranslatedFontSize?: number;
   subtitleOriginalColor?: string;
   subtitleTranslatedColor?: string;
+  ollamaEndpoint?: string;
+  ollamaModel?: string;
+  ollamaTemperature?: number;
+  localHttpEndpoint?: string;
+  localHttpApiKey?: string;
+  localHttpModel?: string;
 }
 
 // ─── Messages (Content/Popup/Options → Background) ──────────────
@@ -88,6 +94,27 @@ export interface RestorePageTranslationMessage {
   type: 'RESTORE_PAGE_TRANSLATION';
 }
 
+export interface SaveVocabItemMessage {
+  type: 'SAVE_VOCAB_ITEM';
+  word: string;
+  translation: string;
+  context?: string;
+  url?: string;
+}
+
+export interface GetVocabItemsMessage {
+  type: 'GET_VOCAB_ITEMS';
+}
+
+export interface DeleteVocabItemMessage {
+  type: 'DELETE_VOCAB_ITEM';
+  id: string;
+}
+
+export interface ClearVocabItemsMessage {
+  type: 'CLEAR_VOCAB_ITEMS';
+}
+
 /** All messages that can be sent in the messaging system */
 export type BackgroundMessage =
   | TranslateRequestMessage
@@ -96,7 +123,11 @@ export type BackgroundMessage =
   | TranslateActiveTabMessage
   | RestoreActiveTabMessage
   | ExecutePageTranslationMessage
-  | RestorePageTranslationMessage;
+  | RestorePageTranslationMessage
+  | SaveVocabItemMessage
+  | GetVocabItemsMessage
+  | DeleteVocabItemMessage
+  | ClearVocabItemsMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -137,6 +168,10 @@ export type ResponseMap = {
   RESTORE_ACTIVE_TAB: RestoreActiveTabResponsePayload;
   EXECUTE_PAGE_TRANSLATION: ExecutePageTranslationResponsePayload;
   RESTORE_PAGE_TRANSLATION: RestorePageTranslationResponsePayload;
+  SAVE_VOCAB_ITEM: { success: boolean };
+  GET_VOCAB_ITEMS: any[];
+  DELETE_VOCAB_ITEM: boolean;
+  CLEAR_VOCAB_ITEMS: boolean;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────

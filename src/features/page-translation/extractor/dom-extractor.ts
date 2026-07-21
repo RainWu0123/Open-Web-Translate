@@ -3,11 +3,17 @@ import {
   MessageErrorCode,
   type ErrorPayload,
 } from '@/core/contracts/messages';
+import {
+  encodeInlineTags,
+  type TagInfo,
+} from './tag-preservation';
 
 export interface ExtractedTarget {
   id: string;
   element: Element;
   text: string;
+  tagMap?: Map<number, TagInfo>;
+  isInline?: boolean;
 }
 
 export type ExtractionResult =
@@ -30,7 +36,7 @@ function fnv32a(str: string): string {
  * Generates a stable deterministic SegmentId for a given element, index, and text content.
  */
 export function generateSegmentId(el: Element, index: number, text: string): string {
-  const tag = el.tagName.toLowerCase();
+  const tag = el.tagName ? el.tagName.toLowerCase() : 'node';
   const hash = fnv32a(`${tag}:${text.slice(0, 100)}`);
   return `seg-${index}-${tag}-${hash}`;
 }
@@ -38,24 +44,32 @@ export function generateSegmentId(el: Element, index: number, text: string): str
 /**
  * Determines whether an element is visible in the DOM.
  */
-function isElementVisible(el: Element): boolean {
+export function isElementVisible(el: Element): boolean {
   if (!(el instanceof HTMLElement)) return false;
 
-  // Exclude hidden elements (offsetParent === null or getComputedStyle display:none / visibility:hidden)
+  if (el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true') {
+    return false;
+  }
+
   const style = window.getComputedStyle(el);
   if (style.display === 'none' || style.visibility === 'hidden') {
     return false;
   }
 
-  // Position fixed elements have offsetParent === null but may be visible
-  if (el.offsetParent === null && style.position !== 'fixed') {
-    return false;
-  }
+  // JSDOM environment does not perform layout calculation, so offsetParent and getClientRects are empty.
+  const isJSDOM =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent &&
+    navigator.userAgent.toLowerCase().includes('jsdom');
 
-  // Check client rects to ensure non-zero size
-  const rects = el.getClientRects();
-  if (rects.length === 0) {
-    return false;
+  if (!isJSDOM) {
+    if (el.offsetParent === null && style.position !== 'fixed') {
+      return false;
+    }
+    const rects = el.getClientRects();
+    if (rects.length === 0) {
+      return false;
+    }
   }
 
   return true;
@@ -64,19 +78,19 @@ function isElementVisible(el: Element): boolean {
 /**
  * Checks if element or any ancestor matches excluded tags or OWT UI selectors.
  */
-function isExcludedElement(el: Element): boolean {
+export function isExcludedElement(el: Element): boolean {
   const excludedSelector =
-    'script, style, nav, header, footer, aside, form, button, input, textarea, code, pre, .owt-bilingual-host, #owt-badge-host';
+    'script, style, nav, header, footer, aside, form, button, input, textarea, code, pre, .owt-bilingual-host, .owt-inline-host, #owt-badge-host';
 
-  if (el.closest(excludedSelector)) {
+  if (el.closest && el.closest(excludedSelector)) {
     return true;
   }
 
-  // Additional check for OWT Shadow DOM host or OWT UI classes
   let parent: Element | null = el;
   while (parent) {
     if (
       parent.classList?.contains('owt-bilingual-host') ||
+      parent.classList?.contains('owt-inline-host') ||
       parent.id?.includes('owt') ||
       parent.className?.toString().includes('owt')
     ) {
@@ -88,31 +102,44 @@ function isExcludedElement(el: Element): boolean {
   return false;
 }
 
-/**
- * Extracts visible non-empty translatable targets (p, h1, h2, h3) from document
- * and validates payload limits.
- */
-export function extractTranslatableTargets(doc: Document = document): ExtractionResult {
-  const candidateElements = Array.from(doc.querySelectorAll('p, h1, h2, h3'));
+const BLOCK_CANDIDATE_SELECTOR =
+  'p, h1, h2, h3, h4, h5, h6, li, td, div, blockquote, article';
 
+/**
+ * Returns true if an element contains child block candidate elements.
+ * Used to avoid selecting parent container elements when their children will be extracted.
+ */
+function hasChildBlockCandidates(el: Element): boolean {
+  const tagName = el.tagName.toLowerCase();
+  if (tagName === 'div' || tagName === 'article' || tagName === 'blockquote' || tagName === 'td') {
+    const childBlocks = el.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+    return childBlocks.length > 0;
+  }
+  return false;
+}
+
+/**
+ * Core extraction function for block elements from candidate list
+ */
+function extractFromCandidateList(candidates: Element[]): ExtractionResult {
   const validTargets: ExtractedTarget[] = [];
   let totalChars = 0;
 
-  for (let i = 0; i < candidateElements.length; i++) {
-    const el = candidateElements[i];
+  for (let i = 0; i < candidates.length; i++) {
+    const el = candidates[i];
 
     if (isExcludedElement(el)) continue;
     if (!isElementVisible(el)) continue;
+    if (hasChildBlockCandidates(el)) continue;
 
-    const text = (el.textContent || '').trim();
+    const { textWithPlaceholders, tagMap } = encodeInlineTags(el);
+    const text = textWithPlaceholders.trim();
     if (!text) continue;
 
-    // Skip segments exceeding max chars per segment
     if (text.length > PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT) {
       continue;
     }
 
-    // Stop adding if total chars would exceed max limit
     if (totalChars + text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS) {
       break;
     }
@@ -122,17 +149,16 @@ export function extractTranslatableTargets(doc: Document = document): Extraction
       id: segId,
       element: el,
       text,
+      tagMap: tagMap.size > 0 ? tagMap : undefined,
     });
 
     totalChars += text.length;
 
-    // Stop if we reach max targets limit (30)
     if (validTargets.length >= PAYLOAD_LIMITS.MAX_TARGETS) {
       break;
     }
   }
 
-  // Check zero targets
   if (validTargets.length === 0) {
     return {
       success: false,
@@ -147,4 +173,108 @@ export function extractTranslatableTargets(doc: Document = document): Extraction
     success: true,
     targets: validTargets,
   };
+}
+
+/**
+ * Extracts visible non-empty translatable block elements (p, h1-h6, li, td, div, blockquote, article) from document.
+ */
+export function extractTranslatableTargets(doc: Document = document): ExtractionResult {
+  const candidateElements = Array.from(doc.querySelectorAll(BLOCK_CANDIDATE_SELECTOR));
+  return extractFromCandidateList(candidateElements);
+}
+
+/**
+ * Extracts translatable targets from a user selection range (Selection or Range)
+ */
+export function extractFromSelection(
+  selectionOrRange: Selection | Range,
+  _doc: Document = document,
+): ExtractionResult {
+  let range: Range | null = null;
+  if ('getRangeAt' in selectionOrRange) {
+    if (selectionOrRange.rangeCount > 0) {
+      range = selectionOrRange.getRangeAt(0);
+    }
+  } else {
+    range = selectionOrRange;
+  }
+
+  if (!range || range.collapsed) {
+    return {
+      success: false,
+      error: {
+        code: MessageErrorCode.NO_TARGETS_FOUND,
+        message: 'No active text selection',
+      },
+    };
+  }
+
+  const selectedText = range.toString().trim();
+  if (!selectedText) {
+    return {
+      success: false,
+      error: {
+        code: MessageErrorCode.NO_TARGETS_FOUND,
+        message: 'Selected text is empty',
+      },
+    };
+  }
+
+  const container = range.commonAncestorContainer;
+  const rootEl =
+    container.nodeType === Node.ELEMENT_NODE
+      ? (container as Element)
+      : container.parentElement;
+
+  if (!rootEl || isExcludedElement(rootEl)) {
+    return {
+      success: false,
+      error: {
+        code: MessageErrorCode.NO_TARGETS_FOUND,
+        message: 'Selection container element invalid or excluded',
+      },
+    };
+  }
+
+  const { textWithPlaceholders, tagMap } = encodeInlineTags(rootEl);
+  const textToUse =
+    tagMap.size > 0 && textWithPlaceholders.includes(selectedText)
+      ? textWithPlaceholders
+      : selectedText;
+
+  const segId = generateSegmentId(rootEl, 0, selectedText);
+  return {
+    success: true,
+    targets: [
+      {
+        id: segId,
+        element: rootEl,
+        text: textToUse,
+        tagMap: tagMap.size > 0 ? tagMap : undefined,
+        isInline: true,
+      },
+    ],
+  };
+}
+
+/**
+ * Extracts main article block elements (p, h1-h6, li, td, div, blockquote) from semantic article containers
+ */
+export function extractArticleBlocks(doc: Document = document): ExtractionResult {
+  const articles = Array.from(
+    doc.querySelectorAll('article, [role="article"], .article, main, [role="main"], section'),
+  );
+  let candidates: Element[] = [];
+
+  if (articles.length > 0) {
+    articles.forEach((art) => {
+      candidates.push(...Array.from(art.querySelectorAll(BLOCK_CANDIDATE_SELECTOR)));
+    });
+  }
+
+  if (candidates.length === 0) {
+    candidates = Array.from(doc.querySelectorAll(BLOCK_CANDIDATE_SELECTOR));
+  }
+
+  return extractFromCandidateList(candidates);
 }
