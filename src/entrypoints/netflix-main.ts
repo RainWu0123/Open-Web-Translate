@@ -108,13 +108,26 @@ export default defineContentScript({
           typeof videoPlayer.getAllPlayerSessionIds === 'function'
             ? videoPlayer.getAllPlayerSessionIds() || []
             : [];
-        if (!Array.isArray(sessionIds) || sessionIds.length === 0) return [];
+            
+        // Netflix sometimes uses specific session IDs that are not first in the list, or just 'watch'
+        const sessionsToTry = [...sessionIds];
+        if (!sessionsToTry.includes('watch')) sessionsToTry.push('watch');
 
-        const player = videoPlayer.getVideoPlayerBySessionId(sessionIds[0]);
-        if (!player || typeof player.getTimedTextTrackList !== 'function') return [];
+        let tracks: any[] = [];
+        for (const sid of sessionsToTry) {
+          const player = typeof videoPlayer.getVideoPlayerBySessionId === 'function'
+            ? videoPlayer.getVideoPlayerBySessionId(sid)
+            : null;
+          if (player && typeof player.getTimedTextTrackList === 'function') {
+            const tList = player.getTimedTextTrackList();
+            if (Array.isArray(tList) && tList.length > 0) {
+              tracks = tList;
+              break;
+            }
+          }
+        }
 
-        const tracks = player.getTimedTextTrackList();
-        if (!Array.isArray(tracks)) return [];
+        if (!Array.isArray(tracks) || tracks.length === 0) return [];
 
         const result: TrackPayload[] = [];
         for (const t of tracks) {
