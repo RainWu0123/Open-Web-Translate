@@ -1127,6 +1127,7 @@ export class NetflixCaptionAdapter {
       listContainer.appendChild(divider);
 
       this.discoveredTracks.forEach((track) => {
+        const isTargetLangTrack = trackMatchesTargetLanguage(track, this.targetLang);
         const item = document.createElement('div');
         item.style.padding = '8px 10px';
         item.style.margin = '4px 0';
@@ -1136,9 +1137,15 @@ export class NetflixCaptionAdapter {
           this.selectedTrackId === track.id ? 'rgba(168, 85, 247, 0.3)' : 'transparent';
         item.style.color = this.selectedTrackId === track.id ? '#c084fc' : 'white';
         item.textContent = `🎬 ${track.label} ${track.isCC ? '(CC)' : ''}${
-          trackMatchesTargetLanguage(track, this.targetLang) ? ' · 目標語' : ''
+          isTargetLangTrack ? ' · (原生譯文對照軌)' : ''
         }`;
         item.onclick = async () => {
+          if (isTargetLangTrack) {
+            this.renderDiagnostic(
+              `[OWT] 💡 提示：${track.label} 是目標語，已自動做為原生譯文對照。請點選「ja (日文)」等原文軌做為來源字幕。`,
+              true,
+            );
+          }
           this.hasAutoSelected = true;
           item.textContent = `⏳ 正在下載 ${track.label}...`;
           await this.selectTrack(track.id);
