@@ -1083,7 +1083,7 @@ export class NetflixCaptionAdapter {
         item.style.backgroundColor =
           this.selectedTrackId === track.id ? 'rgba(168, 85, 247, 0.3)' : 'transparent';
         item.style.color = this.selectedTrackId === track.id ? '#c084fc' : 'white';
-        item.textContent = `🎬 ${track.label} ${track.isCC ? '(CC)' : ''}${track.url ? '' : ' · 待解析'}${
+        item.textContent = `🎬 ${track.label} ${track.isCC ? '(CC)' : ''}${
           trackMatchesTargetLanguage(track, this.targetLang) ? ' · 目標語' : ''
         }`;
         item.onclick = async () => {
