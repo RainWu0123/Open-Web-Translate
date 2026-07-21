@@ -55,6 +55,6 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
 
     const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement;
     expect(injectedBtn).not.toBeNull();
-    expect(injectedBtn?.title).toBe('Open Web Translate (副字幕選單)');
+    expect(injectedBtn?.title).toBe('OWT 雙語字幕 (左鍵開關 / 右鍵副字幕選單)');
   });
 });

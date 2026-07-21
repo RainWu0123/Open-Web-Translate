@@ -39,6 +39,7 @@ export class NetflixCaptionAdapter {
   private lastProcessedText = '';
   private forensicProbe = new NetflixForensicProbe();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
+  private nativeTranslationCues: SubtitleCue[] = [];
 
   constructor() {}
 
@@ -57,6 +58,7 @@ export class NetflixCaptionAdapter {
           this.injectControlsButton();
         }, { once: true });
       }
+      this.tryAutoStart();
     }
   }
 
@@ -65,6 +67,7 @@ export class NetflixCaptionAdapter {
       if (event.data?.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' && Array.isArray(event.data.tracks)) {
         this.discoveredTracks = event.data.tracks;
         this.updateSelectorMenuOptions();
+        this.loadNativeTranslationTrack();
       }
     });
   }
@@ -95,8 +98,10 @@ export class NetflixCaptionAdapter {
           this.lastProcessedText = '';
           this.discoveredTracks = [];
           this.secondaryCues = [];
+          this.nativeTranslationCues = [];
           this.clearOverlay();
           this.inlineTranslationCache.clear();
+          this.tryAutoStart();
         }
         this.injectControlsButton();
       }
@@ -384,67 +389,67 @@ export class NetflixCaptionAdapter {
   }
 
   private injectControlsButton() {
-    let btn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
-    if (btn && document.body.contains(btn)) {
-      this.controlsButton = btn;
+    let button = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
+    if (button && document.body.contains(button)) {
+      this.controlsButton = button;
       this.updateControlsButtonState();
       return;
     }
 
-    const rightGroup =
-      document.querySelector('.player-controls .right-controls') ||
-      document.querySelector('[data-uia="control-audio-subtitle"]') ||
-      document.querySelector('.player-controls');
+    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
+    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
 
+    const rightGroup =
+      audioSubWrapper?.parentElement ||
+      document.querySelector('.player-controls .right-controls') ||
+      document.querySelector('.player-controls');
     if (!rightGroup) return;
 
-    const firstWrapper =
-      rightGroup.querySelector('div') ||
-      rightGroup.querySelector('button')?.parentElement ||
-      rightGroup.firstElementChild;
-
-    btn = document.createElement('button');
-    btn.className = 'owt-netflix-toggle-btn';
-    btn.title = 'Open Web Translate (副字幕選單)';
-    btn.style.background = 'transparent';
-    btn.style.border = 'none';
-    btn.style.color = 'white';
-    btn.style.cursor = 'pointer';
-    btn.style.width = '44px';
-    btn.style.height = '44px';
-    btn.style.padding = '0';
-    btn.style.margin = '0 8px 0 0';
-    btn.style.display = 'flex';
-    btn.style.alignItems = 'center';
-    btn.style.justifyContent = 'center';
-    btn.style.opacity = '0.8';
-    btn.style.transition = 'all 0.2s ease';
-    btn.style.zIndex = '9999';
-    btn.style.position = 'absolute'; 
-    btn.style.right = '100%'; 
-
-    btn.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    button = document.createElement('button');
+    button.className = 'owt-netflix-toggle-btn';
+    button.setAttribute('aria-label', 'OWT 雙語字幕');
+    button.setAttribute('title', 'OWT 雙語字幕 (左鍵開關 / 右鍵副字幕選單)');
+    button.style.background = 'transparent';
+    button.style.border = 'none';
+    button.style.color = 'white';
+    button.style.cursor = 'pointer';
+    button.style.width = '44px';
+    button.style.height = '44px';
+    button.style.padding = '0';
+    button.style.margin = '0 6px 0 0';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.opacity = '0.85';
+    button.style.transition = 'all 0.2s ease';
+    button.style.zIndex = '9999';
+    button.style.position = 'relative';
+    button.innerHTML = `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="10"></circle>
         <line x1="2" y1="12" x2="22" y2="12"></line>
         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
       </svg>
     `;
 
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.handleToggleClick();
+    });
+
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       this.toggleSelectorMenu();
     });
 
-    if (firstWrapper && rightGroup.contains(firstWrapper)) {
-      (rightGroup as HTMLElement).style.position = 'relative';
-      rightGroup.insertBefore(btn, firstWrapper);
+    if (audioSubWrapper && audioSubWrapper.parentNode) {
+      audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
     } else {
-      (rightGroup as HTMLElement).style.position = 'relative';
-      rightGroup.prepend(btn);
+      rightGroup.prepend(button);
     }
 
-    this.controlsButton = btn;
+    this.controlsButton = button;
     this.updateControlsButtonState();
   }
 
@@ -546,6 +551,7 @@ export class NetflixCaptionAdapter {
             const xml = await fetch(track.url).then(res => res.text());
             this.secondaryCues = parseNetflixTtml(xml);
             logger.info('Parsed secondary Netflix TTML cues:', this.secondaryCues.length);
+            await this.loadNativeTranslationTrack();
           } catch (err) {
             logger.error('Failed to fetch secondary track TTML:', err);
           }
@@ -633,6 +639,117 @@ export class NetflixCaptionAdapter {
     }
 
     this.lastProcessedText = text;
-    this.fetchAndRenderOverlay(text, this.routeGeneration);
+    this.translateAndRender(text, currentMs, this.routeGeneration);
+  }
+
+  private async translateAndRender(originalText: string, currentMs: number, generation: number) {
+    // Priority 1: Native professional human translation (原生譯文)
+    if (this.nativeTranslationCues.length > 0) {
+      const nativeCue = this.nativeTranslationCues.find(
+        (c) => currentMs >= c.startMs && currentMs <= c.endMs,
+      );
+      if (nativeCue?.text) {
+        this.renderOverlay(originalText, nativeCue.text);
+        return;
+      }
+    }
+
+    // Check inline translation cache
+    const fingerprint = `${this.currentVideoId}|${originalText}|${this.targetLang}|${this.displayMode}`;
+    const cached = this.inlineTranslationCache.get(fingerprint);
+    if (cached) {
+      this.renderOverlay(originalText, cached);
+      return;
+    }
+
+    // Priority 2: AI Translation (Gemini/DeepL)
+    try {
+      const response = await messageRouter.sendMessage({
+        type: 'TRANSLATE_REQUEST',
+        segments: [{ id: 'nf-overlay', text: originalText }],
+        sourceLanguage: 'auto',
+        targetLanguage: this.targetLang,
+      });
+
+      if (this.isActive && this.routeGeneration === generation) {
+        const translatedText = response?.segments?.[0]?.translatedText;
+        if (translatedText) {
+          this.inlineTranslationCache.set(fingerprint, translatedText);
+          this.renderOverlay(originalText, translatedText);
+          return;
+        }
+      }
+    } catch (err) {
+      logger.warn('AI translation failed, falling back to Google Translate:', err);
+    }
+
+    // Priority 3: Google Translation fallback
+    try {
+      const response = await messageRouter.sendMessage({
+        type: 'TRANSLATE_REQUEST',
+        forceProvider: 'google-provider',
+        segments: [{ id: 'nf-overlay', text: originalText }],
+        sourceLanguage: 'auto',
+        targetLanguage: this.targetLang,
+      });
+
+      if (this.isActive && this.routeGeneration === generation) {
+        const translatedText = response?.segments?.[0]?.translatedText;
+        if (translatedText) {
+          this.inlineTranslationCache.set(fingerprint, translatedText);
+          this.renderOverlay(originalText, translatedText);
+          return;
+        }
+      }
+    } catch (err) {
+      logger.error('Google Translate fallback failed:', err);
+    }
+
+    // Priority 4: If all fails, show original text
+    this.renderOverlay(originalText, originalText);
+  }
+
+  private async loadNativeTranslationTrack() {
+    this.nativeTranslationCues = [];
+    if (!this.targetLang || this.discoveredTracks.length === 0) return;
+
+    const targetPrefix = this.targetLang.split('-')[0].toLowerCase();
+    const matchingTrack = this.discoveredTracks.find((t) => {
+      if (t.id === this.selectedTrackId) return false;
+      const lang = t.language.toLowerCase().replace('_', '-');
+      return lang.startsWith(targetPrefix);
+    });
+
+    if (!matchingTrack) {
+      logger.info('No matching native translation track found for', this.targetLang);
+      return;
+    }
+
+    logger.info(`Found native translation track: ${matchingTrack.label} (${matchingTrack.language})`);
+    try {
+      const xml = await fetch(matchingTrack.url).then((res) => res.text());
+      this.nativeTranslationCues = parseNetflixTtml(xml);
+      logger.info('Parsed native translation cues:', this.nativeTranslationCues.length);
+    } catch (err) {
+      logger.error('Failed to load native translation track:', err);
+    }
+  }
+
+  private async tryAutoStart() {
+    if (this.isActive) return;
+    if (!window.location.pathname.includes('/watch/')) return;
+
+    try {
+      const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+      const targetLang = settings?.targetLanguage || 'zh-Hant';
+      const displayMode = settings?.displayMode || 'bilingual';
+      const origSize = settings?.subtitleOriginalFontSize || 18;
+      const transSize = settings?.subtitleTranslatedFontSize || 22;
+      const origColor = settings?.subtitleOriginalColor || '#ffffff';
+      const transColor = settings?.subtitleTranslatedColor || '#818cf8';
+      await this.start(targetLang, displayMode, origSize, transSize, origColor, transColor);
+    } catch (e) {
+      await this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
+    }
   }
 }

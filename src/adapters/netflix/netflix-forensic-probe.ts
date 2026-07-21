@@ -334,8 +334,11 @@ export class NetflixForensicProbe {
     this.shadowRoot.appendChild(style);
     this.shadowRoot.appendChild(container);
 
-    document.body.appendChild(this.panelHost);
-    logger.info('Forensic debug panel injected');
+    const target = document.body || document.documentElement;
+    if (target) {
+      target.appendChild(this.panelHost);
+      logger.info('Forensic debug panel injected');
+    }
   }
 
   private updateDebugPanel() {

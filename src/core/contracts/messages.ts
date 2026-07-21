@@ -60,6 +60,7 @@ export interface TranslateRequestMessage {
   segments: Array<{ id: string; text: string }>;
   sourceLanguage: string;
   targetLanguage: string;
+  forceProvider?: string;
 }
 
 export interface GetSettingsMessage {

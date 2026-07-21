@@ -45,7 +45,7 @@ export default defineBackground(() => {
   messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
     try {
       const settings = await SettingsStorage.getSettings();
-      const activeProviderId = settings.activeProviderId || 'mock-provider';
+      const activeProviderId = msg.forceProvider || settings.activeProviderId || 'mock-provider';
       const provider = getProvider(activeProviderId);
 
       const segmentsToTranslate: Array<{ id: string; text: string }> = [];

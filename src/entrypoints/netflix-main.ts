@@ -5,67 +5,41 @@ export default defineContentScript({
   main() {
     console.log('[OWT-MAIN] Netflix MAIN world script loaded');
 
-    function getNetflixRoot() {
+    function extractSubtitleTracks() {
       try {
         const netflix = (window as any).netflix;
-        if (!netflix) return null;
-        return netflix.appContext?.state?.playerApp || null;
-      } catch {
-        return null;
-      }
-    }
+        const api = netflix?.appContext?.state?.playerApp?.getAPI();
+        if (!api) return [];
 
-    function extractSubtitleTracks() {
-      const root = getNetflixRoot();
-      if (!root) return [];
+        const videoPlayer = api.videoPlayer;
+        const sessionIds = videoPlayer.getAllPlayerSessionIds();
+        if (sessionIds.length === 0) return [];
 
-      const tracks: Array<{ id: string; label: string; language: string; url: string; isCC: boolean }> = [];
-      const seen = new WeakSet<object>();
-      const stack: { node: any; depth: number }[] = [{ node: root, depth: 0 }];
+        const player = videoPlayer.getVideoPlayerBySessionId(sessionIds[0]);
+        const tracks = player.getTimedTextTrackList();
+        if (!Array.isArray(tracks)) return [];
 
-      while (stack.length > 0) {
-        const { node, depth } = stack.pop()!;
-        if (!node || typeof node !== 'object' || depth > 25 || seen.has(node)) continue;
-        seen.add(node);
+        const result: Array<{ id: string; label: string; language: string; url: string; isCC: boolean }> = [];
+        for (const t of tracks) {
+          const urlObj = t.urls?.[0] || t.rawTrack?.urls?.[0];
+          const url = t.cdnUri || (typeof urlObj === 'string' ? urlObj : urlObj?.url) || '';
+          if (!url) continue;
 
-        if (node instanceof ArrayBuffer || ArrayBuffer.isView(node)) continue;
-
-        try {
-          // Netflix timedtext track definition structure
-          if (
-            (node.type === 'timedtext' || node.mediaType === 'subtitles' || node.trackType === 'PRIMARY' || node.isTimedText) &&
-            Array.isArray(node.urls) &&
-            node.urls.length > 0 &&
-            typeof node.urls[0]?.url === 'string'
-          ) {
-            const trackId = node.trackId || node.id || node.urls[0].url;
-            if (!tracks.some(t => t.id === trackId)) {
-              tracks.push({
-                id: trackId,
-                label: node.label || node.languageDescription || node.language || 'Unknown Track',
-                language: node.language || 'unknown',
-                url: node.urls[0].url,
-                isCC: !!node.isClosedCaption,
-              });
-            }
-          }
-        } catch {
-          // Ignore
-        }
-
-        for (const key of Object.keys(node)) {
-          try {
-            const child = node[key];
-            if (child && typeof child === 'object') {
-              stack.push({ node: child, depth: depth + 1 });
-            }
-          } catch {
-            // Ignore
+          const trackId = t.trackId || t.id || url;
+          if (!result.some(r => r.id === trackId)) {
+            result.push({
+              id: trackId,
+              label: t.languageDescription || t.label || t.rawTrack?.languageDescription || 'Unknown Track',
+              language: t.language || t.languageCode || 'unknown',
+              url: url,
+              isCC: !!(t.isClosedCaptions || t.isCC || t.rawTrack?.isClosedCaptions),
+            });
           }
         }
+        return result;
+      } catch (err) {
+        return [];
       }
-
-      return tracks;
     }
 
     // Broadcast track list to ISOLATED content script via window.postMessage
