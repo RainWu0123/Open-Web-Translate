@@ -13,8 +13,6 @@ export default defineContentScript({
     const SOURCE = 'owt-netflix-main';
     console.log('[OWT-MAIN] Netflix MAIN world script loaded');
 
-    // Minimal channel health check — content script must log receipt before
-    // any track/TTML work can be trusted end-to-end.
     window.postMessage(
       {
         source: SOURCE,
@@ -30,6 +28,8 @@ export default defineContentScript({
       language: string;
       url: string;
       isCC: boolean;
+      trackType: string;
+      hasUrl: boolean;
     };
 
     function safeString(value: unknown, fallback = ''): string {
@@ -38,140 +38,313 @@ export default defineContentScript({
       return fallback;
     }
 
+    /** Prefer text-based timed-text formats over image/bitmap packs. */
+    const PREFERRED_FORMAT_RE =
+      /imsc|ttml|dfxp|webvtt|simpleass?|nflx-ppv|lssdh|simplesdh|webvtt-lssdh/i;
+    const DISCOURAGED_FORMAT_RE = /image|bitmap|png|jpg|jpeg|png-image/i;
+
+    function isHttpUrl(value: unknown): value is string {
+      return typeof value === 'string' && /^https?:\/\//i.test(value);
+    }
+
+    /**
+     * Deep-scan a track object for downloadable timed-text URLs.
+     * Netflix nests these under ttDownloadables / downloadUrls with varying keys.
+     */
+    function collectHttpUrls(root: unknown, maxDepth = 6): string[] {
+      const found: string[] = [];
+      const seen = new Set<unknown>();
+
+      const walk = (node: unknown, depth: number, pathHint: string) => {
+        if (node == null || depth > maxDepth) return;
+        if (typeof node === 'string') {
+          if (isHttpUrl(node) && !found.includes(node)) found.push(node);
+          return;
+        }
+        if (typeof node !== 'object') return;
+        if (seen.has(node)) return;
+        seen.add(node);
+
+        if (Array.isArray(node)) {
+          for (const item of node) walk(item, depth + 1, pathHint);
+          return;
+        }
+
+        const obj = node as Record<string, unknown>;
+        for (const [key, value] of Object.entries(obj)) {
+          const nextHint = `${pathHint}.${key}`;
+          // Skip huge non-track blobs if any
+          if (key === 'styles' || key === 'events' || key === 'timeline') continue;
+          walk(value, depth + 1, nextHint);
+        }
+      };
+
+      walk(root, 0, 'track');
+      return found;
+    }
+
+    function scoreUrl(url: string, formatHint: string): number {
+      let score = 0;
+      if (PREFERRED_FORMAT_RE.test(formatHint) || PREFERRED_FORMAT_RE.test(url)) score += 10;
+      if (DISCOURAGED_FORMAT_RE.test(formatHint) || DISCOURAGED_FORMAT_RE.test(url)) score -= 5;
+      if (url.includes('.xml') || url.includes('ttml') || url.includes('dfxp')) score += 3;
+      if (url.includes('webvtt') || url.includes('.vtt')) score += 2;
+      return score;
+    }
+
     function extractUrlFromTrack(track: any): string {
       if (!track || typeof track !== 'object') return '';
 
-      const direct =
-        track.cdnUri ||
-        track.ttDownloadUrl ||
-        track.downloadUrl ||
-        track.url ||
-        '';
-      if (typeof direct === 'string' && direct.startsWith('http')) return direct;
+      // Fast paths
+      const directCandidates = [
+        track.cdnUri,
+        track.ttDownloadUrl,
+        track.downloadUrl,
+        track.url,
+        track.rawTrack?.cdnUri,
+        track.rawTrack?.ttDownloadUrl,
+      ];
+      for (const c of directCandidates) {
+        if (isHttpUrl(c)) return c;
+      }
 
-      const candidates: unknown[] = [
-        track.urls,
-        track.rawTrack?.urls,
+      // Prefer structured ttDownloadables maps (format → downloadUrls)
+      const downloadableRoots = [
         track.ttDownloadables,
         track.rawTrack?.ttDownloadables,
+        track.downloadables,
+        track.rawTrack?.downloadables,
       ];
 
-      for (const candidate of candidates) {
-        if (!candidate) continue;
+      const ranked: Array<{ url: string; score: number }> = [];
 
-        if (typeof candidate === 'string' && candidate.startsWith('http')) {
-          return candidate;
-        }
+      for (const root of downloadableRoots) {
+        if (!root || typeof root !== 'object') continue;
 
-        if (Array.isArray(candidate)) {
-          for (const item of candidate) {
-            if (typeof item === 'string' && item.startsWith('http')) return item;
-            if (item && typeof item === 'object') {
-              const nested =
-                (item as any).url ||
-                (item as any).cdnUri ||
-                (item as any).downloadUrl ||
-                '';
-              if (typeof nested === 'string' && nested.startsWith('http')) return nested;
+        if (Array.isArray(root)) {
+          for (const item of root) {
+            for (const url of collectHttpUrls(item, 4)) {
+              ranked.push({ url, score: scoreUrl(url, '') });
             }
           }
-        } else if (typeof candidate === 'object') {
-          // Map-like downloadables: { "webvtt-lssdh-ios8": { downloadUrls: {...} } }
-          for (const value of Object.values(candidate as Record<string, unknown>)) {
-            if (!value || typeof value !== 'object') continue;
-            const downloadUrls = (value as any).downloadUrls || (value as any).urls;
-            if (downloadUrls && typeof downloadUrls === 'object') {
-              for (const url of Object.values(downloadUrls as Record<string, unknown>)) {
-                if (typeof url === 'string' && url.startsWith('http')) return url;
+          continue;
+        }
+
+        for (const [formatKey, value] of Object.entries(root as Record<string, unknown>)) {
+          if (!value || typeof value !== 'object') continue;
+          const v = value as any;
+          const urlBags = [v.downloadUrls, v.urls, v.cdnUrls, v];
+          for (const bag of urlBags) {
+            if (!bag) continue;
+            if (typeof bag === 'string' && isHttpUrl(bag)) {
+              ranked.push({ url: bag, score: scoreUrl(bag, formatKey) });
+              continue;
+            }
+            if (typeof bag !== 'object') continue;
+            if (Array.isArray(bag)) {
+              for (const item of bag) {
+                if (isHttpUrl(item)) {
+                  ranked.push({ url: item, score: scoreUrl(item, formatKey) });
+                } else if (item && typeof item === 'object') {
+                  const nested = (item as any).url || (item as any).cdnUri;
+                  if (isHttpUrl(nested)) {
+                    ranked.push({ url: nested, score: scoreUrl(nested, formatKey) });
+                  }
+                }
+              }
+            } else {
+              for (const url of Object.values(bag as Record<string, unknown>)) {
+                if (isHttpUrl(url)) {
+                  ranked.push({ url, score: scoreUrl(url, formatKey) });
+                }
               }
             }
-            const single =
-              (value as any).url ||
-              (value as any).cdnUri ||
-              (value as any).downloadUrl;
-            if (typeof single === 'string' && single.startsWith('http')) return single;
           }
         }
       }
 
-      return '';
+      // Last resort: deep scan whole track (bounded)
+      if (ranked.length === 0) {
+        for (const url of collectHttpUrls(track, 5)) {
+          ranked.push({ url, score: scoreUrl(url, '') });
+        }
+      }
+
+      if (ranked.length === 0) return '';
+      ranked.sort((a, b) => b.score - a.score);
+      return ranked[0].url;
     }
 
-    function extractSubtitleTracks(): TrackPayload[] {
+    function getPlayerApi(): any | null {
       try {
         const netflix = (window as any).netflix;
-        const api = netflix?.appContext?.state?.playerApp?.getAPI?.();
-        if (!api?.videoPlayer) return [];
+        return netflix?.appContext?.state?.playerApp?.getAPI?.() ?? null;
+      } catch {
+        return null;
+      }
+    }
 
-        const videoPlayer = api.videoPlayer;
-        const sessionIds: string[] =
-          typeof videoPlayer.getAllPlayerSessionIds === 'function'
-            ? videoPlayer.getAllPlayerSessionIds() || []
-            : [];
-            
-        // Netflix sometimes uses specific session IDs that are not first in the list, or just 'watch'
-        const sessionsToTry = [...sessionIds];
-        if (!sessionsToTry.includes('watch')) sessionsToTry.push('watch');
+    function getActivePlayers(api: any): any[] {
+      const videoPlayer = api?.videoPlayer;
+      if (!videoPlayer) return [];
 
-        let tracks: any[] = [];
-        for (const sid of sessionsToTry) {
-          const player = typeof videoPlayer.getVideoPlayerBySessionId === 'function'
-            ? videoPlayer.getVideoPlayerBySessionId(sid)
-            : null;
-          if (player && typeof player.getTimedTextTrackList === 'function') {
-            const tList = player.getTimedTextTrackList();
-            if (Array.isArray(tList) && tList.length > 0) {
-              tracks = tList;
-              break;
+      const players: any[] = [];
+      const seen = new Set<any>();
+
+      const sessionIds: string[] =
+        typeof videoPlayer.getAllPlayerSessionIds === 'function'
+          ? videoPlayer.getAllPlayerSessionIds() || []
+          : [];
+
+      // Prefer watch / manifest sessions; still try every session.
+      const ordered = [
+        ...sessionIds.filter((id) => /watch|manifest|playback/i.test(String(id))),
+        ...sessionIds,
+        'watch',
+      ];
+      const uniqueSessions = Array.from(new Set(ordered.map(String)));
+
+      for (const sid of uniqueSessions) {
+        try {
+          const player =
+            typeof videoPlayer.getVideoPlayerBySessionId === 'function'
+              ? videoPlayer.getVideoPlayerBySessionId(sid)
+              : null;
+          if (player && !seen.has(player)) {
+            seen.add(player);
+            players.push(player);
+          }
+        } catch {
+          // session may be invalid
+        }
+      }
+
+      return players;
+    }
+
+    function normalizeTrack(t: any): TrackPayload | null {
+      if (!t || typeof t !== 'object') return null;
+
+      // Skip explicit "Off" / none tracks
+      const trackType = safeString(t.trackType || t.rawTrack?.trackType, '');
+      if (t.isNoneTrack === true || trackType.toUpperCase() === 'NONE') return null;
+      const labelProbe = safeString(
+        t.languageDescription || t.label || t.rawTrack?.languageDescription,
+        '',
+      );
+      if (/^(off|none|關閉|关闭|オフ)$/i.test(labelProbe.trim())) return null;
+
+      const url = extractUrlFromTrack(t);
+      const language = safeString(
+        t.bcp47 ||
+          t.language ||
+          t.languageCode ||
+          t.rawTrack?.bcp47 ||
+          t.rawTrack?.language ||
+          t.rawTrack?.languageCode,
+        'unknown',
+      );
+      const label = safeString(
+        t.languageDescription ||
+          t.label ||
+          t.rawTrack?.languageDescription ||
+          t.rawTrack?.label,
+        language !== 'unknown' ? language : 'Unknown Track',
+      );
+      const trackId = safeString(
+        t.trackId ??
+          t.id ??
+          t.new_track_id ??
+          t.rawTrack?.trackId ??
+          t.rawTrack?.new_track_id ??
+          t.rawTrack?.id ??
+          `${language}:${label}:${url || 'nourl'}`,
+        `${language}:${label}`,
+      );
+
+      return {
+        id: trackId,
+        label,
+        language,
+        url,
+        isCC: !!(
+          t.isClosedCaptions ||
+          t.isCC ||
+          t.rawTrack?.isClosedCaptions ||
+          t.rawTrack?.isCC ||
+          /cc|closed.?caption|SDH/i.test(label)
+        ),
+        trackType,
+        hasUrl: !!url,
+      };
+    }
+
+    function extractSubtitleTracks(): {
+      tracks: TrackPayload[];
+      meta: Record<string, unknown>;
+    } {
+      try {
+        const api = getPlayerApi();
+        if (!api?.videoPlayer) {
+          return {
+            tracks: [],
+            meta: { reason: 'no-api', playerCount: 0, rawCount: 0 },
+          };
+        }
+
+        const players = getActivePlayers(api);
+        let rawCount = 0;
+        const result: TrackPayload[] = [];
+
+        for (const player of players) {
+          if (typeof player.getTimedTextTrackList !== 'function') continue;
+          let list: any[] = [];
+          try {
+            list = player.getTimedTextTrackList() || [];
+          } catch {
+            continue;
+          }
+          if (!Array.isArray(list)) continue;
+          rawCount += list.length;
+
+          for (const t of list) {
+            const normalized = normalizeTrack(t);
+            if (!normalized) continue;
+            if (result.some((r) => r.id === normalized.id || (normalized.url && r.url === normalized.url))) {
+              // Prefer entry that already has a URL
+              const existing = result.find(
+                (r) => r.id === normalized.id || (normalized.url && r.url === normalized.url),
+              );
+              if (existing && !existing.url && normalized.url) {
+                existing.url = normalized.url;
+                existing.hasUrl = true;
+              }
+              continue;
             }
+            result.push(normalized);
           }
         }
 
-        if (!Array.isArray(tracks) || tracks.length === 0) return [];
-
-        const result: TrackPayload[] = [];
-        for (const t of tracks) {
-          const url = extractUrlFromTrack(t);
-          if (!url) continue;
-
-          const trackId = safeString(
-            t.trackId ?? t.id ?? t.rawTrack?.trackId ?? url,
-            url,
-          );
-          if (result.some((r) => r.id === trackId || r.url === url)) continue;
-
-          result.push({
-            id: trackId,
-            label: safeString(
-              t.languageDescription ||
-                t.label ||
-                t.rawTrack?.languageDescription ||
-                t.rawTrack?.label,
-              'Unknown Track',
-            ),
-            language: safeString(
-              t.language || t.languageCode || t.bcp47 || t.rawTrack?.language,
-              'unknown',
-            ),
-            url,
-            isCC: !!(
-              t.isClosedCaptions ||
-              t.isCC ||
-              t.rawTrack?.isClosedCaptions ||
-              t.rawTrack?.isCC
-            ),
-          });
-        }
-        return result;
-      } catch {
-        // API not ready yet — keep polling; never treat this as terminal.
-        return [];
+        return {
+          tracks: result,
+          meta: {
+            playerCount: players.length,
+            rawCount,
+            withUrl: result.filter((t) => t.hasUrl).length,
+            withoutUrl: result.filter((t) => !t.hasUrl).length,
+          },
+        };
+      } catch (err: any) {
+        return {
+          tracks: [],
+          meta: { reason: 'exception', error: err?.message || String(err) },
+        };
       }
     }
 
     function tracksSignature(tracks: TrackPayload[]): string {
       return tracks
-        .map((t) => `${t.id}|${t.language}|${t.url}`)
+        .map((t) => `${t.id}|${t.language}|${t.url}|${t.hasUrl ? 1 : 0}`)
         .sort()
         .join(';;');
     }
@@ -191,53 +364,123 @@ export default defineContentScript({
       }
     }
 
-    // Content script may request TTML fetch in page world (avoids CORS / cookie issues).
+    /** Try to force Netflix to materialize downloadables for a track. */
+    function resolveTrackUrl(trackId: string): string {
+      try {
+        const api = getPlayerApi();
+        if (!api) return '';
+        const players = getActivePlayers(api);
+        for (const player of players) {
+          if (typeof player.getTimedTextTrackList !== 'function') continue;
+          const list = player.getTimedTextTrackList() || [];
+          if (!Array.isArray(list)) continue;
+          const match = list.find((t: any) => {
+            const id = safeString(
+              t.trackId ?? t.id ?? t.new_track_id ?? t.rawTrack?.new_track_id,
+              '',
+            );
+            return id === trackId;
+          });
+          if (!match) continue;
+
+          // Some builds populate downloadables after setTimedTextTrack
+          if (typeof player.setTimedTextTrack === 'function') {
+            try {
+              player.setTimedTextTrack(match);
+            } catch {
+              // ignore
+            }
+          }
+
+          const url = extractUrlFromTrack(match);
+          if (url) return url;
+
+          // Re-read list after set
+          try {
+            const refreshed = player.getTimedTextTrackList() || [];
+            const again = refreshed.find((t: any) => {
+              const id = safeString(
+                t.trackId ?? t.id ?? t.new_track_id ?? t.rawTrack?.new_track_id,
+                '',
+              );
+              return id === trackId;
+            });
+            if (again) {
+              const url2 = extractUrlFromTrack(again);
+              if (url2) return url2;
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return '';
+    }
+
     window.addEventListener('message', async (event) => {
       if (event.source !== window) return;
       const data = event.data;
       if (!data || typeof data !== 'object') return;
-      if (data.type !== 'OWT_NETFLIX_FETCH_TTML') return;
       if (data.source && data.source !== 'owt-netflix-content') return;
 
-      const requestId = data.requestId;
-      const url = data.url;
-      if (typeof requestId !== 'string' || typeof url !== 'string') return;
+      if (data.type === 'OWT_NETFLIX_FETCH_TTML') {
+        const requestId = data.requestId;
+        const url = data.url;
+        if (typeof requestId !== 'string' || typeof url !== 'string') return;
 
-      try {
-        const response = await fetch(url, { credentials: 'include' });
-        if (!response.ok) {
+        try {
+          const response = await fetch(url, { credentials: 'include' });
+          if (!response.ok) {
+            post('OWT_NETFLIX_TTML_RESULT', {
+              requestId,
+              ok: false,
+              error: `HTTP ${response.status}`,
+              url,
+            });
+            return;
+          }
+          const xml = await response.text();
+          post('OWT_NETFLIX_TTML_RESULT', {
+            requestId,
+            ok: true,
+            xml,
+            url,
+          });
+        } catch (err: any) {
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
             ok: false,
-            error: `HTTP ${response.status}`,
+            error: err?.message || 'fetch failed',
+            url,
           });
-          return;
         }
-        const xml = await response.text();
-        post('OWT_NETFLIX_TTML_RESULT', {
+        return;
+      }
+
+      if (data.type === 'OWT_NETFLIX_RESOLVE_TRACK') {
+        const requestId = data.requestId;
+        const trackId = data.trackId;
+        if (typeof requestId !== 'string' || typeof trackId !== 'string') return;
+        const url = resolveTrackUrl(trackId);
+        post('OWT_NETFLIX_RESOLVE_TRACK_RESULT', {
           requestId,
-          ok: true,
-          xml,
-          url,
-        });
-      } catch (err: any) {
-        post('OWT_NETFLIX_TTML_RESULT', {
-          requestId,
-          ok: false,
-          error: err?.message || 'fetch failed',
+          ok: !!url,
+          trackId,
+          url: url || '',
         });
       }
     });
 
-    // Continuous poll: do not freeze on first empty result.
-    // Only emit when the track signature changes (count or URLs).
     let lastSignature = '';
     let lastApiReady = false;
     let pollCount = 0;
 
     const poll = () => {
       pollCount += 1;
-      const tracks = extractSubtitleTracks();
+      const { tracks, meta } = extractSubtitleTracks();
+      // Content can use tracks without URL (UI + resolve later), so signature includes them.
       const signature = tracksSignature(tracks);
       const apiReady = tracks.length > 0;
 
@@ -247,32 +490,33 @@ export default defineContentScript({
         post('OWT_NETFLIX_TRACKS_DISCOVERED', {
           tracks,
           meta: {
+            ...meta,
             pollCount,
             trackCount: tracks.length,
             ts: Date.now(),
           },
         });
         console.log(
-          `[OWT-MAIN] tracks discovered: ${tracks.length}`,
-          tracks.map((t) => `${t.language}:${t.label}`),
+          `[OWT-MAIN] tracks discovered: ${tracks.length} (withUrl=${meta.withUrl ?? '?'})`,
+          tracks.map((t) => `${t.language}:${t.label}${t.hasUrl ? '' : '[no-url]'}`),
         );
       }
 
-      // Periodic heartbeat so content can confirm the channel is alive
-      // even when the track list is still empty.
       if (pollCount === 1 || pollCount % 10 === 0) {
         post('OWT_NETFLIX_PROBE_STATUS', {
           payload: {
             pollCount,
             trackCount: tracks.length,
+            withUrl: meta.withUrl ?? 0,
             apiReady,
+            reason: meta.reason,
+            playerCount: meta.playerCount,
             ts: Date.now(),
           },
         });
       }
     };
 
-    // First tick soon after load, then steady interval.
     setTimeout(poll, 200);
     setInterval(poll, 1200);
   },

@@ -14,6 +14,63 @@ interface DiscoveredTrack {
   language: string;
   url: string;
   isCC: boolean;
+  hasUrl: boolean;
+  trackType?: string;
+}
+
+/** Match Netflix language codes/labels against the user's target language. */
+function trackMatchesTargetLanguage(
+  track: { language: string; label: string },
+  targetLang: string,
+): boolean {
+  const lang = (track.language || '').toLowerCase().replace(/_/g, '-');
+  const label = (track.label || '').toLowerCase();
+  const target = (targetLang || '').toLowerCase().replace(/_/g, '-');
+  const targetPrefix = target.split('-')[0];
+
+  if (!targetPrefix) return false;
+
+  // Chinese family: zh-Hant / zh-Hans / cmn / yue / 中文 / 繁體 / 简体
+  if (targetPrefix === 'zh' || target.startsWith('cmn') || target.startsWith('yue')) {
+    const isChineseLang =
+      lang.startsWith('zh') ||
+      lang.startsWith('cmn') ||
+      lang.startsWith('yue') ||
+      lang.includes('hant') ||
+      lang.includes('hans') ||
+      lang.includes('cht') ||
+      lang.includes('chs');
+    const isChineseLabel =
+      label.includes('中文') ||
+      label.includes('chinese') ||
+      label.includes('mandarin') ||
+      label.includes('cantonese') ||
+      label.includes('繁體') ||
+      label.includes('繁体') ||
+      label.includes('简体') ||
+      label.includes('簡體') ||
+      label.includes('國語') ||
+      label.includes('国语') ||
+      label.includes('粵語') ||
+      label.includes('粤语');
+    return isChineseLang || isChineseLabel;
+  }
+
+  if (lang.startsWith(targetPrefix)) return true;
+  if (label.includes(targetPrefix)) return true;
+  return false;
+}
+
+function findCueAt(cues: SubtitleCue[], currentMs: number): SubtitleCue | undefined {
+  // Linear scan is fine for typical cue counts; cues are sorted by startMs.
+  // Prefer the last matching cue if ranges overlap.
+  let hit: SubtitleCue | undefined;
+  for (let i = 0; i < cues.length; i++) {
+    const c = cues[i];
+    if (c.startMs > currentMs) break;
+    if (currentMs >= c.startMs && currentMs <= c.endMs) hit = c;
+  }
+  return hit;
 }
 
 /**
@@ -61,8 +118,14 @@ export class NetflixCaptionAdapter {
     string,
     { resolve: (xml: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
   >();
+  private pendingResolveRequests = new Map<
+    string,
+    { resolve: (url: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
+  >();
   private messageListenerBound = false;
   private controlsPollTimer: ReturnType<typeof setInterval> | null = null;
+  private nativeLoadGeneration = 0;
+  private lastRenderedKey = '';
 
   constructor() {}
 
@@ -142,7 +205,8 @@ export class NetflixCaptionAdapter {
         data.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
         data.type === 'OWT_TEST_PING' ||
         data.type === 'OWT_NETFLIX_PROBE_STATUS' ||
-        data.type === 'OWT_NETFLIX_TTML_RESULT';
+        data.type === 'OWT_NETFLIX_TTML_RESULT' ||
+        data.type === 'OWT_NETFLIX_RESOLVE_TRACK_RESULT';
 
       if (!isMain) return;
 
@@ -155,7 +219,6 @@ export class NetflixCaptionAdapter {
         case 'OWT_NETFLIX_PROBE_STATUS':
           this.channelAlive = true;
           this.lastProbeStatus = data.payload || null;
-          // Heartbeat only; empty track lists are expected until player is ready.
           break;
 
         case 'OWT_NETFLIX_TRACKS_DISCOVERED':
@@ -167,6 +230,10 @@ export class NetflixCaptionAdapter {
           this.onTtmlResult(data);
           break;
 
+        case 'OWT_NETFLIX_RESOLVE_TRACK_RESULT':
+          this.onResolveTrackResult(data);
+          break;
+
         default:
           break;
       }
@@ -174,45 +241,81 @@ export class NetflixCaptionAdapter {
   }
 
   private async onTracksDiscovered(rawTracks: any[]) {
+    // Accept tracks even without URL — MAIN may resolve downloadables later.
     const tracks: DiscoveredTrack[] = rawTracks
-      .filter((t) => t && typeof t.url === 'string' && t.url.startsWith('http'))
-      .map((t) => ({
-        id: String(t.id || t.url),
-        label: String(t.label || 'Unknown Track'),
-        language: String(t.language || 'unknown'),
-        url: String(t.url),
-        isCC: !!t.isCC,
-      }));
+      .filter((t) => t && (t.id || t.label || t.language))
+      .map((t) => {
+        const url = typeof t.url === 'string' && t.url.startsWith('http') ? t.url : '';
+        return {
+          id: String(t.id || url || `${t.language}:${t.label}`),
+          label: String(t.label || 'Unknown Track'),
+          language: String(t.language || 'unknown'),
+          url,
+          isCC: !!t.isCC,
+          hasUrl: !!url || !!t.hasUrl,
+          trackType: typeof t.trackType === 'string' ? t.trackType : undefined,
+        };
+      });
 
-    // Do not freeze an empty discovery as final — MAIN keeps polling.
-    // Only replace when we received a non-empty list, or when explicitly empty after having tracks
-    // (SPA teardown). Empty while already empty is a no-op.
     if (tracks.length === 0) {
       if (this.discoveredTracks.length > 0) {
         logger.info('MAIN reported 0 tracks (player may have torn down)');
-      }
-      if (this.isActive && this.discoveredTracks.length === 0) {
-        this.renderDiagnostic(
-          this.channelAlive
-            ? '[OWT] ⏳ Cadmium API 連線中，等待字幕軌…'
-            : '[OWT] ⏳ 等待 MAIN world 通道…',
-        );
       }
       return;
     }
 
     const prevCount = this.discoveredTracks.length;
-    this.discoveredTracks = tracks;
-    logger.info(`Tracks received from MAIN: ${tracks.length} (was ${prevCount})`, {
-      labels: tracks.map((t) => t.label),
+    // Merge: keep previously resolved URLs when MAIN re-emits without them.
+    const merged = tracks.map((t) => {
+      const prev = this.discoveredTracks.find((p) => p.id === t.id);
+      if (prev?.url && !t.url) {
+        return { ...t, url: prev.url, hasUrl: true };
+      }
+      return t;
+    });
+    this.discoveredTracks = merged;
+    logger.info(`Tracks received from MAIN: ${merged.length} (was ${prevCount})`, {
+      labels: merged.map((t) => `${t.label}${t.url ? '' : '[no-url]'}`),
+      withUrl: merged.filter((t) => !!t.url).length,
     });
 
     this.updateSelectorMenuOptions();
 
     if (this.isActive) {
-      this.renderDiagnostic(`[OWT] ✅ 已發現 ${tracks.length} 條字幕軌，準備載入…`);
+      // Always try native target-language track first (Chinese etc.)
+      await this.loadNativeTranslationTrack();
       await this.ensureTrackSelectionAndLoad();
     }
+  }
+
+  /** Pick source (original) track for secondary line / timed original. */
+  private pickSourceTrack(): DiscoveredTrack | undefined {
+    const tracks = this.discoveredTracks;
+    if (tracks.length === 0) return undefined;
+
+    // Never pick the target-language track as "source/original"
+    const nonTarget = tracks.filter((t) => !trackMatchesTargetLanguage(t, this.targetLang));
+
+    const pool = nonTarget.length > 0 ? nonTarget : tracks;
+
+    // Prefer Japanese for JP content, then English, then first text-like track
+    return (
+      pool.find(
+        (t) =>
+          t.language.toLowerCase().startsWith('ja') ||
+          t.label.toLowerCase().includes('japanese') ||
+          t.label.includes('日語') ||
+          t.label.includes('日语') ||
+          t.label.includes('日本語'),
+      ) ||
+      pool.find(
+        (t) =>
+          t.language.toLowerCase().startsWith('en') ||
+          t.label.toLowerCase().includes('english'),
+      ) ||
+      pool.find((t) => !!t.url) ||
+      pool[0]
+    );
   }
 
   /** Auto-select a secondary source track and load TTML when active. */
@@ -231,16 +334,10 @@ export class NetflixCaptionAdapter {
     }
 
     if (!this.hasAutoSelected || this.selectedTrackId === 'ai-translate') {
-      const defaultTrack =
-        this.discoveredTracks.find(
-          (t) =>
-            t.language.toLowerCase().startsWith('en') ||
-            t.label.toLowerCase().includes('english'),
-        ) || this.discoveredTracks[0];
-
+      const defaultTrack = this.pickSourceTrack();
       if (defaultTrack) {
         this.hasAutoSelected = true;
-        logger.info(`Auto-selecting secondary track: ${defaultTrack.label}`);
+        logger.info(`Auto-selecting source track: ${defaultTrack.label} (${defaultTrack.language})`);
         await this.selectTrack(defaultTrack.id);
         return;
       }
@@ -249,6 +346,65 @@ export class NetflixCaptionAdapter {
     if (this.selectedTrackId !== 'ai-translate') {
       await this.selectTrack(this.selectedTrackId);
     }
+  }
+
+  private async ensureTrackUrl(track: DiscoveredTrack): Promise<string> {
+    if (track.url && track.url.startsWith('http')) return track.url;
+
+    const resolved = await this.resolveTrackUrlViaMain(track.id);
+    if (resolved) {
+      track.url = resolved;
+      track.hasUrl = true;
+      // Persist into discovered list
+      const idx = this.discoveredTracks.findIndex((t) => t.id === track.id);
+      if (idx >= 0) {
+        this.discoveredTracks[idx] = { ...this.discoveredTracks[idx], url: resolved, hasUrl: true };
+      }
+      return resolved;
+    }
+    return '';
+  }
+
+  private resolveTrackUrlViaMain(trackId: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const requestId = `resolve-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const timer = setTimeout(() => {
+        this.pendingResolveRequests.delete(requestId);
+        resolve(''); // soft-fail → caller handles empty
+      }, 3500);
+
+      this.pendingResolveRequests.set(requestId, {
+        resolve: (url) => resolve(url),
+        reject,
+        timer,
+      });
+
+      try {
+        window.postMessage(
+          {
+            source: CONTENT_SOURCE,
+            type: 'OWT_NETFLIX_RESOLVE_TRACK',
+            requestId,
+            trackId,
+          },
+          '*',
+        );
+      } catch {
+        clearTimeout(timer);
+        this.pendingResolveRequests.delete(requestId);
+        resolve('');
+      }
+    });
+  }
+
+  private onResolveTrackResult(data: any) {
+    const requestId = data?.requestId;
+    if (typeof requestId !== 'string') return;
+    const pending = this.pendingResolveRequests.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingResolveRequests.delete(requestId);
+    pending.resolve(typeof data.url === 'string' ? data.url : '');
   }
 
   private async selectTrack(trackId: string) {
@@ -262,7 +418,17 @@ export class NetflixCaptionAdapter {
     this.renderDiagnostic(`[OWT] ⏳ 下載字幕：${track.label}…`);
 
     try {
-      const xml = await this.fetchTtml(track.url);
+      const url = await this.ensureTrackUrl(track);
+      if (!url) {
+        logger.warn('Track has no downloadable URL', track.label);
+        this.renderDiagnostic(`[OWT] ⚠️ ${track.label} 無可用 TTML URL`, true);
+        // Still try native translation track
+        await this.loadNativeTranslationTrack();
+        this.updateSelectorMenuOptions();
+        return;
+      }
+
+      const xml = await this.fetchTtml(url);
       this.secondaryCues = parseNetflixTtml(xml);
       logger.info(`Loaded secondary cues: ${this.secondaryCues.length} from ${track.label}`);
 
@@ -491,6 +657,11 @@ export class NetflixCaptionAdapter {
       clearTimeout(pending.timer);
     }
     this.pendingTtmlRequests.clear();
+    for (const [, pending] of this.pendingResolveRequests) {
+      clearTimeout(pending.timer);
+    }
+    this.pendingResolveRequests.clear();
+    this.lastRenderedKey = '';
 
     if (this.observer) {
       this.observer.disconnect();
@@ -545,6 +716,7 @@ export class NetflixCaptionAdapter {
   private clearOverlay() {
     const overlay = document.getElementById('owt-netflix-overlay');
     if (overlay) overlay.innerHTML = '';
+    this.lastRenderedKey = '';
   }
 
   private startObserver() {
@@ -625,6 +797,7 @@ export class NetflixCaptionAdapter {
     if (!cleanText) {
       this.clearOverlay();
       this.lastProcessedText = '';
+      this.lastRenderedKey = '';
       return;
     }
 
@@ -632,57 +805,41 @@ export class NetflixCaptionAdapter {
       return;
     }
     this.lastProcessedText = cleanText;
-    this.fetchAndRenderOverlay(cleanText, this.routeGeneration);
-  }
 
-  private async fetchAndRenderOverlay(text: string, generation: number) {
-    const fingerprint = `${this.currentVideoId}|${text}|${this.targetLang}|${this.displayMode}`;
-    const cached = this.inlineTranslationCache.get(fingerprint);
-    if (cached) {
-      this.renderOverlay(text, cached);
-      return;
-    }
-
-    try {
-      const response = await messageRouter.sendMessage({
-        type: 'TRANSLATE_REQUEST',
-        segments: [{ id: 'nf-overlay', text }],
-        sourceLanguage: 'auto',
-        targetLanguage: this.targetLang,
-      });
-
-      if (!this.isActive || this.routeGeneration !== generation) {
-        return;
-      }
-
-      const translatedText = response?.segments?.[0]?.translatedText;
-      if (!translatedText) {
-        return;
-      }
-
-      this.inlineTranslationCache.set(fingerprint, translatedText);
-      this.renderOverlay(text, translatedText);
-    } catch (err: any) {
-      logger.error('Overlay translation failed', err);
-    }
+    // DOM fallback path must still honour: 原生譯文 > AI > Google > 原文
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const currentMs = video ? Math.round(video.currentTime * 1000) : 0;
+    void this.translateAndRender(cleanText, currentMs, this.routeGeneration);
   }
 
   private renderOverlay(originalText: string, translatedText: string) {
     if (!document.body && !document.documentElement) return;
 
+    const key = `${this.displayMode}|${originalText}||${translatedText}`;
+    if (this.lastRenderedKey === key) return;
+    this.lastRenderedKey = key;
+
     const overlay = this.getOverlay();
+    // Update text nodes in place when structure matches to reduce layout thrash
+    const existing = overlay.firstElementChild as HTMLElement | null;
+    if (existing && existing.dataset.owtOverlay === '1') {
+      // Rebuild is simpler and still cheap without backdrop-filter
+    }
+
     overlay.innerHTML = '';
 
     const container = document.createElement('div');
+    container.dataset.owtOverlay = '1';
     container.style.display = 'inline-flex';
     container.style.flexDirection = 'column';
     container.style.alignItems = 'center';
     container.style.backgroundColor = 'rgba(8, 8, 8, 0.88)';
     container.style.padding = '10px 20px';
     container.style.borderRadius = '8px';
-    container.style.pointerEvents = 'auto';
+    container.style.pointerEvents = 'none';
     container.style.textAlign = 'center';
-    container.style.boxShadow = '0 4px 16px rgba(0,0,0,0.6)';
+    container.style.boxShadow = '0 2px 8px rgba(0,0,0,0.55)';
+    // No backdrop-filter — expensive over <video> and causes stutter.
 
     const origLines = originalText.split('\n').filter(Boolean);
     const transLines = translatedText.split('\n').filter(Boolean);
@@ -848,10 +1005,17 @@ export class NetflixCaptionAdapter {
     if (!this.selectorMenu) return;
 
     const channelHint = this.channelAlive ? '通道 OK' : '通道等待中';
+    const withUrl = this.discoveredTracks.filter((t) => !!t.url).length;
+    const nativeReady = this.nativeTranslationCues.length > 0;
     this.selectorMenu.innerHTML = `
-      <div style="font-weight: 700; font-size: 14px; margin-bottom: 8px; color: #a855f7; display: flex; align-items: center; justify-content: space-between;">
-        <span>🌐 OWT 副字幕選單</span>
-        <span style="font-size: 11px; font-weight: 400; opacity: 0.7;">${this.discoveredTracks.length} 軌 · ${channelHint}</span>
+      <div style="font-weight: 700; font-size: 14px; margin-bottom: 8px; color: #a855f7; display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span>🌐 OWT 副字幕選單</span>
+          <span style="font-size: 11px; font-weight: 400; opacity: 0.7;">${this.discoveredTracks.length} 軌 (${withUrl} URL) · ${channelHint}</span>
+        </div>
+        <div style="font-size: 11px; font-weight: 400; opacity: 0.75;">
+          譯文優先：${nativeReady ? `原生 ${this.nativeTranslationCues.length} cues` : '尚無原生譯文'} → AI → Google → 原文
+        </div>
       </div>
       <div id="owt-track-list" style="max-height: 250px; overflow-y: auto;"></div>
     `;
@@ -892,7 +1056,9 @@ export class NetflixCaptionAdapter {
         item.style.backgroundColor =
           this.selectedTrackId === track.id ? 'rgba(168, 85, 247, 0.3)' : 'transparent';
         item.style.color = this.selectedTrackId === track.id ? '#c084fc' : 'white';
-        item.textContent = `🎬 ${track.label} ${track.isCC ? '(CC)' : ''}`;
+        item.textContent = `🎬 ${track.label} ${track.isCC ? '(CC)' : ''}${track.url ? '' : ' · 待解析'}${
+          trackMatchesTargetLanguage(track, this.targetLang) ? ' · 目標語' : ''
+        }`;
         item.onclick = async () => {
           this.hasAutoSelected = true;
           item.textContent = `⏳ 正在下載 ${track.label}...`;
@@ -977,14 +1143,13 @@ export class NetflixCaptionAdapter {
     }
 
     const currentMs = Math.round(video.currentTime * 1000);
-    const activeCue = this.secondaryCues.find(
-      (c) => currentMs >= c.startMs && currentMs <= c.endMs,
-    );
+    const activeCue = findCueAt(this.secondaryCues, currentMs);
 
     if (!activeCue) {
       if (this.lastProcessedText !== '') {
         this.clearOverlay();
         this.lastProcessedText = '';
+        this.lastRenderedKey = '';
       }
       return;
     }
@@ -998,12 +1163,17 @@ export class NetflixCaptionAdapter {
     void this.translateAndRender(text, currentMs, this.routeGeneration);
   }
 
+  /**
+   * Fallback chain (required product order):
+   *   1. 原生譯文 (Netflix target-language TTML)
+   *   2. AI 譯文 (configured provider)
+   *   3. Google 翻譯
+   *   4. 原生原文 (show original only)
+   */
   private async translateAndRender(originalText: string, currentMs: number, generation: number) {
     // Priority 1: Native professional human translation track
     if (this.nativeTranslationCues.length > 0) {
-      const nativeCue = this.nativeTranslationCues.find(
-        (c) => currentMs >= c.startMs && currentMs <= c.endMs,
-      );
+      const nativeCue = findCueAt(this.nativeTranslationCues, currentMs);
       if (nativeCue?.text) {
         this.renderOverlay(originalText, nativeCue.text);
         return;
@@ -1064,35 +1234,70 @@ export class NetflixCaptionAdapter {
   }
 
   private async loadNativeTranslationTrack() {
-    this.nativeTranslationCues = [];
     if (!this.targetLang || this.discoveredTracks.length === 0) return;
 
-    const targetPrefix = this.targetLang.split('-')[0].toLowerCase();
-    const isTargetChinese = targetPrefix === 'zh';
+    const candidates = this.discoveredTracks.filter(
+      (t) => t.id !== this.selectedTrackId && trackMatchesTargetLanguage(t, this.targetLang),
+    );
 
-    const matchingTrack = this.discoveredTracks.find((t) => {
-      if (t.id === this.selectedTrackId) return false;
-      const lang = t.language.toLowerCase().replace('_', '-');
-      const label = t.label.toLowerCase();
-      
-      if (isTargetChinese) {
-        return lang.includes('zh') || lang.includes('hant') || lang.includes('cmn') || label.includes('中文') || label.includes('chinese');
-      }
-      return lang.startsWith(targetPrefix);
-    });
-
-    if (!matchingTrack) {
-      logger.info('No matching native translation track found for', this.targetLang);
+    if (candidates.length === 0) {
+      logger.info('No matching native translation track found for', this.targetLang, {
+        available: this.discoveredTracks.map((t) => `${t.language}:${t.label}`),
+      });
       return;
     }
 
+    // Prefer Traditional Chinese labels when target is zh-Hant; else first match.
+    const target = this.targetLang.toLowerCase();
+    const preferHant = target.includes('hant') || target.includes('tw') || target.includes('hk');
+    const preferHans = target.includes('hans') || target.includes('cn');
+
+    const scored = [...candidates].sort((a, b) => {
+      const score = (t: DiscoveredTrack) => {
+        let s = 0;
+        const lang = t.language.toLowerCase();
+        const label = t.label.toLowerCase();
+        if (t.url) s += 5;
+        if (preferHant && (lang.includes('hant') || label.includes('繁') || label.includes('台灣') || label.includes('台湾') || label.includes('香港'))) s += 3;
+        if (preferHans && (lang.includes('hans') || label.includes('简') || label.includes('簡') || label.includes('大陆') || label.includes('大陸'))) s += 3;
+        if (!t.isCC) s += 1; // prefer full dialogue over CC when both exist
+        return s;
+      };
+      return score(b) - score(a);
+    });
+
+    const matchingTrack = scored[0];
+    const gen = ++this.nativeLoadGeneration;
+
     logger.info(
-      `Found native translation track: ${matchingTrack.label} (${matchingTrack.language})`,
+      `Loading native translation track: ${matchingTrack.label} (${matchingTrack.language})`,
     );
+
     try {
-      const xml = await this.fetchTtml(matchingTrack.url);
+      const url = await this.ensureTrackUrl(matchingTrack);
+      if (!url) {
+        logger.warn('Native translation track has no URL', matchingTrack.label);
+        return;
+      }
+      if (gen !== this.nativeLoadGeneration) return;
+
+      const xml = await this.fetchTtml(url);
+      if (gen !== this.nativeLoadGeneration) return;
+
       this.nativeTranslationCues = parseNetflixTtml(xml);
-      logger.info('Parsed native translation cues:', this.nativeTranslationCues.length);
+      logger.info('Parsed native translation cues:', this.nativeTranslationCues.length, {
+        track: matchingTrack.label,
+      });
+      this.updateSelectorMenuOptions();
+
+      // Force immediate re-render so user sees native 譯文 without waiting for next cue.
+      this.lastProcessedText = '';
+      this.lastRenderedKey = '';
+      if (this.secondaryCues.length > 0) {
+        this.updateSubtitleSync();
+      } else {
+        this.processCaptions();
+      }
     } catch (err) {
       logger.error('Failed to load native translation track:', err);
     }
