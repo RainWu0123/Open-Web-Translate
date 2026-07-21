@@ -1055,38 +1055,34 @@ export class NetflixCaptionAdapter {
   }
 
   private getNativeSubtitleTextFromDOM(): string {
-    const selectors = [
-      '.player-timedtext',
-      '[data-uia="player-timedtext"]',
-      '[data-uia="watch-video--timed-text"]',
-      '.player-timedtext-text-container',
-      '[class*="timedtext"]',
-    ];
+    const container =
+      document.querySelector('.player-timedtext') ||
+      document.querySelector('[data-uia="player-timedtext"]') ||
+      document.querySelector('[data-uia="watch-video--timed-text"]');
 
-    const elements = document.querySelectorAll<HTMLElement>(selectors.join(', '));
+    if (!container) return '';
 
-    logger.info('[NF] DOM subtitle probe', {
-      selectorCount: elements.length,
-      matches: [...elements].map((element) => ({
-        tag: element.tagName,
-        className: element.className,
-        dataUia: element.getAttribute('data-uia'),
-        text: element.innerText?.trim().slice(0, 120),
-        visible: element.getBoundingClientRect().height > 0,
-      })),
-    });
+    const lineElements = container.querySelectorAll<HTMLElement>(
+      '.player-timedtext-text-container, [class*="timedtext"], span',
+    );
 
     const lines: string[] = [];
 
-    elements.forEach((el) => {
+    lineElements.forEach((el) => {
       if (el.id === 'owt-netflix-overlay' || el.closest('#owt-netflix-overlay')) return;
-      const txt = el.textContent?.trim();
-      if (txt && !lines.includes(txt)) {
-        lines.push(txt);
+      if (el.children.length === 0) {
+        const text = el.textContent?.trim();
+        if (text && !lines.includes(text)) {
+          lines.push(text);
+        }
       }
     });
 
-    return lines.join('\n');
+    if (lines.length > 0) {
+      return lines.join('\n');
+    }
+
+    return container.textContent?.trim() || '';
   }
 
   private processCaptions() {
@@ -1102,13 +1098,15 @@ export class NetflixCaptionAdapter {
 
       if (!currentNativeText) {
         if (this.lastProcessedText !== '') {
+          this.clearOverlay();
           this.lastProcessedText = '';
+          this.lastRenderedKey = '';
         }
         return;
       }
 
       this.onNewSubtitleText(currentNativeText);
-    }, 120);
+    }, 60);
   }
 
   private onNewSubtitleText(text: string) {

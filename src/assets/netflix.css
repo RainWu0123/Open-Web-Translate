@@ -1,8 +1,12 @@
-/* Hide native subs only while our overlay is actively showing translated text */
-body.owt-overlay-showing .player-timedtext,
-body.owt-overlay-showing [data-uia="player-timedtext"],
-body.owt-overlay-showing [data-uia="watch-video--timed-text"],
-body.owt-overlay-showing .player-timedtext-text-container,
+/* Visually hide native subs while keeping DOM text readable for DOM fallback scraper */
+body.owt-overlay-showing .player-timedtext *,
+body.owt-overlay-showing [data-uia="player-timedtext"] *,
+body.owt-overlay-showing [data-uia="watch-video--timed-text"] *,
+body.owt-overlay-showing .player-timedtext-text-container *,
 body.owt-overlay-showing .owt-hide-native-subtitle {
-  visibility: hidden !important;
+  color: transparent !important;
+  text-shadow: none !important;
+  fill: transparent !important;
+  stroke: transparent !important;
+  opacity: 0 !important;
 }
