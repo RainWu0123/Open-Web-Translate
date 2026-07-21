@@ -66,6 +66,26 @@ export function renderBilingualBlock(
   if (!host) {
     host = doc.createElement('div');
     host.className = 'owt-bilingual-host';
+
+    try {
+      const computed = window.getComputedStyle(originalEl);
+      const parentDisplay = originalEl.parentElement
+        ? window.getComputedStyle(originalEl.parentElement).display
+        : '';
+
+      const isLayoutSensitive =
+        parentDisplay.includes('flex') ||
+        parentDisplay.includes('grid') ||
+        computed.display === 'inline' ||
+        computed.display === 'inline-flex';
+
+      if (isLayoutSensitive) {
+        host.style.display = 'contents';
+      }
+    } catch {
+      // ignore
+    }
+
     if (originalEl.insertAdjacentElement) {
       originalEl.insertAdjacentElement('afterend', host);
     } else {

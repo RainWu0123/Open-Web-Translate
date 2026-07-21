@@ -865,7 +865,19 @@ export class NetflixCaptionAdapter {
       '[class*="timedtext"]',
     ];
 
-    const elements = document.querySelectorAll(selectors.join(', '));
+    const elements = document.querySelectorAll<HTMLElement>(selectors.join(', '));
+
+    logger.info('[NF] DOM subtitle probe', {
+      selectorCount: elements.length,
+      matches: [...elements].map((element) => ({
+        tag: element.tagName,
+        className: element.className,
+        dataUia: element.getAttribute('data-uia'),
+        text: element.innerText?.trim().slice(0, 120),
+        visible: element.getBoundingClientRect().height > 0,
+      })),
+    });
+
     const lines: string[] = [];
 
     elements.forEach((el) => {

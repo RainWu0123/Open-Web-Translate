@@ -222,6 +222,40 @@ export default defineContentScript({
       return players;
     }
 
+    function summarizeTrackShape(track: any): Record<string, unknown> {
+      const safeKeys = (value: unknown): string[] => {
+        if (!value || typeof value !== 'object') return [];
+        try {
+          return Object.keys(value as object).slice(0, 80);
+        } catch {
+          return [];
+        }
+      };
+
+      return {
+        id: String(
+          track?.trackId ??
+          track?.id ??
+          track?.new_track_id ??
+          track?.rawTrack?.trackId ??
+          '',
+        ),
+        topLevelKeys: safeKeys(track),
+        rawTrackKeys: safeKeys(track?.rawTrack),
+        ttDownloadablesKeys: safeKeys(track?.ttDownloadables),
+        rawTtDownloadablesKeys: safeKeys(track?.rawTrack?.ttDownloadables),
+        downloadablesKeys: safeKeys(track?.downloadables),
+        rawDownloadablesKeys: safeKeys(track?.rawTrack?.downloadables),
+        ownPropertyNames: (() => {
+          try {
+            return Object.getOwnPropertyNames(track).slice(0, 100);
+          } catch {
+            return [];
+          }
+        })(),
+      };
+    }
+
     function normalizeTrack(t: any): TrackPayload | null {
       if (!t || typeof t !== 'object') return null;
 
@@ -235,6 +269,13 @@ export default defineContentScript({
       if (/^(off|none|關閉|关闭|オフ)$/i.test(labelProbe.trim())) return null;
 
       const url = extractUrlFromTrack(t);
+
+      console.info('[OWT-MAIN] timed-text track diagnostic', {
+        label: t.languageDescription ?? t.label ?? t.rawTrack?.languageDescription,
+        language: t.bcp47 ?? t.language ?? t.rawTrack?.bcp47,
+        urlFound: Boolean(url),
+        shape: summarizeTrackShape(t),
+      });
       const language = safeString(
         t.bcp47 ||
           t.language ||
@@ -364,7 +405,7 @@ export default defineContentScript({
       }
     }
 
-    /** Try to materialize downloadables for a track without switching the visible subtitle. */
+    /** Try to materialize downloadables for a track. */
     function resolveTrackUrl(trackId: string): string {
       try {
         const api = getPlayerApi();
@@ -379,17 +420,42 @@ export default defineContentScript({
               t.trackId ?? t.id ?? t.new_track_id ?? t.rawTrack?.new_track_id,
               '',
             );
-            return id === trackId;
+            return id === trackId || t.bcp47 === trackId || t.language === trackId;
           });
           if (!match) continue;
 
-          // Prefer passive URL extraction — setTimedTextTrack switches visible subs.
+          // 1. Passive URL extraction
           const passiveUrl = extractUrlFromTrack(match);
           if (passiveUrl) return passiveUrl;
+
+          // 2. Active fallback: call setTimedTextTrack to force Cadmium URL materialization
+          if (typeof player.setTimedTextTrack === 'function') {
+            try {
+              player.setTimedTextTrack(match);
+              const activeUrl = extractUrlFromTrack(match);
+              if (activeUrl) return activeUrl;
+            } catch (e) {
+              console.warn('[OWT-MAIN] setTimedTextTrack fallback failed', e);
+            }
+          }
         }
       } catch {
         // ignore
       }
+
+      // 3. Resource timing fallback: scan recent fetches for subtitle URLs
+      try {
+        const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+        const ttEntries = entries
+          .filter((e) => /timedtext|ttml|dfxp|imsc|\?o=/i.test(e.name))
+          .sort((a, b) => b.startTime - a.startTime);
+        if (ttEntries.length > 0) {
+          return ttEntries[0].name;
+        }
+      } catch {
+        // ignore
+      }
+
       return '';
     }
 

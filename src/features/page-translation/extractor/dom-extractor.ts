@@ -110,12 +110,8 @@ const BLOCK_CANDIDATE_SELECTOR =
  * Used to avoid selecting parent container elements when their children will be extracted.
  */
 function hasChildBlockCandidates(el: Element): boolean {
-  const tagName = el.tagName.toLowerCase();
-  if (tagName === 'div' || tagName === 'article' || tagName === 'blockquote' || tagName === 'td') {
-    const childBlocks = el.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
-    return childBlocks.length > 0;
-  }
-  return false;
+  const childBlocks = el.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, article, section, div');
+  return childBlocks.length > 0;
 }
 
 /**
@@ -176,10 +172,19 @@ function extractFromCandidateList(candidates: Element[]): ExtractionResult {
 }
 
 /**
- * Extracts visible non-empty translatable block elements (p, h1-h6, li, td, div, blockquote, article) from document.
+ * Extracts visible non-empty translatable block elements from document.
+ * Prioritizes semantic article content roots (main article, article, main) over arbitrary page containers.
  */
 export function extractTranslatableTargets(doc: Document = document): ExtractionResult {
-  const candidateElements = Array.from(doc.querySelectorAll(BLOCK_CANDIDATE_SELECTOR));
+  const articleRoot =
+    doc.querySelector('main article') ||
+    doc.querySelector('article') ||
+    doc.querySelector('main') ||
+    doc.body;
+
+  const candidateElements = Array.from(
+    (articleRoot || doc).querySelectorAll(BLOCK_CANDIDATE_SELECTOR),
+  );
   return extractFromCandidateList(candidateElements);
 }
 
