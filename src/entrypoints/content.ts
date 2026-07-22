@@ -64,10 +64,13 @@ export default defineContentScript({
   async main() {
     logger.info('Content script loaded on', window.location.href);
 
+    const isNetflix = window.location.hostname.includes('netflix.com');
+    const isYouTube = window.location.hostname.includes('youtube.com');
+
     // Initialize site-specific adapters if applicable
-    if (window.location.hostname.includes('youtube.com')) {
+    if (isYouTube) {
       youtubeAdapter.init();
-    } else if (window.location.hostname.includes('netflix.com')) {
+    } else if (isNetflix) {
       injectNetflixMainWorldScript();
       netflixAdapter.init();
     }
@@ -111,14 +114,16 @@ export default defineContentScript({
     // 3. Listen for settings changes to dynamically show/hide badge
     setupSettingsListener();
 
-    // 4. Read settings and conditionally add badge
-    try {
-      const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
-      if (settings?.showFloatingButton !== false) {
+    // 4. Read settings and conditionally add badge (suppressed on Netflix)
+    if (!isNetflix) {
+      try {
+        const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+        if (settings?.showFloatingButton !== false) {
+          addFloatingBadge();
+        }
+      } catch {
         addFloatingBadge();
       }
-    } catch {
-      addFloatingBadge();
     }
   },
 });
@@ -161,7 +166,9 @@ function setupSettingsListener(): void {
         if (newValue === false) {
           removeFloatingBadge();
         } else {
-          addFloatingBadge();
+          if (!window.location.hostname.includes('netflix.com')) {
+            addFloatingBadge();
+          }
         }
       }
     });

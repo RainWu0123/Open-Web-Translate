@@ -120,7 +120,6 @@ export class NetflixCaptionAdapter {
     logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
 
     this.applyOverlayStyleConfig();
-    this.overlayRenderer.showOverlay();
 
     // Start live sync engine & DOM Observer capture
     this.syncEngine.start((cue, videoMs) => {
@@ -282,36 +281,35 @@ export class NetflixCaptionAdapter {
   }
 
   public async hydrateTrack(track: DiscoveredTrack): Promise<InternalHydrationResult> {
-    if (track.url) {
+    let targetUrl = track.url;
+    if (!targetUrl) {
+      targetUrl = this.trackManager.findTextFallbackUrl(track) || '';
+    }
+
+    if (targetUrl) {
       try {
-        const xml = await this.fetchTtmlXml(track.url);
+        const xml = await this.fetchTtmlXml(targetUrl);
         const parsed = parseNetflixTtmlDetailed(xml);
         if (parsed.cues.length > 0) {
           return { ok: true, source: 'manifest', trackKey: track.id, cues: parsed.cues };
         }
-      } catch {}
+      } catch (err) {
+        logger.warn(`Failed to fetch TTML XML for track ${track.id}:`, err);
+      }
     }
 
     const initialOk = await this.sendHydrateRequest(track.id, false);
-    if (initialOk && track.url) {
-      try {
-        const xml = await this.fetchTtmlXml(track.url);
-        const parsed = parseNetflixTtmlDetailed(xml);
-        if (parsed.cues.length > 0) {
-          return { ok: true, source: 'network', trackKey: track.id, cues: parsed.cues };
-        }
-      } catch {}
-    }
-
-    const seekOk = await this.sendHydrateRequest(track.id, true);
-    if (seekOk && track.url) {
-      try {
-        const xml = await this.fetchTtmlXml(track.url);
-        const parsed = parseNetflixTtmlDetailed(xml);
-        if (parsed.cues.length > 0) {
-          return { ok: true, source: 'network', trackKey: track.id, cues: parsed.cues };
-        }
-      } catch {}
+    if (initialOk) {
+      const updatedUrl = track.url || this.trackManager.findTextFallbackUrl(track);
+      if (updatedUrl) {
+        try {
+          const xml = await this.fetchTtmlXml(updatedUrl);
+          const parsed = parseNetflixTtmlDetailed(xml);
+          if (parsed.cues.length > 0) {
+            return { ok: true, source: 'network', trackKey: track.id, cues: parsed.cues };
+          }
+        } catch {}
+      }
     }
 
     return { ok: false, reason: 'timeout' };
@@ -388,11 +386,12 @@ export class NetflixCaptionAdapter {
   private startTier3DomFallback(): void {
     logger.info('Starting Tier 3 DOM Observer live capture');
     this.trackManager.setAdapterState('degraded_ai');
+    this.applyNativeSubtitleMask(true);
 
     this.domObserver.start((capturedText) => {
       if (!this.isActive) return;
       if (!capturedText) {
-        this.overlayRenderer.renderCues('(字幕測試中 - 原文)', '(字幕測試中 - 譯文)');
+        this.overlayRenderer.renderCues('', '');
         return;
       }
 
@@ -412,7 +411,7 @@ export class NetflixCaptionAdapter {
     }
 
     if (!cue || !cue.text.trim()) {
-      this.overlayRenderer.renderCues('(字幕測試中 - 原文)', '(字幕測試中 - 譯文)');
+      this.overlayRenderer.renderCues('', '');
       return;
     }
 
