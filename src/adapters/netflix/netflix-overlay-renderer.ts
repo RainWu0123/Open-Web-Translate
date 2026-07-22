@@ -22,10 +22,10 @@ export class NetflixOverlayRenderer {
   private loadingEl: HTMLElement | null = null;
 
   private config: OverlayStyleConfig = {
-    origSize: 18,
-    transSize: 22,
+    origSize: 20,
+    transSize: 24,
     origColor: '#ffffff',
-    transColor: '#818cf8',
+    transColor: '#ffde59',
     displayMode: 'bilingual',
     bottomPosition: 80,
     lineSpacing: 4,
@@ -42,9 +42,7 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     window.addEventListener('fullscreenchange', this.onFullscreenChange);
     window.addEventListener('webkitfullscreenchange', this.onFullscreenChange);
-
-    // Step 1 Debug Guarantee: Ensure testing subtitle is displayed immediately
-    this.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
+    this.renderCues('(字幕測試中 - 原文)', '(字幕測試中 - 譯文)');
   }
 
   public destroy(): void {
@@ -81,10 +79,11 @@ export class NetflixOverlayRenderer {
     if (!this.hostEl) {
       this.hostEl = document.createElement('div');
       this.hostEl.id = 'owt-netflix-overlay-host';
-      this.hostEl.style.cssText =
-        'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:auto;';
+      this.hostEl.style.cssText = `position:fixed;bottom:${this.config.bottomPosition}px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:none;`;
       this.shadowRoot = this.hostEl.attachShadow({ mode: 'open' });
       this.buildShadowDom();
+    } else {
+      this.hostEl.style.bottom = `${this.config.bottomPosition}px`;
     }
 
     if (this.hostEl.parentElement !== parent) {
@@ -106,6 +105,7 @@ export class NetflixOverlayRenderer {
     style.textContent = `
       :host {
         display: block;
+        pointer-events: none;
       }
       .owt-subtitle-box {
         display: flex;
@@ -115,13 +115,11 @@ export class NetflixOverlayRenderer {
         pointer-events: auto;
         cursor: grab;
         user-select: none;
-        padding: 8px 18px;
-        background: rgba(15, 23, 42, 0.85);
-        border: 2px solid #38bdf8;
-        border-radius: 10px;
-        backdrop-filter: blur(8px);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.6);
-        max-width: 90vw;
+        padding: 6px 16px;
+        background: rgba(0, 0, 0, 0.75);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        max-width: 85vw;
         transition: opacity 0.15s ease;
       }
       .owt-subtitle-box:active {
@@ -129,30 +127,30 @@ export class NetflixOverlayRenderer {
       }
       .owt-sub-line {
         margin: ${this.config.lineSpacing}px 0;
-        line-height: 1.3;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        font-weight: 600;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.8);
+        line-height: 1.35;
+        font-family: "Netflix Sans", "Helvetica Neue", Segoe UI, Roboto, sans-serif;
+        font-weight: 700;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
         word-break: break-word;
       }
       .owt-sub-orig {
-        font-size: 18px;
-        color: #ffffff;
+        font-size: ${this.config.origSize}px;
+        color: ${this.config.origColor};
       }
       .owt-sub-trans {
-        font-size: 22px;
-        color: #38bdf8;
+        font-size: ${this.config.transSize}px;
+        color: ${this.config.transColor};
       }
       .owt-token {
         display: inline-block;
-        padding: 0 2px;
-        border-radius: 3px;
+        padding: 0 1px;
+        border-radius: 2px;
         cursor: pointer;
         transition: background 0.15s ease, color 0.15s ease;
       }
       .owt-token:hover {
-        background: rgba(56, 189, 248, 0.35);
-        color: #38bdf8;
+        background: rgba(255, 255, 255, 0.3);
+        color: #ffffff;
       }
       .owt-loading {
         font-size: 14px;
@@ -171,15 +169,15 @@ export class NetflixOverlayRenderer {
 
     this.transSubEl = document.createElement('div');
     this.transSubEl.className = 'owt-sub-line owt-sub-trans';
-    this.transSubEl.textContent = '(這是測試字幕 - 譯文)';
+    this.transSubEl.textContent = '(字幕測試中 - 譯文)';
 
     this.origSubEl = document.createElement('div');
     this.origSubEl.className = 'owt-sub-line owt-sub-orig';
-    this.origSubEl.textContent = '(這是測試字幕 - 原文)';
+    this.origSubEl.textContent = '(字幕測試中 - 原文)';
 
     this.loadingEl = document.createElement('div');
     this.loadingEl.className = 'owt-sub-line owt-loading hidden';
-    this.loadingEl.innerHTML = '<span>⏳ 正在載入雙語字幕...</span>';
+    this.loadingEl.innerHTML = '<span>⏳ 載入雙語字幕中...</span>';
 
     this.containerEl.appendChild(this.transSubEl);
     this.containerEl.appendChild(this.origSubEl);
@@ -238,7 +236,10 @@ export class NetflixOverlayRenderer {
     });
   }
 
-  private updateStyles(): void {
+  public updateStyles(): void {
+    if (this.hostEl) {
+      this.hostEl.style.bottom = `${this.config.bottomPosition}px`;
+    }
     if (!this.containerEl || !this.origSubEl || !this.transSubEl) return;
 
     this.origSubEl.style.fontSize = `${this.config.origSize}px`;
@@ -248,6 +249,18 @@ export class NetflixOverlayRenderer {
     this.transSubEl.style.fontSize = `${this.config.transSize}px`;
     this.transSubEl.style.color = this.config.transColor;
     this.transSubEl.style.margin = `${this.config.lineSpacing}px 0`;
+  }
+
+  public hideOverlay(): void {
+    if (this.containerEl) {
+      this.containerEl.classList.add('hidden');
+    }
+  }
+
+  public showOverlay(): void {
+    if (this.containerEl) {
+      this.containerEl.classList.remove('hidden');
+    }
   }
 
   public renderTokenizedLine(container: HTMLElement, text: string, lang: string, cueId: string): void {
@@ -274,7 +287,7 @@ export class NetflixOverlayRenderer {
   public renderPair(pair: SubtitlePair | null): void {
     this.currentPair = pair;
     if (!pair) {
-      this.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
+      this.renderCues('', '');
       return;
     }
     const origText = pair.primary.text;
@@ -286,11 +299,16 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     if (!this.containerEl || !this.origSubEl || !this.transSubEl || !this.loadingEl) return;
 
-    const displayOrig = origText.trim() || '(這是測試字幕 - 原文)';
-    const displayTrans = transText.trim() || '(這是測試字幕 - 譯文)';
+    if (!origText && !transText) {
+      this.hideOverlay();
+      return;
+    }
+
+    const displayOrig = origText.trim();
+    const displayTrans = transText.trim();
 
     this.loadingEl.classList.add('hidden');
-    this.containerEl.classList.remove('hidden');
+    this.showOverlay();
 
     const mode = this.config.displayMode;
 
@@ -316,7 +334,7 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     if (!this.containerEl || !this.loadingEl || !this.origSubEl || !this.transSubEl) return;
 
-    this.containerEl.classList.remove('hidden');
+    this.showOverlay();
     this.origSubEl.classList.add('hidden');
     this.transSubEl.classList.add('hidden');
     this.loadingEl.classList.remove('hidden');

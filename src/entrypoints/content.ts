@@ -9,7 +9,7 @@
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
-import { MessageErrorCode } from '@/core/contracts/messages';
+import { MessageErrorCode, ErrorPayload } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '@/adapters/youtube/youtube-caption-adapter';
 import { NetflixCaptionAdapter } from '@/adapters/netflix/netflix-caption-adapter';
 import { createLogger } from '@/shared/logger';
@@ -87,9 +87,20 @@ export default defineContentScript({
       logger.info('Received EXECUTE_SELECTION_TRANSLATION');
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed) {
-        return { success: false, error: 'No active selection' };
+        return { success: false, error: { code: MessageErrorCode.UNKNOWN_ERROR, message: 'No active selection' } };
       }
       return await executeSelectionTranslation(selection);
+    });
+
+    messageRouter.registerHandler('GET_NETFLIX_STATE' as any, async () => {
+      return netflixAdapter.getStateInfo();
+    });
+
+    messageRouter.registerHandler('UPDATE_NETFLIX_CONFIG' as any, async (msg: any) => {
+      if (msg?.payload) {
+        netflixAdapter.updateConfig(msg.payload);
+      }
+      return true;
     });
 
     messageRouter.listen();
@@ -112,345 +123,237 @@ export default defineContentScript({
   },
 });
 
-// ─── Shared Page & Selection Translation Services ────────────────
-// Uses GenericDomAdapter for translating selected text and HTML content blocks via Shadow DOM.
+function setupSpaNavigationListener(): void {
+  let lastPath = window.location.pathname;
 
-async function executePageTranslation(): Promise<any> {
+  const handleRouteCheck = () => {
+    const currentPath = window.location.pathname;
+    if (currentPath !== lastPath) {
+      logger.info('SPA navigation detected from', lastPath, 'to', currentPath);
+      lastPath = currentPath;
+      if (badgeState === 'translated') {
+        void executePageRestore();
+      }
+    }
+  };
+
+  window.addEventListener('popstate', handleRouteCheck);
+
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function (...args) {
+    originalPushState.apply(this, args);
+    handleRouteCheck();
+  };
+
+  history.replaceState = function (...args) {
+    originalReplaceState.apply(this, args);
+    handleRouteCheck();
+  };
+}
+
+function setupSettingsListener(): void {
   try {
-    updateBadgeState('translating');
-
-    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch((e) => {
-      logger.warn('Failed to fetch settings, fallback to zh-Hant', e);
-      return null;
+    browser.storage.onChanged.addListener((changes, area) => {
+      if (area === 'sync' && changes.showFloatingButton) {
+        const newValue = changes.showFloatingButton.newValue;
+        if (newValue === false) {
+          removeFloatingBadge();
+        } else {
+          addFloatingBadge();
+        }
+      }
     });
-    const targetLang = settings?.targetLanguage || 'zh-Hant';
-    const displayMode = settings?.displayMode || 'bilingual';
-    const origSize = settings?.subtitleOriginalFontSize || 18;
-    const transSize = settings?.subtitleTranslatedFontSize || 22;
-    const origColor = settings?.subtitleOriginalColor || '#ffffff';
-    const transColor = settings?.subtitleTranslatedColor || '#818cf8';
-
-    const isVideoSite =
-      window.location.hostname.includes('youtube.com') || window.location.hostname.includes('netflix.com');
-
-    if (window.location.hostname.includes('youtube.com')) {
-      youtubeAdapter.start(targetLang, displayMode, origSize, transSize, origColor, transColor);
-    } else if (window.location.hostname.includes('netflix.com')) {
-      netflixAdapter.start(targetLang, displayMode, origSize, transSize, origColor, transColor);
-    }
-
-    // Use GenericDomAdapter for page translation via Shadow DOM
-    const result = await genericDomAdapter.translatePage(document, {
-      targetLanguage: targetLang,
-      displayMode,
-      translateFn: async (segments) => {
-        const translationResult = await messageRouter.sendMessage({
-          type: 'TRANSLATE_REQUEST',
-          segments,
-          sourceLanguage: 'auto',
-          targetLanguage: targetLang,
-        });
-        return translationResult?.segments || [];
-      },
-    });
-
-    if (!result.success && !isVideoSite) {
-      updateBadgeState('idle');
-      return {
-        success: false,
-        error: {
-          code: MessageErrorCode.NO_TARGETS_FOUND,
-          message: 'No translatable DOM targets found on current page',
-        },
-      };
-    }
-
-    logger.info(`Successfully translated ${result.translatedCount} segments via GenericDomAdapter`);
-    updateBadgeState('translated');
-    return {
-      success: true,
-      translatedCount: result.translatedCount,
-    };
-  } catch (err: any) {
-    logger.error('Failed during page translation', err);
-    updateBadgeState('idle');
-    return {
-      success: false,
-      error: {
-        code: MessageErrorCode.UNKNOWN_ERROR,
-        message: err?.message || 'Content script failed to execute translation',
-      },
-    };
+  } catch (err) {
+    logger.warn('Failed to setup settings listener:', err);
   }
 }
 
-async function executeSelectionTranslation(selectionOrRange: Selection | Range): Promise<any> {
-  try {
-    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
-    const targetLang = settings?.targetLanguage || 'zh-Hant';
-    const displayMode = settings?.displayMode || 'bilingual';
+function updateBadgeUI(state: BadgeState): void {
+  badgeState = state;
+  if (!badgeButton) return;
 
-    const result = await genericDomAdapter.translateSelection(selectionOrRange, document, {
-      targetLanguage: targetLang,
-      displayMode,
-      translateFn: async (segments) => {
-        const translationResult = await messageRouter.sendMessage({
-          type: 'TRANSLATE_REQUEST',
-          segments,
-          sourceLanguage: 'auto',
-          targetLanguage: targetLang,
-        });
-        return translationResult?.segments || [];
-      },
-    });
+  badgeButton.classList.remove('owt-badge-idle', 'owt-badge-translating', 'owt-badge-translated');
 
-    return result;
-  } catch (err: any) {
-    logger.error('Failed during selection translation', err);
-    return {
-      success: false,
-      error: err?.message || 'Selection translation failed',
-    };
+  switch (state) {
+    case 'idle':
+      badgeButton.classList.add('owt-badge-idle');
+      badgeButton.innerHTML = '<span>🌐</span>';
+      badgeButton.title = 'Translate Page (Open Web Translate)';
+      break;
+    case 'translating':
+      badgeButton.classList.add('owt-badge-translating');
+      badgeButton.innerHTML = '<span class="owt-spinner">⏳</span>';
+      badgeButton.title = 'Translating page...';
+      break;
+    case 'translated':
+      badgeButton.classList.add('owt-badge-translated');
+      badgeButton.innerHTML = '<span>✅</span>';
+      badgeButton.title = 'Click to Restore Original Page';
+      break;
   }
 }
-
-async function executePageRestore(): Promise<any> {
-  try {
-    const count = genericDomAdapter.restorePage(document);
-
-    if (window.location.hostname.includes('youtube.com')) {
-      youtubeAdapter.stop();
-    } else if (window.location.hostname.includes('netflix.com')) {
-      netflixAdapter.stop();
-    }
-
-    logger.info(`Restored ${count} Shadow DOM translation blocks`);
-    updateBadgeState('idle');
-    return {
-      success: true,
-      restoredCount: count,
-    };
-  } catch (err: any) {
-    logger.error('Failed during page restore', err);
-    updateBadgeState('idle');
-    return {
-      success: false,
-      error: {
-        code: MessageErrorCode.UNKNOWN_ERROR,
-        message: err?.message || 'Content script failed to restore page',
-      },
-    };
-  }
-}
-
-// ─── Shadow DOM Interactive Badge ────────────────────────────────
 
 function addFloatingBadge(): void {
-  if (document.getElementById('owt-badge-host')) return;
+  if (badgeHost && document.contains(badgeHost)) return;
 
-  // Do not show floating badge on video player pages where dedicated player control button is used
-  if (
-    window.location.hostname.includes('youtube.com') ||
-    window.location.hostname.includes('netflix.com')
-  ) {
-    return;
-  }
-
-  const host = document.createElement('div');
-  host.id = 'owt-badge-host';
-  const target = document.body || document.documentElement;
-  if (!target) return;
-  target.appendChild(host);
-  badgeHost = host;
-
-  const shadow = host.attachShadow({ mode: 'closed' });
-
-  const style = document.createElement('style');
-  style.textContent = `
-    .owt-badge {
+  try {
+    badgeHost = document.createElement('div');
+    badgeHost.id = 'owt-floating-badge-host';
+    badgeHost.style.cssText = `
       position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #ffffff;
-      padding: 8px 18px;
-      border-radius: 24px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4);
+      bottom: 24px;
+      right: 24px;
       z-index: 2147483647;
-      user-select: none;
-      opacity: 0.92;
-      transition: all 0.2s ease;
-      cursor: pointer;
-      border: none;
-      outline: none;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      line-height: 1;
-    }
-    .owt-badge:hover {
-      opacity: 1;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 18px rgba(102, 126, 234, 0.6);
-    }
-    .owt-badge:focus-visible {
-      outline: 2px solid #ffffff;
-      outline-offset: 2px;
-    }
-    .owt-badge:active {
-      transform: translateY(0);
-    }
-    .owt-badge[aria-busy="true"] {
-      cursor: wait;
-      opacity: 0.7;
-    }
-    .owt-badge.translated {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
-    }
-    .owt-badge.translated:hover {
-      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.6);
-    }
-    @keyframes owt-spin {
-      to { transform: rotate(360deg); }
-    }
-    .owt-spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: #ffffff;
-      border-radius: 50%;
-      animation: owt-spin 0.6s linear infinite;
-    }
-  `;
-  shadow.appendChild(style);
+      pointer-events: auto;
+    `;
 
-  const button = document.createElement('button');
-  button.className = 'owt-badge';
-  button.setAttribute('aria-label', '翻譯此頁面');
-  button.setAttribute('aria-busy', 'false');
-  button.textContent = 'OWT';
+    const shadowRoot = badgeHost.attachShadow({ mode: 'open' });
 
-  button.addEventListener('click', handleBadgeClick);
-  button.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleBadgeClick();
-    }
-  });
+    const style = document.createElement('style');
+    style.textContent = `
+      .owt-badge {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: #1e293b;
+        color: #ffffff;
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 20px;
+        transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+        user-select: none;
+      }
 
-  shadow.appendChild(button);
-  badgeButton = button;
+      .owt-badge:hover {
+        transform: scale(1.1);
+        border-color: #38bdf8;
+      }
+
+      .owt-badge-translating {
+        background: #0f172a;
+        border-color: #f59e0b;
+      }
+
+      .owt-badge-translated {
+        background: #065f46;
+        border-color: #10b981;
+      }
+
+      .owt-spinner {
+        display: inline-block;
+        animation: owt-spin 1s linear infinite;
+      }
+
+      @keyframes owt-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+
+    badgeButton = document.createElement('button');
+    badgeButton.className = 'owt-badge owt-badge-idle';
+    badgeButton.type = 'button';
+    updateBadgeUI(badgeState);
+
+    badgeButton.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (badgeState === 'idle') {
+        updateBadgeUI('translating');
+        const res = await executePageTranslation();
+        if (res.success) {
+          updateBadgeUI('translated');
+        } else {
+          updateBadgeUI('idle');
+        }
+      } else if (badgeState === 'translated') {
+        await executePageRestore();
+        updateBadgeUI('idle');
+      }
+    });
+
+    shadowRoot.appendChild(style);
+    shadowRoot.appendChild(badgeButton);
+
+    (document.body || document.documentElement).appendChild(badgeHost);
+    logger.info('Interactive floating badge attached to DOM');
+  } catch (err) {
+    logger.warn('Failed to add floating badge:', err);
+  }
 }
 
 function removeFloatingBadge(): void {
-  const host = document.getElementById('owt-badge-host');
-  if (host) {
-    host.remove();
-  }
-  badgeHost = null;
-  badgeButton = null;
-}
-
-async function handleBadgeClick(): Promise<void> {
-  if (badgeState === 'translating') return; // Prevent double-click
-
-  if (badgeState === 'idle') {
-    await executePageTranslation();
-  } else if (badgeState === 'translated') {
-    await executePageRestore();
+  if (badgeHost) {
+    badgeHost.remove();
+    badgeHost = null;
+    badgeButton = null;
+    logger.info('Floating badge removed from DOM');
   }
 }
 
-function updateBadgeState(newState: BadgeState): void {
-  badgeState = newState;
-  if (!badgeButton) return;
+async function executePageTranslation(): Promise<{ success: boolean; translatedCount?: number; error?: ErrorPayload }> {
+  try {
+    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+    const targetLanguage = settings?.targetLanguage || 'zh-Hant';
 
-  switch (newState) {
-    case 'idle':
-      badgeButton.innerHTML = 'OWT';
-      badgeButton.setAttribute('aria-label', '翻譯此頁面');
-      badgeButton.setAttribute('aria-busy', 'false');
-      badgeButton.classList.remove('translated');
-      break;
-
-    case 'translating':
-      badgeButton.innerHTML = '<span class="owt-spinner"></span> 翻譯中';
-      badgeButton.setAttribute('aria-label', '翻譯進行中');
-      badgeButton.setAttribute('aria-busy', 'true');
-      badgeButton.classList.remove('translated');
-      break;
-
-    case 'translated':
-      badgeButton.innerHTML = '✓ 還原';
-      badgeButton.setAttribute('aria-label', '還原頁面原文');
-      badgeButton.setAttribute('aria-busy', 'false');
-      badgeButton.classList.add('translated');
-      break;
+    const result = await genericDomAdapter.translatePage(document, {
+      targetLanguage,
+      displayMode: settings?.displayMode || 'bilingual',
+      translateFn: async (segments) => {
+        const response = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          segments,
+          sourceLanguage: 'auto',
+          targetLanguage,
+        });
+        return response.segments;
+      },
+    });
+    return { success: result.success, translatedCount: result.translatedCount };
+  } catch (err: any) {
+    logger.error('Page translation failed:', err);
+    return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Page translation failed' } };
   }
 }
 
-// ─── Settings Listener (reactive badge show/hide) ────────────────
-
-function setupSettingsListener(): void {
-  browser.storage.onChanged.addListener((changes) => {
-    if (changes['owt_settings']) {
-      const newSettings = changes['owt_settings'].newValue as any;
-      if (newSettings) {
-        const showBadge = newSettings.showFloatingButton !== false;
-        const badgeExists = !!document.getElementById('owt-badge-host');
-
-        if (showBadge && !badgeExists) {
-          addFloatingBadge();
-        } else if (!showBadge && badgeExists) {
-          removeFloatingBadge();
-        }
-      }
-    }
-  });
+async function executePageRestore(): Promise<{ success: boolean; restoredCount?: number }> {
+  try {
+    const restoredCount = genericDomAdapter.restorePage();
+    return { success: true, restoredCount };
+  } catch (err: any) {
+    logger.error('Page restore failed:', err);
+    return { success: false };
+  }
 }
 
-// ─── SPA Navigation Listener ──────────────────────────────────────
+async function executeSelectionTranslation(
+  selection: Selection,
+): Promise<{ success: boolean; error?: ErrorPayload }> {
+  try {
+    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+    const targetLanguage = settings?.targetLanguage || 'zh-Hant';
 
-function setupSpaNavigationListener(): void {
-  let lastUrl = window.location.href;
-
-  const handleUrlChange = () => {
-    const currentUrl = window.location.href;
-    if (currentUrl !== lastUrl) {
-      logger.info('URL changed, restoring original page state', { oldUrl: lastUrl, newUrl: currentUrl });
-      lastUrl = currentUrl;
-      genericDomAdapter.restorePage(document);
-
-      if (window.location.hostname.includes('youtube.com')) {
-        youtubeAdapter.stop();
-      } else if (window.location.hostname.includes('netflix.com')) {
-        netflixAdapter.stop();
-      }
-
-      // Reset badge state on navigation
-      updateBadgeState('idle');
-    }
-  };
-
-  // Intercept pushState and replaceState used by SPA client-side routers
-  const originalPushState = history.pushState.bind(history);
-  history.pushState = function (...args) {
-    originalPushState(...args);
-    handleUrlChange();
-  };
-
-  const originalReplaceState = history.replaceState.bind(history);
-  history.replaceState = function (...args) {
-    originalReplaceState(...args);
-    handleUrlChange();
-  };
-
-  window.addEventListener('popstate', handleUrlChange);
-  window.addEventListener('hashchange', handleUrlChange);
+    await genericDomAdapter.translateSelection(selection, document, {
+      targetLanguage,
+      displayMode: settings?.displayMode || 'bilingual',
+      translateFn: async (segments) => {
+        const response = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          segments,
+          sourceLanguage: 'auto',
+          targetLanguage,
+        });
+        return response.segments;
+      },
+    });
+    return { success: true };
+  } catch (err: any) {
+    logger.error('Selection translation failed:', err);
+    return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Selection translation failed' } };
+  }
 }

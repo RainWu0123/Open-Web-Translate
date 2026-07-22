@@ -27,12 +27,13 @@ export interface InternalHydrationResult {
 
 export class NetflixCaptionAdapter {
   private isActive = false;
+  private isUserDisabled = false;
   private targetLang = 'zh-Hant';
   private displayMode: 'bilingual' | 'target-only' | 'source-only' = 'bilingual';
-  private origSize = 18;
-  private transSize = 22;
+  private origSize = 20;
+  private transSize = 24;
   private origColor = '#ffffff';
-  private transColor = '#818cf8';
+  private transColor = '#ffde59';
   private bottomPosition = 80;
   private lineSpacing = 4;
   private enableBitmapRescue = true;
@@ -71,26 +72,30 @@ export class NetflixCaptionAdapter {
     this.setupHotkeyListeners();
     this.setupStateMessageListener();
 
-    // Step 1 Debug: Force overlay to render immediately upon page load
     this.overlayRenderer.init();
-    this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
 
     if (this.controlsPollTimer) clearInterval(this.controlsPollTimer);
     this.controlsPollTimer = setInterval(() => {
       this.injectControlsButton();
       this.tryAutoStart();
-      this.overlayRenderer.ensureHostAttached();
+      if (this.isActive) {
+        this.overlayRenderer.ensureHostAttached();
+      }
     }, 1000);
 
     window.addEventListener('mousemove', () => {
       this.injectControlsButton();
-      this.overlayRenderer.ensureHostAttached();
+      if (this.isActive) {
+        this.overlayRenderer.ensureHostAttached();
+      }
     });
 
     this.whenDomReady(() => {
       this.injectControlsButton();
       this.tryAutoStart();
-      this.overlayRenderer.ensureHostAttached();
+      if (this.isActive) {
+        this.overlayRenderer.ensureHostAttached();
+      }
     });
   }
 
@@ -111,13 +116,18 @@ export class NetflixCaptionAdapter {
 
     if (this.isActive) return;
     this.isActive = true;
+    this.isUserDisabled = false;
     logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
 
     this.applyOverlayStyleConfig();
+    this.overlayRenderer.showOverlay();
 
+    // Start live sync engine & DOM Observer capture
     this.syncEngine.start((cue, videoMs) => {
       void this.onCueSyncTick(cue, videoMs);
     });
+
+    this.startTier3DomFallback();
 
     await this.refreshSelectedTrack();
   }
@@ -128,8 +138,31 @@ export class NetflixCaptionAdapter {
     this.syncEngine.stop();
     this.domObserver.stop();
     this.applyNativeSubtitleMask(false);
-    this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
+    this.overlayRenderer.showNativeSubtitles();
+    this.overlayRenderer.hideOverlay();
     logger.info('NetflixCaptionAdapter stopped');
+  }
+
+  public updateConfig(p: Partial<NetflixConfig>): void {
+    if (p.enabled !== undefined) {
+      if (p.enabled && !this.isActive) {
+        this.isUserDisabled = false;
+        void this.start();
+      }
+      if (!p.enabled && this.isActive) {
+        this.isUserDisabled = true;
+        this.stop();
+      }
+    }
+    if (p.primarySize !== undefined) this.origSize = p.primarySize;
+    if (p.secondarySize !== undefined) this.transSize = p.secondarySize;
+    if (p.bottomPosition !== undefined) this.bottomPosition = p.bottomPosition;
+    if (p.lineSpacing !== undefined) this.lineSpacing = p.lineSpacing;
+    if (p.enableBitmapRescue !== undefined) this.enableBitmapRescue = p.enableBitmapRescue;
+    if (p.learningMode !== undefined) this.learningMode = p.learningMode;
+
+    this.applyOverlayStyleConfig();
+    this.overlayRenderer.updateStyles();
   }
 
   public getStateInfo(): NetflixStateInfo {
@@ -177,52 +210,6 @@ export class NetflixCaptionAdapter {
     };
   }
 
-  private setupStateMessageListener(): void {
-    try {
-      browser.runtime.onMessage.addListener((message: any, sender: any, sendResponse: any) => {
-        if (message?.type === 'GET_NETFLIX_STATE') {
-          sendResponse(this.getStateInfo());
-          return true;
-        }
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  private applyNativeSubtitleMask(hide: boolean): void {
-    let styleEl = document.getElementById('owt-hide-native-netflix-subtitles');
-    if (hide) {
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = 'owt-hide-native-netflix-subtitles';
-        styleEl.textContent = `
-          [data-uia="player-timedtext"],
-          .player-timedtext {
-            visibility: hidden !important;
-          }
-        `;
-        (document.head || document.documentElement)?.appendChild(styleEl);
-      }
-    } else {
-      if (styleEl) {
-        styleEl.remove();
-      }
-    }
-  }
-
-  private applyOverlayStyleConfig(): void {
-    this.overlayRenderer.setConfig({
-      origSize: this.origSize,
-      transSize: this.transSize,
-      origColor: this.origColor,
-      transColor: this.transColor,
-      displayMode: this.displayMode,
-      bottomPosition: this.bottomPosition,
-      lineSpacing: this.lineSpacing,
-    });
-  }
-
   public getTrackManager(): NetflixTrackManager {
     return this.trackManager;
   }
@@ -245,138 +232,6 @@ export class NetflixCaptionAdapter {
     } else {
       document.addEventListener('DOMContentLoaded', fn, { once: true });
     }
-  }
-
-  private setupMainWorldListener(): void {
-    window.addEventListener('message', (event) => {
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (data.source !== 'owt-netflix-main') return;
-
-      if (data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') {
-        const rawTracks = data.tracks || [];
-        const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => {
-          let url = '';
-          if (t.downloadables) {
-            for (const profileEntry of Object.values(t.downloadables as Record<string, any>)) {
-              const u = profileEntry?.downloadUrls?.[0] || profileEntry?.urls?.[0];
-              if (u) {
-                url = u;
-                break;
-              }
-            }
-          }
-          return {
-            id: t.id,
-            label: t.label,
-            language: t.language,
-            url,
-            isCC: t.isCC,
-            hasUrl: Boolean(url),
-            rawTrack: t,
-            downloadables: t.downloadables,
-          };
-        });
-
-        this.trackManager.setDiscoveredTracks(discovered);
-        logger.info(`Captured ${discovered.length} tracks from manifest/player`);
-        if (this.isActive) {
-          void this.refreshSelectedTrack();
-        }
-      }
-
-      if (data.type === 'OWT_NETFLIX_HYDRATE_RESULT') {
-        const txId = data.txId;
-        const pending = this.pendingHydrations.get(txId);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.pendingHydrations.delete(txId);
-          pending.resolve({ ok: Boolean(data.ok), reason: data.reason });
-        }
-      }
-
-      if (data.type === 'OWT_NETFLIX_TTML_RESULT') {
-        const requestId = data.requestId;
-        const pending = this.pendingTtmlRequests.get(requestId);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.pendingTtmlRequests.delete(requestId);
-          if (data.ok && typeof data.xml === 'string') {
-            pending.resolve(data.xml);
-          } else {
-            pending.reject(new Error(data.error || 'Fetch TTML failed'));
-          }
-        }
-      }
-    });
-  }
-
-  private setupSettingsListener(): void {
-    try {
-      void browser.storage.sync.get(['owt_netflix_config', 'targetLanguage', 'displayMode']).then((res: any) => {
-        if (res?.owt_netflix_config) {
-          const cfg = res.owt_netflix_config;
-          if (cfg.primarySize) this.origSize = cfg.primarySize;
-          if (cfg.secondarySize) this.transSize = cfg.secondarySize;
-          if (cfg.bottomPosition !== undefined) this.bottomPosition = cfg.bottomPosition;
-          if (cfg.lineSpacing !== undefined) this.lineSpacing = cfg.lineSpacing;
-          if (cfg.enableBitmapRescue !== undefined) this.enableBitmapRescue = cfg.enableBitmapRescue;
-          if (cfg.learningMode !== undefined) this.learningMode = cfg.learningMode;
-          this.applyOverlayStyleConfig();
-        }
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  private setupRuntimeConfigListener(): void {
-    try {
-      browser.runtime.onMessage.addListener((message: any) => {
-        if (message?.type === 'UPDATE_NETFLIX_CONFIG' && message.payload) {
-          const p = message.payload as Partial<NetflixConfig>;
-          if (p.enabled !== undefined) {
-            if (p.enabled && !this.isActive) void this.start();
-            if (!p.enabled && this.isActive) this.stop();
-          }
-          if (p.primarySize !== undefined) this.origSize = p.primarySize;
-          if (p.secondarySize !== undefined) this.transSize = p.secondarySize;
-          if (p.bottomPosition !== undefined) this.bottomPosition = p.bottomPosition;
-          if (p.lineSpacing !== undefined) this.lineSpacing = p.lineSpacing;
-          if (p.enableBitmapRescue !== undefined) this.enableBitmapRescue = p.enableBitmapRescue;
-          if (p.learningMode !== undefined) this.learningMode = p.learningMode;
-
-          this.applyOverlayStyleConfig();
-        }
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  private setupHotkeyListeners(): void {
-    window.addEventListener('keydown', (e) => {
-      if (!this.isActive) return;
-      if (!e.altKey) return;
-
-      const key = e.key.toLowerCase();
-      if (['q', 'e', 'a', 'd', 's', 'z', 'c'].includes(key)) {
-        e.stopPropagation();
-
-        const video = document.querySelector('video') as HTMLVideoElement | null;
-        if (key === 'q' && video) {
-          video.playbackRate = Math.max(0.5, video.playbackRate - 0.1);
-        } else if (key === 'e' && video) {
-          video.playbackRate = Math.min(2.0, video.playbackRate + 0.1);
-        } else if (key === 'z') {
-          this.displayMode = this.displayMode === 'target-only' ? 'bilingual' : 'target-only';
-          this.applyOverlayStyleConfig();
-        } else if (key === 'c') {
-          this.displayMode = this.displayMode === 'source-only' ? 'bilingual' : 'source-only';
-          this.applyOverlayStyleConfig();
-        }
-      }
-    });
   }
 
   private async fetchTtmlXml(url: string): Promise<string> {
@@ -531,14 +386,13 @@ export class NetflixCaptionAdapter {
   }
 
   private startTier3DomFallback(): void {
-    logger.info('Falling back to Tier 3 DOM Observer');
+    logger.info('Starting Tier 3 DOM Observer live capture');
     this.trackManager.setAdapterState('degraded_ai');
-    this.applyNativeSubtitleMask(false);
 
     this.domObserver.start((capturedText) => {
       if (!this.isActive) return;
       if (!capturedText) {
-        this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
+        this.overlayRenderer.renderCues('(字幕測試中 - 原文)', '(字幕測試中 - 譯文)');
         return;
       }
 
@@ -558,7 +412,7 @@ export class NetflixCaptionAdapter {
     }
 
     if (!cue || !cue.text.trim()) {
-      this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
+      this.overlayRenderer.renderCues('(字幕測試中 - 原文)', '(字幕測試中 - 譯文)');
       return;
     }
 
@@ -567,15 +421,198 @@ export class NetflixCaptionAdapter {
     this.overlayRenderer.renderCues(origText, translatedText);
   }
 
+  private setupStateMessageListener(): void {
+    try {
+      browser.runtime.onMessage.addListener((message: any, sender: any, sendResponse: any) => {
+        if (message?.type === 'GET_NETFLIX_STATE') {
+          sendResponse(this.getStateInfo());
+          return true;
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  private applyNativeSubtitleMask(hide: boolean): void {
+    let styleEl = document.getElementById('owt-hide-native-netflix-subtitles');
+    if (hide) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'owt-hide-native-netflix-subtitles';
+        styleEl.textContent = `
+          [data-uia="player-timedtext"],
+          .player-timedtext {
+            visibility: hidden !important;
+          }
+        `;
+        (document.head || document.documentElement)?.appendChild(styleEl);
+      }
+    } else {
+      if (styleEl) {
+        styleEl.remove();
+      }
+      const elements = document.querySelectorAll('[data-uia="player-timedtext"], .player-timedtext');
+      elements.forEach((el) => {
+        (el as HTMLElement).style.visibility = 'visible';
+      });
+    }
+  }
+
+  private applyOverlayStyleConfig(): void {
+    this.overlayRenderer.setConfig({
+      origSize: this.origSize,
+      transSize: this.transSize,
+      origColor: this.origColor,
+      transColor: this.transColor,
+      displayMode: this.displayMode,
+      bottomPosition: this.bottomPosition,
+      lineSpacing: this.lineSpacing,
+    });
+  }
+
+  private setupMainWorldListener(): void {
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.source !== 'owt-netflix-main') return;
+
+      if (data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') {
+        const rawTracks = data.tracks || [];
+        const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => {
+          let url = '';
+          if (t.downloadables) {
+            for (const profileEntry of Object.values(t.downloadables as Record<string, any>)) {
+              const u = profileEntry?.downloadUrls?.[0] || profileEntry?.urls?.[0];
+              if (u) {
+                url = u;
+                break;
+              }
+            }
+          }
+          return {
+            id: t.id,
+            label: t.label,
+            language: t.language,
+            url,
+            isCC: t.isCC,
+            hasUrl: Boolean(url),
+            rawTrack: t,
+            downloadables: t.downloadables,
+          };
+        });
+
+        this.trackManager.setDiscoveredTracks(discovered);
+        logger.info(`Captured ${discovered.length} tracks from manifest/player`);
+        if (this.isActive) {
+          void this.refreshSelectedTrack();
+        }
+      }
+
+      if (data.type === 'OWT_NETFLIX_HYDRATE_RESULT') {
+        const txId = data.txId;
+        const pending = this.pendingHydrations.get(txId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingHydrations.delete(txId);
+          pending.resolve({ ok: Boolean(data.ok), reason: data.reason });
+        }
+      }
+
+      if (data.type === 'OWT_NETFLIX_TTML_RESULT') {
+        const requestId = data.requestId;
+        const pending = this.pendingTtmlRequests.get(requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.pendingTtmlRequests.delete(requestId);
+          if (data.ok && typeof data.xml === 'string') {
+            pending.resolve(data.xml);
+          } else {
+            pending.reject(new Error(data.error || 'Fetch TTML failed'));
+          }
+        }
+      }
+    });
+  }
+
+  private setupSettingsListener(): void {
+    try {
+      void browser.storage.sync.get(['owt_netflix_config', 'targetLanguage', 'displayMode']).then((res: any) => {
+        if (res?.owt_netflix_config) {
+          const cfg = res.owt_netflix_config;
+          this.updateConfig(cfg);
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  private setupRuntimeConfigListener(): void {
+    const handleConfigUpdate = (p: Partial<NetflixConfig>) => {
+      this.updateConfig(p);
+    };
+
+    try {
+      browser.runtime.onMessage.addListener((message: any) => {
+        if (message?.type === 'UPDATE_NETFLIX_CONFIG' && message.payload) {
+          handleConfigUpdate(message.payload);
+        }
+      });
+
+      browser.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync' && changes.owt_netflix_config?.newValue) {
+          handleConfigUpdate(changes.owt_netflix_config.newValue);
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  private setupHotkeyListeners(): void {
+    window.addEventListener('keydown', (e) => {
+      if (!this.isActive) return;
+      if (!e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      if (['q', 'e', 'a', 'd', 's', 'z', 'c'].includes(key)) {
+        e.stopPropagation();
+
+        const video = document.querySelector('video') as HTMLVideoElement | null;
+        if (key === 'q' && video) {
+          video.playbackRate = Math.max(0.5, video.playbackRate - 0.1);
+        } else if (key === 'e' && video) {
+          video.playbackRate = Math.min(2.0, video.playbackRate + 0.1);
+        } else if (key === 'z') {
+          this.displayMode = this.displayMode === 'target-only' ? 'bilingual' : 'target-only';
+          this.applyOverlayStyleConfig();
+          this.overlayRenderer.updateStyles();
+        } else if (key === 'c') {
+          this.displayMode = this.displayMode === 'source-only' ? 'bilingual' : 'source-only';
+          this.applyOverlayStyleConfig();
+          this.overlayRenderer.updateStyles();
+        }
+      }
+    });
+  }
+
   private tryAutoStart(): void {
     const isWatch = window.location.pathname.includes('/watch/');
-    if (isWatch && !this.isActive) {
+    if (isWatch && !this.isActive && !this.isUserDisabled) {
       void this.start();
     }
   }
 
   public injectControlsButton(): void {
-    if (this.controlsButton && document.contains(this.controlsButton)) return;
+    const existingBtns = document.querySelectorAll('.owt-netflix-toggle-btn');
+    if (existingBtns.length > 0) {
+      for (let i = 1; i < existingBtns.length; i++) {
+        existingBtns[i].remove();
+      }
+      this.controlsButton = existingBtns[0] as HTMLElement;
+      if (document.contains(this.controlsButton)) return;
+    }
 
     const audioSubBtn =
       document.querySelector('[data-uia="control-audio-subtitle"]') ||
@@ -621,9 +658,11 @@ export class NetflixCaptionAdapter {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.isActive) {
+        this.isUserDisabled = true;
         this.stop();
         btn.style.opacity = '0.5';
       } else {
+        this.isUserDisabled = false;
         void this.start();
         btn.style.opacity = '1.0';
       }
