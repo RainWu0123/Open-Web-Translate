@@ -120,6 +120,14 @@ export class NetflixCaptionAdapter {
     logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
 
     this.applyOverlayStyleConfig();
+    this.overlayRenderer.showOverlay();
+
+    // Show explicit loading status notice
+    const count = this.trackManager.getDiscoveredTracks().length;
+    this.overlayRenderer.renderCues(
+      '⚠️ (未成功載入雙語字幕)',
+      count > 0 ? `(已發現 ${count} 個字幕軌，正在自動讀取中...)` : '(請確認已於 Netflix 選取字幕軌道)',
+    );
 
     // Start live sync engine & DOM Observer capture
     this.syncEngine.start((cue, videoMs) => {
@@ -321,6 +329,11 @@ export class NetflixCaptionAdapter {
     const secondaryTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
 
     if (!primaryTrack) {
+      const count = this.trackManager.getDiscoveredTracks().length;
+      this.overlayRenderer.renderCues(
+        '⚠️ (未成功載入字幕)',
+        count > 0 ? `(已發現 ${count} 個字幕軌，請嘗試在 Netflix 畫面切換字幕)` : '(請開啟 Netflix 原生字幕選單選取字幕語言)',
+      );
       this.startTier3DomFallback();
       return;
     }
@@ -375,10 +388,16 @@ export class NetflixCaptionAdapter {
         this.applyNativeSubtitleMask(true);
         this.trackManager.setAdapterState('native_hidden');
       } else {
+        const count = this.trackManager.getDiscoveredTracks().length;
+        this.overlayRenderer.renderCues(
+          '⚠️ (未成功載入雙語字幕軌)',
+          `(發現 ${count} 個字幕軌，已開啟即時 DOM 擷取)`,
+        );
         this.startTier3DomFallback();
       }
     } catch (err) {
       logger.warn('Failed to load TTML track:', err);
+      this.overlayRenderer.renderCues('⚠️ (未成功載入字幕)', '(嘗試重新連接 Netflix 播放器中...)');
       this.startTier3DomFallback();
     }
   }
@@ -386,12 +405,13 @@ export class NetflixCaptionAdapter {
   private startTier3DomFallback(): void {
     logger.info('Starting Tier 3 DOM Observer live capture');
     this.trackManager.setAdapterState('degraded_ai');
-    this.applyNativeSubtitleMask(true);
+    // Keep native subtitles unmasked during DOM fallback so user can see subtitles
+    this.applyNativeSubtitleMask(false);
 
     this.domObserver.start((capturedText) => {
       if (!this.isActive) return;
       if (!capturedText) {
-        this.overlayRenderer.renderCues('', '');
+        this.overlayRenderer.renderCues('⚠️ (未成功載入字幕 - 等待對話中)', '(請確認影片正在播放且有字幕)');
         return;
       }
 
@@ -411,7 +431,11 @@ export class NetflixCaptionAdapter {
     }
 
     if (!cue || !cue.text.trim()) {
-      this.overlayRenderer.renderCues('', '');
+      const count = this.trackManager.getDiscoveredTracks().length;
+      this.overlayRenderer.renderCues(
+        '⚠️ (未成功載入字幕 - 等待時間軸同步)',
+        count > 0 ? `(已發現 ${count} 個字幕軌，等待時間點中)` : '(請於 Netflix 選單選擇字幕)',
+      );
       return;
     }
 

@@ -1,275 +1,145 @@
-/**
- * Netflix MAIN-world probe script.
- *
- * Triple-Strategy Manifest & Player Probe (Strategy A + B + C):
- * A. Broad JSON.parse hook.
- * B. Fetch & XHR Response Stream Interceptor.
- * C. Active Cadmium VideoPlayer API Polling (1000ms).
- */
-export default defineContentScript({
-  matches: ['*://*.netflix.com/*'],
-  world: 'MAIN',
-  runAt: 'document_start',
+const MAIN_SOURCE = 'owt-netflix-main';
+const CONTENT_SOURCE = 'owt-netflix-content';
+
+function post(type: string, payload: Record<string, unknown> = {}): void {
+  window.postMessage(
+    {
+      source: MAIN_SOURCE,
+      type,
+      ...payload,
+    },
+    '*',
+  );
+}
+
+function getPlayerApi(): any {
+  try {
+    return (window as any).netflix?.appContext?.state?.playerApp?.getAPI?.()?.videoPlayer;
+  } catch {
+    return null;
+  }
+}
+
+function getMainVideoPlayer(api?: any): { id: string; player: any } | null {
+  const videoPlayerApi = api || getPlayerApi();
+  if (!videoPlayerApi) return null;
+
+  try {
+    const sessionIds = videoPlayerApi.getAllPlayerSessionIds?.() || [];
+    const watchSessionId = sessionIds.find((id: string) => id.startsWith('watch-'));
+    const targetSessionId = watchSessionId || sessionIds[0];
+
+    if (!targetSessionId) return null;
+    const player = videoPlayerApi.getVideoPlayerBySessionId(targetSessionId);
+    return player ? { id: targetSessionId, player } : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractTracksFromCadmiumPlayer(): any[] {
+  const api = getPlayerApi();
+  const playerObj = getMainVideoPlayer(api);
+  if (!playerObj?.player) return [];
+
+  const player = playerObj.player;
+  if (typeof player.getTimedTextTrackList !== 'function') return [];
+
+  try {
+    const rawList = player.getTimedTextTrackList() || [];
+    return rawList.map((t: any) => ({
+      id: t.trackId || t.id || t.bcp47 || t.language,
+      label: t.label || t.languageDescription || t.language,
+      language: t.bcp47 || t.language || 'unknown',
+      isCC: Boolean(t.isClosedCaptions || t.isCaption),
+      rawTrack: t,
+      downloadables: t.downloadables,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export default defineUnlistedScript({
   main() {
-    const SOURCE = 'owt-netflix-main';
-    console.log('[OWT-MAIN] Triple-Strategy Netflix probe initialized');
+    console.log('[OWT-MAIN] netflix-main.js injected into MAIN world');
 
-    window.postMessage(
-      {
-        source: SOURCE,
-        type: 'OWT_TEST_PING',
-        payload: { ts: Date.now(), world: 'MAIN' },
-      },
-      '*',
-    );
+    let manifestTracksCaptured = false;
 
-    interface ManifestTrackPayload {
-      id: string;
-      label: string;
-      language: string;
-      isCC: boolean;
-      hydrated: boolean;
-      isImageBased: boolean;
-      downloadables: Record<
-        string,
-        {
-          isImage: boolean;
-          downloadUrls: string[];
-          urls: string[];
-        }
-      >;
+    function emitManifestTracks(sourceLabel: string, tracks: any[]): void {
+      if (!tracks || tracks.length === 0) return;
+      manifestTracksCaptured = true;
+      console.log(`[OWT-MAIN] Captured ${tracks.length} tracks via ${sourceLabel}`);
+      post('OWT_NETFLIX_MANIFEST_TRACKS', { tracks, source: sourceLabel });
     }
 
-    function post(type: string, extra: Record<string, unknown> = {}) {
-      try {
-        window.postMessage(
-          {
-            source: SOURCE,
-            type,
-            ...extra,
-          },
-          '*',
-        );
-      } catch (err) {
-        console.warn('[OWT-MAIN] postMessage failed', err);
-      }
-    }
-
-    function getPlayerApi(): any {
-      try {
-        const appContext = (window as any).netflix?.appContext;
-        const playerApp = appContext?.state?.playerApp ?? appContext?.getState?.()?.playerApp;
-        const api = playerApp?.getAPI?.()?.videoPlayer;
-        if (api) return api;
-      } catch {}
-      try {
-        return (window as any).netflix?.player?.appApi?.videoPlayer;
-      } catch {}
-      return null;
-    }
-
-    function getMainVideoPlayer(api: any): { player: any; score: number; id: string } | null {
-      if (!api || typeof api.getAllPlayerSessionIds !== 'function') return null;
-      try {
-        const ids: string[] = api.getAllPlayerSessionIds() || [];
-        const candidates = ids
-          .map((id) => {
-            try {
-              const player = api.getVideoPlayerBySessionId?.(id);
-              if (!player) return null;
-
-              const time = Number(player.getCurrentTime?.() ?? -1);
-              const duration = Number(player.getDuration?.() ?? 0);
-              const score =
-                (typeof player.setTimedTextTrack === 'function' ? 10 : 0) +
-                (typeof player.getTimedTextTrackList === 'function' ? 10 : 0) +
-                (time >= 0 ? 5 : 0) +
-                (duration > 60 ? 5 : 0);
-
-              return { id: String(id), player, score };
-            } catch {
-              return null;
-            }
-          })
-          .filter((c): c is { id: string; player: any; score: number } => c !== null)
-          .sort((a, b) => b.score - a.score);
-
-        return candidates[0] ?? null;
-      } catch {
-        return null;
-      }
-    }
-
-    function normalizeManifestTrack(track: any): ManifestTrackPayload | null {
-      if (!track || typeof track !== 'object') return null;
-      if (track.isNoneTrack === true) return null;
-
-      const id = String(track.new_track_id ?? track.trackId ?? track.id ?? '');
-      if (!id) return null;
-
-      const rawDownloadables = track.ttDownloadables ?? {};
-      const downloadables: ManifestTrackPayload['downloadables'] = {};
-
-      for (const [profile, value] of Object.entries(rawDownloadables)) {
-        if (!value || typeof value !== 'object') continue;
-        const entry = value as any;
-
-        const downloadUrls = Object.values(entry.downloadUrls ?? {}).filter(
-          (url): url is string => typeof url === 'string' && /^https?:\/\//.test(url),
-        );
-
-        const urls = Array.isArray(entry.urls)
-          ? entry.urls
-              .map((item: any) => item?.url)
-              .filter((url: unknown): url is string => typeof url === 'string' && /^https?:\/\//.test(url))
-          : [];
-
-        downloadables[profile] = {
-          isImage: Boolean(entry.isImage),
-          downloadUrls,
-          urls,
-        };
-      }
-
-      return {
-        id,
-        label: String(track.languageDescription ?? track.label ?? track.language ?? id),
-        language: String(track.language ?? track.bcp47 ?? 'unknown'),
-        isCC: track.rawTrackType === 'closedcaptions' || Boolean(track.isClosedCaptions),
-        hydrated: track.hydrated !== false,
-        isImageBased: Object.values(downloadables).some((item) => item.isImage),
-        downloadables,
-      };
-    }
-
-    function findTextTracks(obj: unknown, depth = 0): { movieId?: string | number; textTracks: any[] } | null {
-      if (!obj || typeof obj !== 'object' || depth > 6) return null;
-      const rec = obj as Record<string, unknown>;
-
-      if (Array.isArray(rec.textTracks) && rec.textTracks.length > 0) {
-        return {
-          movieId: (rec.movieId || rec.videoId || rec.movie_id) as any,
-          textTracks: rec.textTracks,
-        };
-      }
-
-      if (Array.isArray(rec.timedtexttracks) && rec.timedtexttracks.length > 0) {
-        return {
-          movieId: (rec.movieId || rec.videoId || rec.movie_id) as any,
-          textTracks: rec.timedtexttracks,
-        };
-      }
-
-      for (const val of Object.values(rec)) {
-        if (val && typeof val === 'object') {
-          const res = findTextTracks(val, depth + 1);
-          if (res) return res;
-        }
-      }
-      return null;
-    }
-
-    let lastManifestSignature = '';
-
-    function emitManifestTracks(movieId: string, rawTracks: any[]): void {
-      const tracks = rawTracks.map(normalizeManifestTrack).filter(Boolean) as ManifestTrackPayload[];
-      if (tracks.length === 0) return;
-
-      const signature = [movieId, ...tracks.map((t) => `${t.id}:${t.language}:${t.hydrated}`)].join('|');
-
-      if (signature === lastManifestSignature) return;
-      lastManifestSignature = signature;
-
-      post('OWT_NETFLIX_MANIFEST_TRACKS', {
-        movieId,
-        tracks,
-      });
-      console.log(`[OWT-MAIN] Manifest tracks captured (${tracks.length} tracks) for movieId: ${movieId}`);
-    }
-
-    // --- Strategy A: JSON.parse Patch ---
     function installManifestJsonHook(): void {
-      const originalJsonParse = JSON.parse;
+      const originalParse = JSON.parse;
+      JSON.parse = function (text: string, reviver?: (key: string, value: any) => any) {
+        const result = originalParse.call(this, text, reviver);
 
-      JSON.parse = function patchedJsonParse(text: string, reviver?: any): unknown {
-        const parsed = originalJsonParse.call(JSON, text, reviver);
+        try {
+          if (result && typeof result === 'object') {
+            let tracks: any[] | null = null;
 
-        if (
-          typeof text === 'string' &&
-          (text.includes('textTracks') ||
-            text.includes('timedtexttracks') ||
-            text.includes('ttDownloadables') ||
-            text.includes('profiles'))
-        ) {
-          try {
-            const manifestInfo = findTextTracks(parsed);
-            if (manifestInfo) {
-              const movieId = String(
-                manifestInfo.movieId ?? window.location.pathname.match(/\/watch\/(\d+)/)?.[1] ?? '',
-              );
-              emitManifestTracks(movieId, manifestInfo.textTracks ?? []);
+            if (Array.isArray(result.timedtexttracks)) {
+              tracks = result.timedtexttracks;
+            } else if (result.result?.timedtexttracks && Array.isArray(result.result.timedtexttracks)) {
+              tracks = result.result.timedtexttracks;
+            } else if (result.profiles && Array.isArray(result.tracks)) {
+              tracks = result.tracks;
             }
-          } catch (error) {
-            console.debug('[OWT-MAIN] manifest inspection failed', error);
+
+            if (tracks && tracks.length > 0) {
+              emitManifestTracks('JSON.parse intercept', tracks);
+            }
           }
+        } catch {
+          // ignore parsing error
         }
 
-        return parsed;
+        return result;
       };
     }
 
-    // --- Strategy B: Fetch / XHR Stream Patch ---
     function installNetworkHooks(): void {
       const originalFetch = window.fetch;
-      window.fetch = async function (...args) {
-        const response = await originalFetch.apply(this, args);
+      window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+        const response = await originalFetch.call(this, input, init);
+
         try {
-          const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
-          if (url.includes('timedtext') || url.includes('manifest') || url.includes('metadata')) {
+          const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (urlStr.includes('/manifest') || urlStr.includes('/cadmium/') || urlStr.includes('timedtext')) {
             const clone = response.clone();
-            clone.text().then((bodyText) => {
-              if (bodyText && bodyText.length > 200) {
-                try {
-                  const json = JSON.parse(bodyText);
-                  const info = findTextTracks(json);
-                  if (info) {
-                    emitManifestTracks('fetch_stream', info.textTracks);
-                  }
-                } catch {}
-              }
-            });
+            clone.text().then((text) => {
+              try {
+                const data = JSON.parse(text);
+                const tracks = data?.timedtexttracks || data?.result?.timedtexttracks;
+                if (Array.isArray(tracks) && tracks.length > 0) {
+                  emitManifestTracks('fetch response clone', tracks);
+                }
+              } catch {}
+            }).catch(() => {});
           }
         } catch {}
+
         return response;
       };
     }
 
-    // --- Strategy C: Active Cadmium Player Polling (1000ms) ---
     function startCadmiumPlayerPoller(): void {
-      setInterval(() => {
-        try {
-          const api = getPlayerApi();
-          const mainCand = getMainVideoPlayer(api);
-          if (mainCand?.player && typeof mainCand.player.getTimedTextTrackList === 'function') {
-            const rawList = mainCand.player.getTimedTextTrackList() || [];
-            if (rawList.length > 0) {
-              const tracks = rawList
-                .map((t: any) => ({
-                  id: String(t.trackId || t.id || t.bcp47 || ''),
-                  label: String(t.label || t.languageDescription || t.language || ''),
-                  language: String(t.language || t.bcp47 || 'unknown'),
-                  isCC: Boolean(t.isClosedCaptions || t.isCC),
-                  hydrated: true,
-                  isImageBased: Boolean(t.isImage),
-                  downloadables: t.downloadables || {},
-                  rawTrack: t,
-                }))
-                .filter((t: any) => t.id);
+      let attempts = 0;
+      const timer = setInterval(() => {
+        attempts++;
+        if (attempts > 30 && manifestTracksCaptured) {
+          clearInterval(timer);
+          return;
+        }
 
-              if (tracks.length > 0) {
-                emitManifestTracks('cadmium_active_poll', tracks);
-              }
-            }
+        try {
+          const tracks = extractTracksFromCadmiumPlayer();
+          if (tracks.length > 0) {
+            emitManifestTracks('cadmium_active_poll', tracks);
           }
         } catch {}
       }, 1000);
@@ -284,7 +154,7 @@ export default defineContentScript({
       if (event.source !== window) return;
       const data = event.data;
       if (!data || typeof data !== 'object') return;
-      if (data.source && data.source !== 'owt-netflix-content') return;
+      if (data.source && data.source !== CONTENT_SOURCE) return;
 
       if (data.type === 'OWT_NETFLIX_HYDRATE_TRACK') {
         const { trackId, performSeek, txId } = data;
@@ -339,12 +209,16 @@ export default defineContentScript({
         if (typeof requestId !== 'string' || typeof url !== 'string') return;
 
         try {
-          const response = await fetch(url, { credentials: 'include' });
-          if (!response.ok) {
+          let response = await fetch(url, { credentials: 'include' }).catch(() => null);
+          if (!response || !response.ok) {
+            response = await fetch(url, { mode: 'cors' }).catch(() => null);
+          }
+
+          if (!response || !response.ok) {
             post('OWT_NETFLIX_TTML_RESULT', {
               requestId,
               ok: false,
-              error: `HTTP ${response.status}`,
+              error: `HTTP ${response?.status || 'network error'}`,
               url,
             });
             return;
