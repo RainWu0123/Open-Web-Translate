@@ -47,6 +47,7 @@ export class NetflixCaptionAdapter {
 
   private controlsButton: HTMLElement | null = null;
   private controlsPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastFetchError: string | null = null;
 
   private pendingTtmlRequests = new Map<
     string,
@@ -122,13 +123,6 @@ export class NetflixCaptionAdapter {
     this.applyOverlayStyleConfig();
     this.overlayRenderer.showOverlay();
 
-    // Show explicit loading status notice
-    const count = this.trackManager.getDiscoveredTracks().length;
-    this.overlayRenderer.renderCues(
-      '⚠️ (未成功載入雙語字幕)',
-      count > 0 ? `(已發現 ${count} 個字幕軌，正在自動讀取中...)` : '(請確認已於 Netflix 選取字幕軌道)',
-    );
-
     // Start live sync engine & DOM Observer capture
     this.syncEngine.start((cue, videoMs) => {
       void this.onCueSyncTick(cue, videoMs);
@@ -173,18 +167,26 @@ export class NetflixCaptionAdapter {
   }
 
   public getStateInfo(): NetflixStateInfo {
+    const isMainInjected = document.documentElement?.getAttribute('data-owt-netflix-main') === '1';
     const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
     const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();
     const mode = globalSubtitleSessionStore.getEngineMode();
     const discoveredCount = this.trackManager.getDiscoveredTracks().length;
 
-    const primaryStatus = primaryTrack
-      ? `${primaryTrack.lang} · text · ${primaryTrack.cues.length} cues · READY`
-      : `未載入 (Found ${discoveredCount} tracks)`;
+    let primaryStatus = `Step 2: Discovered ${discoveredCount} tracks`;
+    if (!isMainInjected) {
+      primaryStatus = '斷點 Step 1 失敗: MAIN 腳本未注入';
+    } else if (discoveredCount === 0) {
+      primaryStatus = '斷點 Step 2 失敗: 未擷取到 Manifest 軌道 (0 軌)';
+    } else if (this.lastFetchError) {
+      primaryStatus = `斷點 Step 3 失敗: TTML 下載錯誤 (${this.lastFetchError})`;
+    } else if (primaryTrack) {
+      primaryStatus = `Step 4 OK: ${primaryTrack.lang} (${primaryTrack.cues.length} Cues READY)`;
+    }
 
     const secondaryStatus = secondaryTrack
-      ? `${secondaryTrack.lang} · text · ${secondaryTrack.cues.length} cues · READY`
-      : '未載入 (No Secondary)';
+      ? `Step 4 OK: ${secondaryTrack.lang} (${secondaryTrack.cues.length} Cues)`
+      : '副軌：使用 AI 動態翻譯';
 
     let modeLabel = '原生播放器模式 (Native Only)';
     let modeClass = 'native-only';
@@ -192,7 +194,7 @@ export class NetflixCaptionAdapter {
     if (mode === 'dual-native') {
       modeLabel = '官方雙語模式 (Dual Native)';
       modeClass = 'dual-native';
-    } else if (mode === 'primary-native-ai-secondary') {
+    } else if (mode === 'primary-native-ai-secondary' || primaryTrack) {
       modeLabel = '官方主軌 + AI 翻譯模式';
       modeClass = 'ai-mode';
     }
@@ -246,6 +248,7 @@ export class NetflixCaptionAdapter {
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingTtmlRequests.delete(requestId);
+        this.lastFetchError = 'TTML Fetch Timeout (8s)';
         reject(new Error('TTML fetch timeout (8s)'));
       }, 8000);
 
@@ -299,9 +302,11 @@ export class NetflixCaptionAdapter {
         const xml = await this.fetchTtmlXml(targetUrl);
         const parsed = parseNetflixTtmlDetailed(xml);
         if (parsed.cues.length > 0) {
+          this.lastFetchError = null;
           return { ok: true, source: 'manifest', trackKey: track.id, cues: parsed.cues };
         }
-      } catch (err) {
+      } catch (err: any) {
+        this.lastFetchError = err?.message || 'TTML fetch failed';
         logger.warn(`Failed to fetch TTML XML for track ${track.id}:`, err);
       }
     }
@@ -314,6 +319,7 @@ export class NetflixCaptionAdapter {
           const xml = await this.fetchTtmlXml(updatedUrl);
           const parsed = parseNetflixTtmlDetailed(xml);
           if (parsed.cues.length > 0) {
+            this.lastFetchError = null;
             return { ok: true, source: 'network', trackKey: track.id, cues: parsed.cues };
           }
         } catch {}
@@ -331,8 +337,8 @@ export class NetflixCaptionAdapter {
     if (!primaryTrack) {
       const count = this.trackManager.getDiscoveredTracks().length;
       this.overlayRenderer.renderCues(
-        '⚠️ (未成功載入字幕)',
-        count > 0 ? `(已發現 ${count} 個字幕軌，請嘗試在 Netflix 畫面切換字幕)` : '(請開啟 Netflix 原生字幕選單選取字幕語言)',
+        '⚠️ 尚未擷取到 Netflix 字幕軌',
+        count > 0 ? `(已發現 ${count} 個字幕軌，請切換選單)` : '(請開啟 Netflix 音訊與字幕選單選擇字幕語言)',
       );
       this.startTier3DomFallback();
       return;
@@ -383,21 +389,21 @@ export class NetflixCaptionAdapter {
       }
 
       const mode = globalSubtitleSessionStore.getEngineMode();
-      if (mode === 'dual-native' || mode === 'primary-native-ai-secondary') {
+      if (mode === 'dual-native' || mode === 'primary-native-ai-secondary' || globalSubtitleSessionStore.getPrimaryTrack()) {
         this.trackManager.setAdapterState('overlay_ready');
         this.applyNativeSubtitleMask(true);
         this.trackManager.setAdapterState('native_hidden');
       } else {
         const count = this.trackManager.getDiscoveredTracks().length;
         this.overlayRenderer.renderCues(
-          '⚠️ (未成功載入雙語字幕軌)',
-          `(發現 ${count} 個字幕軌，已開啟即時 DOM 擷取)`,
+          '⚠️ 尚未載入實體雙語字幕軌',
+          `(已發現 ${count} 個字幕軌，已開啟即時 DOM 擷取)`,
         );
         this.startTier3DomFallback();
       }
     } catch (err) {
       logger.warn('Failed to load TTML track:', err);
-      this.overlayRenderer.renderCues('⚠️ (未成功載入字幕)', '(嘗試重新連接 Netflix 播放器中...)');
+      this.overlayRenderer.renderCues('⚠️ 尚未擷取到 Netflix 字幕軌', '(嘗試重新連接 Netflix 播放器中...)');
       this.startTier3DomFallback();
     }
   }
@@ -411,7 +417,6 @@ export class NetflixCaptionAdapter {
     this.domObserver.start((capturedText) => {
       if (!this.isActive) return;
       if (!capturedText) {
-        this.overlayRenderer.renderCues('⚠️ (未成功載入字幕 - 等待對話中)', '(請確認影片正在播放且有字幕)');
         return;
       }
 
@@ -430,18 +435,24 @@ export class NetflixCaptionAdapter {
       return;
     }
 
-    if (!cue || !cue.text.trim()) {
-      const count = this.trackManager.getDiscoveredTracks().length;
-      this.overlayRenderer.renderCues(
-        '⚠️ (未成功載入字幕 - 等待時間軸同步)',
-        count > 0 ? `(已發現 ${count} 個字幕軌，等待時間點中)` : '(請於 Netflix 選單選擇字幕)',
-      );
+    if (cue && cue.text.trim()) {
+      const origText = cue.text.trim();
+      const translatedText = await this.translationPipeline.translateText(origText, this.targetLang);
+      this.overlayRenderer.renderCues(origText, translatedText);
       return;
     }
 
-    const origText = cue.text.trim();
-    const translatedText = await this.translationPipeline.translateText(origText, this.targetLang);
-    this.overlayRenderer.renderCues(origText, translatedText);
+    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
+    if (!primaryTrack) {
+      const count = this.trackManager.getDiscoveredTracks().length;
+      this.overlayRenderer.renderCues(
+        '⚠️ 尚未擷取到 Netflix 字幕軌',
+        count > 0 ? `(已發現 ${count} 個字幕軌，請切換選單)` : '(請開啟 Netflix 音訊與字幕選單選擇字幕語言)',
+      );
+    } else {
+      // Subtitle track is loaded, but no dialogue at current timestamp
+      this.overlayRenderer.renderCues('', '');
+    }
   }
 
   private setupStateMessageListener(): void {
@@ -502,31 +513,19 @@ export class NetflixCaptionAdapter {
 
       if (data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') {
         const rawTracks = data.tracks || [];
-        const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => {
-          let url = '';
-          if (t.downloadables) {
-            for (const profileEntry of Object.values(t.downloadables as Record<string, any>)) {
-              const u = profileEntry?.downloadUrls?.[0] || profileEntry?.urls?.[0];
-              if (u) {
-                url = u;
-                break;
-              }
-            }
-          }
-          return {
-            id: t.id,
-            label: t.label,
-            language: t.language,
-            url,
-            isCC: t.isCC,
-            hasUrl: Boolean(url),
-            rawTrack: t,
-            downloadables: t.downloadables,
-          };
-        });
+        const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => ({
+          id: t.id || t.trackId || t.language,
+          label: t.label || t.languageDescription || t.language,
+          language: t.language || t.bcp47 || 'unknown',
+          url: t.url || '',
+          isCC: Boolean(t.isCC || t.isClosedCaptions),
+          hasUrl: Boolean(t.url),
+          rawTrack: t.rawTrack || t,
+          downloadables: t.downloadables,
+        }));
 
         this.trackManager.setDiscoveredTracks(discovered);
-        logger.info(`Captured ${discovered.length} tracks from manifest/player`);
+        logger.info(`Captured ${discovered.length} tracks from manifest/player (With URLs: ${discovered.filter(d => Boolean(d.url)).length})`);
         if (this.isActive) {
           void this.refreshSelectedTrack();
         }
@@ -549,8 +548,10 @@ export class NetflixCaptionAdapter {
           clearTimeout(pending.timer);
           this.pendingTtmlRequests.delete(requestId);
           if (data.ok && typeof data.xml === 'string') {
+            this.lastFetchError = null;
             pending.resolve(data.xml);
           } else {
+            this.lastFetchError = data.error || 'Fetch TTML failed';
             pending.reject(new Error(data.error || 'Fetch TTML failed'));
           }
         }
