@@ -105,7 +105,12 @@ export class NetflixCaptionAdapter {
 
         console.group('🔍 OWT Netflix Diagnostic Evidence Breakdown (5-Step Trace)');
         console.log('[Step 1] MAIN Script Injected:', isMainInjected ? '✅ Injected' : '❌ Failed');
-        console.log('[Step 2] Manifest Tracks Discovered:', `${this.trackManager.getDiscoveredTracks().length} tracks (With URLs: ${this.trackManager.getDiscoveredTracks().filter(t => Boolean(t.url)).length})`);
+        console.log(
+          '[Step 2] Manifest Tracks Discovered:',
+          `${this.trackManager.getDiscoveredTracks().length} tracks (With URLs: ${
+            this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length
+          })`,
+        );
         console.log('[Step 3] Fetch Status:', this.lastFetchError || 'OK');
         console.log('[Step 4] Primary Cues:', primary ? `${primary.cues.length} cues (${primary.lang})` : '❌ Not Loaded');
         console.log('[Step 4] Secondary Cues:', secondary ? `${secondary.cues.length} cues (${secondary.lang})` : 'AI Fallback');
@@ -119,7 +124,7 @@ export class NetflixCaptionAdapter {
         return {
           step1_mainInjected: isMainInjected,
           step2_discoveredTracks: this.trackManager.getDiscoveredTracks().length,
-          step2_tracksWithUrl: this.trackManager.getDiscoveredTracks().filter(t => Boolean(t.url)).length,
+          step2_tracksWithUrl: this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length,
           step3_fetchStatus: this.lastFetchError || 'OK',
           selectedPrimary: primary
             ? {
@@ -445,8 +450,36 @@ export class NetflixCaptionAdapter {
     this.trackManager.setAdapterState('loading_primary');
     const primaryTrack = this.trackManager.findPrimaryTrack();
     const secondaryTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const tracksWithUrlCount = this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length;
+
+    console.log('[OWT][Step3 Gate]', {
+      enabled: this.isActive,
+      userDisabled: this.isUserDisabled,
+      selectedPrimaryTrackId: primaryTrack?.id || null,
+      selectedSecondaryTrackId: secondaryTrack?.id || null,
+      tracksWithUrlCount,
+      playbackReady: Boolean(video),
+      currentTime: video?.currentTime || 0,
+      skipReason: !this.isActive
+        ? 'extension-disabled'
+        : !primaryTrack
+        ? 'no-primary-track-selected'
+        : tracksWithUrlCount === 0
+        ? 'no-track-urls'
+        : 'none',
+    });
+
+    if (!this.isActive) {
+      console.warn('[OWT][Step3 Skip]', { reason: 'extension-disabled' });
+      return;
+    }
 
     if (!primaryTrack) {
+      console.warn('[OWT][Step3 Skip]', {
+        reason: 'no-primary-track-selected',
+        discoveredTracksCount: this.trackManager.getDiscoveredTracks().length,
+      });
       const count = this.trackManager.getDiscoveredTracks().length;
       this.overlayRenderer.renderCues(
         '⚠️ 尚未擷取到 Netflix 字幕軌',
