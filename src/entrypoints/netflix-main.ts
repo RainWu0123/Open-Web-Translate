@@ -434,16 +434,20 @@ export default defineUnlistedScript({
             post('OWT_NETFLIX_TTML_RESULT', {
               requestId,
               ok: false,
+              status: response?.status || 0,
               error: `HTTP ${response?.status || 'network error'}`,
               url,
             });
             return;
           }
+          const contentType = response.headers.get('content-type') || '';
           const xml = await response.text();
-          console.log(`[OWT-MAIN] [Step 3 OK] Downloaded ${xml.length} bytes TTML XML`);
+          console.log(`[OWT-MAIN] [Step 3 OK] Downloaded ${xml.length} bytes TTML XML (HTTP ${response.status}, Content-Type: ${contentType})`);
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
             ok: true,
+            status: response.status,
+            contentType,
             xml,
             url,
           });
@@ -452,6 +456,7 @@ export default defineUnlistedScript({
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
             ok: false,
+            status: 0,
             error: err?.message || 'fetch failed',
             url,
           });

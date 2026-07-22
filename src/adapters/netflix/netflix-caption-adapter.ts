@@ -51,7 +51,11 @@ export class NetflixCaptionAdapter {
 
   private pendingTtmlRequests = new Map<
     string,
-    { resolve: (xml: string) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      resolve: (res: { ok: boolean; xml?: string; status?: number; contentType?: string; error?: string }) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
 
   private pendingHydrations = new Map<
@@ -99,13 +103,13 @@ export class NetflixCaptionAdapter {
         const nowMs = Math.round((video?.currentTime || 0) * 1000);
         const pair = globalSubtitleSessionStore.getActivePair(nowMs);
 
-        console.group('🔍 OWT Netflix Diagnostic Breakdown (5-Step Trace)');
-        console.log('Step 1 [MAIN Script Injected]:', isMainInjected ? '✅ Injected' : '❌ Failed');
-        console.log('Step 2 [Manifest Tracks Discovered]:', `${this.trackManager.getDiscoveredTracks().length} tracks`);
-        console.log('Step 3 [TTML Fetch Last Status]:', this.lastFetchError || 'OK');
-        console.log('Step 4 [Primary Track Cues Parsed]:', primary ? `${primary.cues.length} cues (${primary.lang})` : '❌ Not Loaded');
-        console.log('Step 4 [Secondary Track Cues Parsed]:', secondary ? `${secondary.cues.length} cues (${secondary.lang})` : 'AI Translation Fallback');
-        console.log('Step 5 [Live Video Sync]:', `currentTime=${(video?.currentTime || 0).toFixed(2)}s`, 'Active Pair:', pair);
+        console.group('🔍 OWT Netflix Diagnostic Evidence Breakdown (5-Step Trace)');
+        console.log('[Step 1] MAIN Script Injected:', isMainInjected ? '✅ Injected' : '❌ Failed');
+        console.log('[Step 2] Manifest Tracks Discovered:', `${this.trackManager.getDiscoveredTracks().length} tracks (With URLs: ${this.trackManager.getDiscoveredTracks().filter(t => Boolean(t.url)).length})`);
+        console.log('[Step 3] Fetch Status:', this.lastFetchError || 'OK');
+        console.log('[Step 4] Primary Cues:', primary ? `${primary.cues.length} cues (${primary.lang})` : '❌ Not Loaded');
+        console.log('[Step 4] Secondary Cues:', secondary ? `${secondary.cues.length} cues (${secondary.lang})` : 'AI Fallback');
+        console.log('[Step 5] Sync Time:', `${(video?.currentTime || 0).toFixed(2)}s`, 'Active Cue Pair:', pair);
         console.groupEnd();
 
         if (typeof (window as any).__OWT_MAIN_DEBUG__ === 'function') {
@@ -115,9 +119,26 @@ export class NetflixCaptionAdapter {
         return {
           step1_mainInjected: isMainInjected,
           step2_discoveredTracks: this.trackManager.getDiscoveredTracks().length,
+          step2_tracksWithUrl: this.trackManager.getDiscoveredTracks().filter(t => Boolean(t.url)).length,
           step3_fetchStatus: this.lastFetchError || 'OK',
-          step4_primaryCues: primary?.cues?.length || 0,
-          step5_videoTimeSec: video?.currentTime || 0,
+          selectedPrimary: primary
+            ? {
+                lang: primary.lang,
+                cuesCount: primary.cues.length,
+                activeCue: pair?.primary?.text || null,
+              }
+            : null,
+          selectedSecondary: secondary
+            ? {
+                lang: secondary.lang,
+                cuesCount: secondary.cues.length,
+                activeCue: pair?.secondary?.text || null,
+              }
+            : null,
+          renderer: {
+            active: this.isActive,
+            nativeHidden: true,
+          },
         };
       };
     }
@@ -294,16 +315,27 @@ export class NetflixCaptionAdapter {
     }
   }
 
-  private async fetchTtmlXml(url: string): Promise<string> {
+  private async fetchTtmlXml(url: string): Promise<{ ok: boolean; xml: string; status: number; contentType: string }> {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<{ ok: boolean; xml: string; status: number; contentType: string }>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingTtmlRequests.delete(requestId);
         this.lastFetchError = 'TTML Fetch Timeout (8s)';
         reject(new Error('TTML fetch timeout (8s)'));
       }, 8000);
 
-      this.pendingTtmlRequests.set(requestId, { resolve, reject, timer });
+      this.pendingTtmlRequests.set(requestId, {
+        resolve: (res) => {
+          if (res.ok && res.xml) {
+            resolve({ ok: true, xml: res.xml, status: res.status || 200, contentType: res.contentType || '' });
+          } else {
+            reject(new Error(res.error || 'Fetch failed'));
+          }
+        },
+        reject,
+        timer,
+      });
+
       window.postMessage(
         {
           source: CONTENT_SOURCE,
@@ -350,8 +382,36 @@ export class NetflixCaptionAdapter {
 
     if (targetUrl) {
       try {
-        const xml = await this.fetchTtmlXml(targetUrl);
+        const rawFetchRes: any = await this.fetchTtmlXml(targetUrl);
+        const xml = typeof rawFetchRes === 'string' ? rawFetchRes : rawFetchRes?.xml || '';
+        const httpStatus = typeof rawFetchRes === 'object' ? rawFetchRes?.status || 200 : 200;
+        const contentType = typeof rawFetchRes === 'object' ? rawFetchRes?.contentType || 'text/xml' : 'text/xml';
+
+        console.log('[OWT][Step3 Fetch]', {
+          lang: track.language,
+          trackId: track.id,
+          urlPresent: Boolean(targetUrl),
+          httpStatus,
+          contentType,
+          bodyBytes: xml.length,
+          preview: xml.slice(0, 120).replace(/\n/g, ' '),
+        });
+
         const parsed = parseNetflixTtmlDetailed(xml);
+        console.log('[OWT][Step4 Parse]', {
+          lang: track.language,
+          trackId: track.id,
+          profile: track.downloadables ? Object.keys(track.downloadables)[0] : 'unknown',
+          cueCount: parsed.cues.length,
+          firstCue: parsed.cues[0]
+            ? {
+                startMs: parsed.cues[0].startMs,
+                endMs: parsed.cues[0].endMs,
+                text: parsed.cues[0].text.slice(0, 80),
+              }
+            : null,
+        });
+
         if (parsed.cues.length > 0) {
           this.lastFetchError = null;
           return { ok: true, source: 'manifest', trackKey: track.id, cues: parsed.cues };
@@ -367,7 +427,8 @@ export class NetflixCaptionAdapter {
       const updatedUrl = track.url || this.trackManager.findTextFallbackUrl(track);
       if (updatedUrl) {
         try {
-          const xml = await this.fetchTtmlXml(updatedUrl);
+          const rawFetchRes: any = await this.fetchTtmlXml(updatedUrl);
+          const xml = typeof rawFetchRes === 'string' ? rawFetchRes : rawFetchRes?.xml || '';
           const parsed = parseNetflixTtmlDetailed(xml);
           if (parsed.cues.length > 0) {
             this.lastFetchError = null;
@@ -480,20 +541,31 @@ export class NetflixCaptionAdapter {
   private async onCueSyncTick(cue: TtmlCue | null, videoMs: number): Promise<void> {
     if (!this.isActive) return;
 
+    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
     const pair = globalSubtitleSessionStore.getActivePair(videoMs);
+
     if (pair) {
+      console.log('[OWT][Step5 Sync]', {
+        nowMs: Math.round(videoMs),
+        lang: primaryTrack?.lang || 'none',
+        activeCue: pair.primary.text.slice(0, 80),
+      });
       this.overlayRenderer.renderPair(pair);
       return;
     }
 
     if (cue && cue.text.trim()) {
       const origText = cue.text.trim();
+      console.log('[OWT][Step5 Sync]', {
+        nowMs: Math.round(videoMs),
+        lang: primaryTrack?.lang || 'none',
+        activeCue: origText.slice(0, 80),
+      });
       const translatedText = await this.translationPipeline.translateText(origText, this.targetLang);
       this.overlayRenderer.renderCues(origText, translatedText);
       return;
     }
 
-    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
     if (!primaryTrack) {
       const count = this.trackManager.getDiscoveredTracks().length;
       this.overlayRenderer.renderCues(
@@ -600,10 +672,21 @@ export class NetflixCaptionAdapter {
           this.pendingTtmlRequests.delete(requestId);
           if (data.ok && typeof data.xml === 'string') {
             this.lastFetchError = null;
-            pending.resolve(data.xml);
+            pending.resolve({
+              ok: true,
+              xml: data.xml,
+              status: Number(data.status || 200),
+              contentType: String(data.contentType || ''),
+            });
           } else {
             this.lastFetchError = data.error || 'Fetch TTML failed';
-            pending.reject(new Error(data.error || 'Fetch TTML failed'));
+            pending.resolve({
+              ok: false,
+              xml: '',
+              status: Number(data.status || 0),
+              contentType: '',
+              error: data.error || 'Fetch TTML failed',
+            });
           }
         }
       }

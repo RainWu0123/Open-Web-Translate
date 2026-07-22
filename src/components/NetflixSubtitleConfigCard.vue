@@ -131,6 +131,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
+import { messageRouter } from '@/infrastructure/messaging/message-router';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 
 const config = ref<NetflixConfig>({
@@ -158,9 +159,20 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 async function queryTabState() {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    if (tabs[0]?.id) {
-      const state = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_NETFLIX_STATE' });
-      if (state) {
+    const tabId = tabs[0]?.id;
+    if (tabId) {
+      let state: any = null;
+      try {
+        state = await browser.tabs.sendMessage(tabId, { type: 'GET_NETFLIX_STATE' });
+      } catch {}
+
+      if (!state) {
+        try {
+          state = await messageRouter.sendMessage({ type: 'GET_NETFLIX_STATE' } as any);
+        } catch {}
+      }
+
+      if (state && typeof state === 'object' && state.primaryStatus) {
         hudInfo.value = state;
       }
     }

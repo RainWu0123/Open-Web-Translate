@@ -24,6 +24,12 @@ export default defineConfig({
       'https://api.deepl.com/*',
       'https://translate.googleapis.com/*',
     ],
+    browser_specific_settings: {
+      gecko: {
+        id: 'open-web-translate@rainwu.org',
+        strict_min_version: '109.0',
+      },
+    },
     options_ui: {
       open_in_tab: true,
     },
