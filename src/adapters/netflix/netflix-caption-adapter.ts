@@ -672,40 +672,93 @@ export class NetflixCaptionAdapter {
     });
   }
 
+  private handleTracksUpdated(data: any): void {
+    if (typeof data.revision !== 'number' || data.revision <= this.latestTracksRevision) return;
+    this.latestTracksRevision = data.revision;
+
+    const rawTracks = data.tracks || [];
+    const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => ({
+      id: t.id || t.trackId || t.language,
+      label: t.label || t.languageDescription || t.language,
+      language: t.language || t.bcp47 || 'unknown',
+      url: t.url || '',
+      isCC: Boolean(t.isCC || t.isClosedCaptions),
+      hasUrl: Boolean(t.url),
+      rawTrack: t.rawTrack || t,
+      downloadables: t.downloadables,
+    }));
+
+    this.trackManager.setDiscoveredTracks(discovered);
+    
+    const urlsCount = discovered.filter((d) => Boolean(d.url)).length;
+    console.log(`[OWT][Step2 Receive] { revision: ${data.revision}, tracks: ${discovered.length}, tracksWithUrl: ${urlsCount} }`);
+
+    if (this.isActive) {
+      void this.refreshSelectedTrack('tracks-updated');
+    }
+  }
+
   private setupMainWorldListener(): void {
-    window.addEventListener('message', (event) => {
-      if (event.source !== window) return;
-      if (event.origin !== location.origin) return;
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (data.source !== 'owt-netflix-main') return;
-
-      if (data.type === 'OWT_NETFLIX_TRACKS_UPDATED') {
-        if (typeof data.revision !== 'number' || data.revision <= this.latestTracksRevision) return;
-        this.latestTracksRevision = data.revision;
-
-        const rawTracks = data.tracks || [];
-        const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => ({
-          id: t.id || t.trackId || t.language,
-          label: t.label || t.languageDescription || t.language,
-          language: t.language || t.bcp47 || 'unknown',
-          url: t.url || '',
-          isCC: Boolean(t.isCC || t.isClosedCaptions),
-          hasUrl: Boolean(t.url),
-          rawTrack: t.rawTrack || t,
-          downloadables: t.downloadables,
-        }));
-
-        this.trackManager.setDiscoveredTracks(discovered);
-        
-        const urlsCount = discovered.filter((d) => Boolean(d.url)).length;
-        console.log(`[OWT][Step2 Receive] { revision: ${data.revision}, tracks: ${discovered.length}, tracksWithUrl: ${urlsCount} }`);
-
-        if (this.isActive) {
-          void this.refreshSelectedTrack('tracks-updated');
+    document.addEventListener('owt:tracks-updated', (event: Event) => {
+      try {
+        const detailStr = (event as CustomEvent).detail;
+        if (!detailStr) return;
+        const data = JSON.parse(detailStr);
+        console.log('[OWT][Bridge Raw] (CustomEvent)', { revision: data.revision, tracks: data.tracks?.length });
+        if (data?.channel === 'owt' && data?.type === 'OWT_NETFLIX_TRACKS_UPDATED') {
+          this.handleTracksUpdated(data);
         }
+      } catch (err: any) {
+        console.warn('[OWT][Bridge CustomEvent Error]', err?.message);
+      }
+    });
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (data?.channel === 'owt') {
+        console.log('[OWT][Bridge Raw] (MessageEvent)', {
+          origin: event.origin,
+          sourceIsWindow: event.source === window,
+          type: data.type,
+          revision: data.revision,
+          tracksIsArray: Array.isArray(data.tracks),
+          tracks: Array.isArray(data.tracks) ? data.tracks.length : null,
+        });
       }
 
+      if (event.origin !== location.origin) {
+        if (data?.channel === 'owt') console.warn('[OWT][Step2 Reject]', { reason: 'origin-mismatch', origin: event.origin });
+        return;
+      }
+      if (data?.channel !== 'owt') return;
+      if (data.type !== 'OWT_NETFLIX_TRACKS_UPDATED') {
+        console.warn('[OWT][Step2 Reject]', { reason: 'unexpected-type', type: data.type });
+        return;
+      }
+      if (!Array.isArray(data.tracks)) {
+        console.warn('[OWT][Step2 Reject]', { reason: 'tracks-not-array' });
+        return;
+      }
+      if (typeof data.revision !== 'number') {
+        console.warn('[OWT][Step2 Reject]', { reason: 'invalid-revision', revision: data.revision });
+        return;
+      }
+      if (data.revision <= this.latestTracksRevision) {
+        console.warn('[OWT][Step2 Reject]', {
+          reason: 'stale-revision',
+          received: data.revision,
+          current: this.latestTracksRevision,
+        });
+        return;
+      }
+
+      this.handleTracksUpdated(data);
+    });
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== window || event.origin !== location.origin) return;
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
       if (data.type === 'OWT_NETFLIX_HYDRATE_RESULT') {
         const txId = data.txId;
         const pending = this.pendingHydrations.get(txId);

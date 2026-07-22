@@ -248,7 +248,49 @@ export default defineUnlistedScript({
           normalizedTracks.filter((t) => Boolean(t.url)).length
         }, Revision: ${tracksRevision})`,
       );
-      post('OWT_NETFLIX_TRACKS_UPDATED', { revision: tracksRevision, tracks: normalizedTracks, source: sourceLabel });
+      
+      const safeTracks = normalizedTracks.map(t => ({
+        trackId: String(t.id),
+        language: String(t.language),
+        bcp47: String(t.language),
+        url: typeof t.url === 'string' ? t.url : '',
+        isCC: Boolean(t.isCC),
+        profile: t.downloadables ? Object.keys(t.downloadables)[0] : 'unknown',
+      }));
+
+      const payload = {
+        channel: 'owt',
+        type: 'OWT_NETFLIX_TRACKS_UPDATED',
+        revision: tracksRevision,
+        tracks: safeTracks,
+        source: sourceLabel,
+      };
+
+      try {
+        window.postMessage(payload, location.origin);
+        console.log('[OWT-MAIN][Step2 Posted]', {
+          revision: payload.revision,
+          tracks: payload.tracks.length,
+          tracksWithUrl: payload.tracks.filter(t => Boolean(t.url)).length,
+          firstTrack: payload.tracks[0],
+        });
+      } catch (err: any) {
+        console.error('[OWT-MAIN][Step2 Post Failed]', {
+          name: err?.name,
+          message: err?.message,
+        });
+      }
+
+      try {
+        document.dispatchEvent(new CustomEvent('owt:tracks-updated', {
+          detail: JSON.stringify(payload),
+        }));
+      } catch (err: any) {
+        console.error('[OWT-MAIN][CustomEvent Post Failed]', {
+          name: err?.name,
+          message: err?.message,
+        });
+      }
     }
 
     function installManifestJsonHook(): void {
