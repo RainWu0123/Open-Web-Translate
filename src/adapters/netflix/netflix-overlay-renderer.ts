@@ -1,4 +1,5 @@
 import { createLogger } from '@/shared/logger';
+import { SubtitleToken, globalSubtitleSessionStore, SubtitlePair } from '@/core/session/subtitle-session-store';
 
 const logger = createLogger('NetflixOverlayRenderer');
 
@@ -33,6 +34,7 @@ export class NetflixOverlayRenderer {
   private isDragging = false;
   private startY = 0;
   private offsetY = 0;
+  private currentPair: SubtitlePair | null = null;
 
   constructor() {}
 
@@ -142,6 +144,17 @@ export class NetflixOverlayRenderer {
         font-size: 22px;
         color: #818cf8;
       }
+      .owt-token {
+        display: inline-block;
+        padding: 0 2px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+      }
+      .owt-token:hover {
+        background: rgba(56, 189, 248, 0.35);
+        color: #38bdf8;
+      }
       .owt-loading {
         font-size: 14px;
         color: #fbbf24;
@@ -165,13 +178,14 @@ export class NetflixOverlayRenderer {
 
     this.loadingEl = document.createElement('div');
     this.loadingEl.className = 'owt-sub-line owt-loading hidden';
-    this.loadingEl.innerHTML = '<span>⏳ 正在自動救援文字字幕中...</span>';
+    this.loadingEl.innerHTML = '<span>⏳ 正在載入雙語字幕...</span>';
 
     this.containerEl.appendChild(this.transSubEl);
     this.containerEl.appendChild(this.origSubEl);
     this.containerEl.appendChild(this.loadingEl);
 
     this.setupDragEvents(this.containerEl);
+    this.setupTokenClickDelegation(this.containerEl);
 
     this.shadowRoot.appendChild(style);
     this.shadowRoot.appendChild(this.containerEl);
@@ -179,8 +193,36 @@ export class NetflixOverlayRenderer {
     this.updateStyles();
   }
 
+  private setupTokenClickDelegation(el: HTMLElement): void {
+    el.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement)?.closest('[data-token-id]') as HTMLElement | null;
+      if (!target) return;
+
+      e.stopPropagation();
+      const tokenId = target.dataset.tokenId;
+      if (!tokenId) return;
+
+      const token = globalSubtitleSessionStore.getTokenById(tokenId);
+      if (!token) return;
+
+      // Pause Netflix video player
+      const video = document.querySelector('video') as HTMLVideoElement | null;
+      if (video && !video.paused) {
+        video.pause();
+      }
+
+      logger.info('Interactive token clicked:', token.surface);
+      window.dispatchEvent(
+        new CustomEvent('owt-token-click', {
+          detail: { token, pair: this.currentPair },
+        }),
+      );
+    });
+  }
+
   private setupDragEvents(el: HTMLElement): void {
     el.addEventListener('mousedown', (e) => {
+      if ((e.target as HTMLElement)?.closest('[data-token-id]')) return;
       this.isDragging = true;
       this.startY = e.clientY - this.offsetY;
     });
@@ -210,7 +252,39 @@ export class NetflixOverlayRenderer {
     this.transSubEl.style.margin = `${this.config.lineSpacing}px 0`;
   }
 
-  public renderCues(origText: string, transText: string): void {
+  public renderTokenizedLine(container: HTMLElement, text: string, lang: string, cueId: string): void {
+    container.innerHTML = '';
+    const mockCue = { id: cueId, startMs: 0, endMs: 0, text, lang, source: 'netflix-native' as const };
+    const tokens = globalSubtitleSessionStore.getTokensForCue(mockCue);
+
+    if (tokens.length === 0) {
+      container.textContent = text;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    tokens.forEach((token) => {
+      const span = document.createElement('span');
+      span.className = 'owt-token';
+      span.dataset.tokenId = token.id;
+      span.textContent = token.surface;
+      fragment.appendChild(span);
+    });
+    container.appendChild(fragment);
+  }
+
+  public renderPair(pair: SubtitlePair | null): void {
+    this.currentPair = pair;
+    if (!pair) {
+      this.renderCues('', '');
+      return;
+    }
+    const origText = pair.primary.text;
+    const transText = pair.secondary?.text || '';
+    this.renderCues(origText, transText, pair.primary.lang, pair.primary.id);
+  }
+
+  public renderCues(origText: string, transText: string, lang = 'ja', cueId = `cue_${Date.now()}`): void {
     this.ensureHostAttached();
     if (!this.containerEl || !this.origSubEl || !this.transSubEl || !this.loadingEl) return;
 
@@ -234,7 +308,7 @@ export class NetflixOverlayRenderer {
       this.transSubEl.classList.remove('hidden');
       this.origSubEl.classList.add('hidden');
     } else if (mode === 'source-only') {
-      this.origSubEl.textContent = origText;
+      this.renderTokenizedLine(this.origSubEl, origText, lang, cueId);
       this.origSubEl.classList.remove('hidden');
       this.transSubEl.classList.add('hidden');
     } else {
@@ -242,7 +316,7 @@ export class NetflixOverlayRenderer {
       this.transSubEl.textContent = transText;
       this.transSubEl.classList.toggle('hidden', !hasTrans);
 
-      this.origSubEl.textContent = origText;
+      this.renderTokenizedLine(this.origSubEl, origText, lang, cueId);
       this.origSubEl.classList.toggle('hidden', !hasOrig);
     }
   }
@@ -261,14 +335,14 @@ export class NetflixOverlayRenderer {
   public hideNativeSubtitles(): void {
     const el = document.querySelector('.player-timedtext') as HTMLElement | null;
     if (el) {
-      el.style.display = 'none';
+      el.style.visibility = 'hidden';
     }
   }
 
   public showNativeSubtitles(): void {
     const el = document.querySelector('.player-timedtext') as HTMLElement | null;
     if (el) {
-      el.style.display = '';
+      el.style.visibility = 'visible';
     }
   }
 }

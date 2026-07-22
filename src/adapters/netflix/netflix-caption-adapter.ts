@@ -1,16 +1,29 @@
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import { parseNetflixTtmlDetailed, SubtitleCue } from '@/shared/subtitles/ttml-parser';
+import { parseNetflixTtmlDetailed, SubtitleCue as TtmlCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
 import type { NetflixConfig } from '@/core/contracts/messages';
-import { NetflixTrackManager, DiscoveredTrack, isBitmapImsc, HydrationResult } from './netflix-track-manager';
+import { NetflixTrackManager, DiscoveredTrack, isBitmapImsc } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 import { NetflixOverlayRenderer } from './netflix-overlay-renderer';
 import { NetflixTranslationPipeline } from './netflix-translation-pipeline';
 import { NetflixDomObserver } from './netflix-dom-observer';
+import {
+  globalSubtitleSessionStore,
+  CapturedTrack,
+  SubtitleCue as SessionCue,
+} from '@/core/session/subtitle-session-store';
 
 const logger = createLogger('NetflixCaptionAdapter');
 const CONTENT_SOURCE = 'owt-netflix-content';
+
+export interface InternalHydrationResult {
+  ok: boolean;
+  source?: 'manifest' | 'network';
+  trackKey?: string;
+  cues?: TtmlCue[];
+  reason?: 'timeout' | 'track-not-found' | 'api-unavailable';
+}
 
 export class NetflixCaptionAdapter {
   private isActive = false;
@@ -23,7 +36,7 @@ export class NetflixCaptionAdapter {
   private bottomPosition = 80;
   private lineSpacing = 4;
   private enableBitmapRescue = true;
-  private learningMode = false;
+  private learningMode = true;
 
   private trackManager = new NetflixTrackManager();
   private syncEngine = new NetflixSyncEngine();
@@ -31,8 +44,6 @@ export class NetflixCaptionAdapter {
   private translationPipeline = new NetflixTranslationPipeline();
   private domObserver = new NetflixDomObserver();
 
-  private primaryCues: SubtitleCue[] = [];
-  private secondaryCues: SubtitleCue[] = [];
   private controlsButton: HTMLElement | null = null;
   private controlsPollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -350,11 +361,7 @@ export class NetflixCaptionAdapter {
     });
   }
 
-  /**
-   * Transactional Track Hydration with Manifest-first priority & conditional seek fallback.
-   */
-  public async hydrateTrack(track: DiscoveredTrack): Promise<HydrationResult> {
-    // 1. Direct fetch if URL already exists in manifest
+  public async hydrateTrack(track: DiscoveredTrack): Promise<InternalHydrationResult> {
     if (track.url) {
       try {
         const xml = await this.fetchTtmlXml(track.url);
@@ -362,12 +369,9 @@ export class NetflixCaptionAdapter {
         if (parsed.cues.length > 0) {
           return { ok: true, source: 'manifest', trackKey: track.id, cues: parsed.cues };
         }
-      } catch {
-        // Fallback to Cadmium hydration
-      }
+      } catch {}
     }
 
-    // 2. Request Cadmium setTimedTextTrack without seek first
     const initialOk = await this.sendHydrateRequest(track.id, false);
     if (initialOk && track.url) {
       try {
@@ -379,7 +383,6 @@ export class NetflixCaptionAdapter {
       } catch {}
     }
 
-    // 3. Conditional seek fallback (only ONCE if initial timeout passed without cues)
     const seekOk = await this.sendHydrateRequest(track.id, true);
     if (seekOk && track.url) {
       try {
@@ -396,33 +399,66 @@ export class NetflixCaptionAdapter {
 
   private async refreshSelectedTrack(): Promise<void> {
     this.trackManager.setAdapterState('loading_primary');
-    const bestTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
+    const primaryTrack = this.trackManager.findPrimaryTrack();
+    const secondaryTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
 
-    if (!bestTrack) {
-      // Fall back to Tier 3 DOM
+    if (!primaryTrack) {
       this.startTier3DomFallback();
       return;
     }
 
     try {
-      const result = await this.hydrateTrack(bestTrack);
+      const primaryRes = await this.hydrateTrack(primaryTrack);
+      if (primaryRes.ok && primaryRes.cues) {
+        const sessionCues: SessionCue[] = primaryRes.cues.map((c, i) => ({
+          id: `pri_${i}_${c.startMs}`,
+          startMs: c.startMs,
+          endMs: c.endMs,
+          text: c.text,
+          lang: primaryTrack.language,
+          source: 'netflix-native' as const,
+        }));
 
-      if (result.ok && result.cues && result.cues.length > 0) {
-        this.primaryCues = result.cues;
-        this.syncEngine.setCues(this.primaryCues);
-        this.trackManager.setAdapterState('overlay_ready');
-
-        // Apply native mask ONLY AFTER cues are ready to avoid blank screen
-        this.applyNativeSubtitleMask(true);
-        this.trackManager.setAdapterState('native_hidden');
-
-        // Batch pre-translate
-        void this.translationPipeline.batchTranslateCues(this.primaryCues, this.targetLang);
-        return;
+        const capturedPrimary: CapturedTrack = {
+          id: primaryTrack.id,
+          lang: primaryTrack.language,
+          source: primaryRes.source || 'manifest',
+          cues: sessionCues,
+        };
+        globalSubtitleSessionStore.setPrimaryTrack(capturedPrimary);
+        this.syncEngine.setCues(primaryRes.cues);
       }
 
-      // If hydration failed, fallback to Tier 3 DOM Observer safely without leaving blank screen
-      this.startTier3DomFallback();
+      if (secondaryTrack) {
+        const secondaryRes = await this.hydrateTrack(secondaryTrack);
+        if (secondaryRes.ok && secondaryRes.cues) {
+          const sessionCues: SessionCue[] = secondaryRes.cues.map((c, i) => ({
+            id: `sec_${i}_${c.startMs}`,
+            startMs: c.startMs,
+            endMs: c.endMs,
+            text: c.text,
+            lang: secondaryTrack.language,
+            source: 'netflix-native' as const,
+          }));
+
+          const capturedSecondary: CapturedTrack = {
+            id: secondaryTrack.id,
+            lang: secondaryTrack.language,
+            source: secondaryRes.source || 'manifest',
+            cues: sessionCues,
+          };
+          globalSubtitleSessionStore.setSecondaryTrack(capturedSecondary);
+        }
+      }
+
+      const mode = globalSubtitleSessionStore.getEngineMode();
+      if (mode === 'dual-native' || mode === 'primary-native-ai-secondary') {
+        this.trackManager.setAdapterState('overlay_ready');
+        this.applyNativeSubtitleMask(true);
+        this.trackManager.setAdapterState('native_hidden');
+      } else {
+        this.startTier3DomFallback();
+      }
     } catch (err) {
       logger.warn('Failed to load TTML track:', err);
       this.startTier3DomFallback();
@@ -432,7 +468,6 @@ export class NetflixCaptionAdapter {
   private startTier3DomFallback(): void {
     logger.info('Falling back to Tier 3 DOM Observer');
     this.trackManager.setAdapterState('degraded_ai');
-    // Ensure native subtitles remain visible if in fallback mode
     this.applyNativeSubtitleMask(false);
 
     this.domObserver.start((capturedText) => {
@@ -448,8 +483,14 @@ export class NetflixCaptionAdapter {
     });
   }
 
-  private async onCueSyncTick(cue: SubtitleCue | null, videoMs: number): Promise<void> {
+  private async onCueSyncTick(cue: TtmlCue | null, videoMs: number): Promise<void> {
     if (!this.isActive) return;
+
+    const pair = globalSubtitleSessionStore.getActivePair(videoMs);
+    if (pair) {
+      this.overlayRenderer.renderPair(pair);
+      return;
+    }
 
     if (!cue || !cue.text.trim()) {
       this.overlayRenderer.renderCues('', '');
@@ -489,7 +530,7 @@ export class NetflixCaptionAdapter {
     const btn = document.createElement('button');
     btn.className = 'owt-netflix-toggle-btn';
     btn.type = 'button';
-    btn.title = 'OWT 雙語字幕 (左鍵開關 / 右鍵副字幕選單)';
+    btn.title = 'OWT 雙語字幕與語言學習 Overlay';
     btn.style.cssText = [
       'background: rgba(0, 0, 0, 0.4)',
       'border: 1px solid rgba(255, 255, 255, 0.25)',

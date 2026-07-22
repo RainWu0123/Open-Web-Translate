@@ -235,7 +235,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:settings', updated: Partial<ExtensionSettings>): void;
-  (e: 'change', keyOrSettings: any, value?: any): void;
+  (e: 'change', keyOrSettings: keyof ExtensionSettings | Record<string, unknown>, value?: unknown): void;
   (e: 'update:displayMode', val: string): void;
   (e: 'update:targetLanguage', val: string): void;
   (e: 'update:autoTranslate', val: boolean): void;
@@ -283,15 +283,15 @@ function translate(key: string): string {
   return fallbackDict[key] || key;
 }
 
-function updateSetting(key: keyof ExtensionSettings, value: any) {
+function updateSetting(key: keyof ExtensionSettings, value: unknown) {
   const updated = { [key]: value };
   emit('update:settings', updated);
   emit('change', key, value);
   emit('change', { ...localSettings.value, [key]: value });
 
-  if (key === 'displayMode') emit('update:displayMode', value);
-  if (key === 'targetLanguage') emit('update:targetLanguage', value);
-  if (key === 'enabled') emit('update:autoTranslate', value);
+  if (key === 'displayMode') emit('update:displayMode', String(value));
+  if (key === 'targetLanguage') emit('update:targetLanguage', String(value));
+  if (key === 'enabled') emit('update:autoTranslate', Boolean(value));
 }
 
 function onToggleEnabled(e: Event) {

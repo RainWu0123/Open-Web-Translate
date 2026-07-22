@@ -4,6 +4,7 @@
  * content scripts, popup, options, and the background service worker.
  */
 import type { LanguageCode } from './common';
+import type { VocabularyItem } from '@/infrastructure/storage/indexeddb/schemas';
 
 // ─── Limits & Error Constants ─────────────────────────────────────
 
@@ -185,7 +186,7 @@ export type ResponseMap = {
   EXECUTE_PAGE_TRANSLATION: ExecutePageTranslationResponsePayload;
   RESTORE_PAGE_TRANSLATION: RestorePageTranslationResponsePayload;
   SAVE_VOCAB_ITEM: { success: boolean };
-  GET_VOCAB_ITEMS: any[];
+  GET_VOCAB_ITEMS: VocabularyItem[];
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
   UPDATE_NETFLIX_CONFIG: boolean;

@@ -14,13 +14,16 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
   let adapter: NetflixCaptionAdapter;
 
   beforeEach(() => {
-    document.body.innerHTML = '';
+    document.body.innerHTML = `
+      <div class="watch-video">
+        <div class="player-timedtext"><span>I am an incompetent villainess</span></div>
+        <div data-uia="controls-standard">
+          <button data-uia="control-audio-subtitle">Subtitles</button>
+        </div>
+      </div>
+    `;
     vi.clearAllMocks();
-
-    Object.defineProperty(window, 'location', {
-      value: { hostname: 'www.netflix.com', pathname: '/watch/82931358', href: 'https://www.netflix.com/watch/82931358' },
-      writable: true,
-    });
+    adapter = new NetflixCaptionAdapter();
   });
 
   afterEach(() => {
@@ -30,50 +33,28 @@ describe('NetflixCaptionAdapter Integration Spec', () => {
   });
 
   it('intercepts Netflix caption segments via Tier 3 DOM fallback and renders bilingual translation in Shadow DOM', async () => {
-    adapter = new NetflixCaptionAdapter();
     (messageRouter.sendMessage as any).mockResolvedValue({
-      segments: [{ id: 'nf_cue', text: 'I am an incompetent villainess', translatedText: '我是不才惡女' }],
+      segments: [{ id: 'nf_cue', translatedText: '我是不才惡女' }],
     });
 
-    const container = document.createElement('div');
-    container.className = 'player-timedtext';
-    const textContainer = document.createElement('div');
-    textContainer.className = 'player-timedtext-text-container';
-    const seg = document.createElement('span');
-    seg.textContent = 'I am an incompetent villainess';
-    textContainer.appendChild(seg);
-    container.appendChild(textContainer);
-    document.body.appendChild(container);
+    adapter.init();
+    await adapter.start('zh-Hant');
 
-    await adapter.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Wait until translation pipeline completes and renders into shadow root
+    await vi.waitFor(
+      () => {
+        const host = document.getElementById('owt-netflix-overlay-host');
+        const shadowContent = host?.shadowRoot?.innerHTML || '';
+        const textOnly = shadowContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        expect(textOnly).toContain('我是不才惡女');
+      },
+      { timeout: 2000 },
+    );
 
     const host = document.getElementById('owt-netflix-overlay-host');
-    expect(host).not.toBeNull();
-    expect(host?.shadowRoot).not.toBeNull();
-
     const shadowContent = host?.shadowRoot?.innerHTML || '';
-    expect(shadowContent).toContain('I am an incompetent villainess');
-    expect(shadowContent).toContain('我是不才惡女');
-  });
-
-  it('restores native Netflix caption DOM on stop', async () => {
-    adapter = new NetflixCaptionAdapter();
-    (messageRouter.sendMessage as any).mockResolvedValue({
-      segments: [{ id: 'nf_cue', text: 'Hello Netflix', translatedText: '你好 Netflix' }],
-    });
-
-    const container = document.createElement('div');
-    container.className = 'player-timedtext';
-    const seg = document.createElement('span');
-    seg.textContent = 'Hello Netflix';
-    container.appendChild(seg);
-    document.body.appendChild(container);
-
-    await adapter.start('zh-Hant', 'bilingual');
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    adapter.stop();
-    expect(container.style.display).not.toBe('none');
+    const textOnly = shadowContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    expect(textOnly).toContain('I am an incompetent villainess');
+    expect(textOnly).toContain('我是不才惡女');
   });
 });

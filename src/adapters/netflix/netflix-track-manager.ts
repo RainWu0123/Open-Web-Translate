@@ -36,7 +36,7 @@ export interface DiscoveredTrack {
   url: string;
   isCC: boolean;
   hasUrl: boolean;
-  rawTrack?: any;
+  rawTrack?: Record<string, unknown>;
   downloadables?: Record<string, { isImage: boolean; downloadUrls: string[]; urls: string[] }>;
 }
 

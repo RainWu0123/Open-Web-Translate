@@ -103,6 +103,9 @@ export class LocalHttpProvider implements TranslationProvider {
       }
     }
 
+    const timeoutSignal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15000) : undefined;
+    const signal = request.signal ?? timeoutSignal;
+
     let response: Response;
     try {
       response = await fetch(url, {
@@ -117,22 +120,24 @@ export class LocalHttpProvider implements TranslationProvider {
             },
           ],
         }),
-        signal: request.signal,
+        signal,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err || 'Connection refused');
       logger.error('Local HTTP connection error', err);
-      throw new NetworkError(`Local HTTP connection failed: ${err.message || 'Connection refused'}`);
+      throw new NetworkError(`Local HTTP connection failed: ${msg}`);
     }
 
     if (!response.ok) {
       throw new NetworkError(`Local HTTP server returned HTTP ${response.status}`);
     }
 
-    let data: any;
+    let data: Record<string, any>;
     try {
       data = await response.json();
-    } catch (e: any) {
-      throw new ProviderError(this.id, `Malformed JSON response from Local HTTP server: ${e.message}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ProviderError(this.id, `Malformed JSON response from Local HTTP server: ${msg}`);
     }
 
     let outputText = data.choices?.[0]?.message?.content || data.translatedText || '';

@@ -11,6 +11,27 @@
       </button>
     </div>
 
+    <!-- Diagnostic Evidence HUD -->
+    <div class="diagnostic-hud" data-testid="diagnostic-hud">
+      <div class="hud-header">⚙ 字幕驗收診斷 (Diagnostic HUD)</div>
+      <div class="hud-row">
+        <span>主軌 (Primary):</span>
+        <span class="hud-value">{{ hudInfo.primaryStatus }}</span>
+      </div>
+      <div class="hud-row">
+        <span>副軌 (Secondary):</span>
+        <span class="hud-value">{{ hudInfo.secondaryStatus }}</span>
+      </div>
+      <div class="hud-row">
+        <span>運作模式 (Mode):</span>
+        <span :class="['hud-mode', hudInfo.modeClass]">{{ hudInfo.modeLabel }}</span>
+      </div>
+      <div v-if="hudInfo.activePreview" class="hud-preview">
+        <div class="preview-line primary">{{ hudInfo.activePreview.primary }}</div>
+        <div class="preview-line secondary">{{ hudInfo.activePreview.secondary }}</div>
+      </div>
+    </div>
+
     <div class="sliders-section">
       <div class="slider-group">
         <div class="slider-label">
@@ -91,7 +112,7 @@
           @change="onConfigChange"
           data-testid="learning-mode-checkbox"
         />
-        <span>學習模式</span>
+        <span>學習模式 (單字逐詞點擊)</span>
       </label>
     </div>
 
@@ -108,9 +129,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { browser } from 'wxt/browser';
 import type { NetflixConfig } from '@/core/contracts/messages';
+import { globalSubtitleSessionStore } from '@/core/session/subtitle-session-store';
 
 const config = ref<NetflixConfig>({
   enabled: true,
@@ -119,7 +141,49 @@ const config = ref<NetflixConfig>({
   bottomPosition: 80,
   lineSpacing: 4,
   enableBitmapRescue: true,
-  learningMode: false,
+  learningMode: true,
+});
+
+const hudInfo = computed(() => {
+  const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
+  const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();
+  const mode = globalSubtitleSessionStore.getEngineMode();
+
+  const primaryStatus = primaryTrack
+    ? `${primaryTrack.lang} · text · ${primaryTrack.cues.length} cues · READY`
+    : '未載入 (No Track)';
+
+  const secondaryStatus = secondaryTrack
+    ? `${secondaryTrack.lang} · text · ${secondaryTrack.cues.length} cues · READY`
+    : '未載入 (No Track)';
+
+  let modeLabel = '原生播放器模式 (Native Only)';
+  let modeClass = 'native-only';
+
+  if (mode === 'dual-native') {
+    modeLabel = '官方雙語模式 (Dual Native)';
+    modeClass = 'dual-native';
+  } else if (mode === 'primary-native-ai-secondary') {
+    modeLabel = '官方主軌 + AI 翻譯模式';
+    modeClass = 'ai-mode';
+  }
+
+  const activePair = globalSubtitleSessionStore.getActivePair(
+    typeof window !== 'undefined' ? Math.round(((document.querySelector('video') as HTMLVideoElement)?.currentTime || 0) * 1000) : 0
+  );
+
+  return {
+    primaryStatus,
+    secondaryStatus,
+    modeLabel,
+    modeClass,
+    activePreview: activePair
+      ? {
+          primary: activePair.primary.text,
+          secondary: activePair.secondary?.text || '',
+        }
+      : null,
+  };
 });
 
 onMounted(async () => {
@@ -142,7 +206,6 @@ async function onConfigChange() {
   try {
     await browser.storage.sync.set({ owt_netflix_config: { ...config.value } });
 
-    // Broadcast message to active tab
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     if (tabs[0]?.id) {
       await browser.tabs.sendMessage(tabs[0].id, {
@@ -204,6 +267,67 @@ async function onConfigChange() {
 }
 .toggle-btn.active {
   background: #ef4444;
+}
+
+.diagnostic-hud {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-header {
+  font-weight: 700;
+  color: #38bdf8;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.hud-row {
+  display: flex;
+  justify-content: space-between;
+  color: #94a3b8;
+}
+
+.hud-value {
+  color: #f1f5f9;
+  font-family: monospace;
+}
+
+.hud-mode.dual-native {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.hud-mode.ai-mode {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.hud-mode.native-only {
+  color: #f87171;
+  font-weight: 700;
+}
+
+.hud-preview {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+}
+
+.preview-line.primary {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.preview-line.secondary {
+  color: #818cf8;
 }
 
 .sliders-section {
@@ -268,7 +392,6 @@ input[type='range'] {
   padding-left: 16px;
   font-size: 11px;
   color: #cbd5e1;
-
 }
 
 .hotkeys-guide li {

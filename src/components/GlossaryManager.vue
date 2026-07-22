@@ -132,6 +132,8 @@ export interface VocabItem {
   timestamp?: number;
   source?: string;
   target?: string;
+  sourceText?: string;
+  targetText?: string;
   [key: string]: any;
 }
 
@@ -139,7 +141,7 @@ const props = withDefaults(
   defineProps<{
     items?: VocabItem[];
     entries?: VocabItem[];
-    glossary?: any[];
+    glossary?: VocabItem[];
     enabled?: boolean;
     t?: (key: string) => string;
     loading?: boolean;
@@ -158,8 +160,8 @@ const emit = defineEmits<{
   (e: 'clearAll'): void;
   (e: 'exportCsv'): void;
   (e: 'refresh'): void;
-  (e: 'addTerm', term: any): void;
-  (e: 'update:glossary', list: any[]): void;
+  (e: 'addTerm', term: VocabItem): void;
+  (e: 'update:glossary', list: VocabItem[]): void;
 }>();
 
 const searchQuery = ref('');
@@ -200,7 +202,7 @@ function onAddTerm() {
   const t = newTarget.value.trim();
   if (!s || !t) return;
 
-  const newItem = { id: String(Date.now()), source: s, target: t, word: s, translation: t };
+  const newItem: VocabItem = { id: String(Date.now()), source: s, target: t, word: s, translation: t };
   emit('addTerm', newItem);
 
   const updated = [...safeItems.value, newItem];
@@ -210,13 +212,13 @@ function onAddTerm() {
   newTarget.value = '';
 }
 
-function onDeleteItem(item: any) {
-  const id = typeof item === 'string' ? item : item.id || item.word || item.source;
+function onDeleteItem(item: VocabItem | string) {
+  const id = typeof item === 'string' ? item : item.id || item.word || item.source || '';
   emit('deleteItem', id);
 
   const updated = safeItems.value.filter((i) => {
     const itemId = i.id || i.word || i.source;
-    return itemId !== id && i.source !== item.source;
+    return itemId !== id && (typeof item === 'string' || i.source !== item.source);
   });
   emit('update:glossary', updated);
 }

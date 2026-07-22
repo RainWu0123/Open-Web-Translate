@@ -290,7 +290,7 @@ export interface ProviderConfig {
   apiKey?: string;
   endpoint?: string;
   enabled?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 const props = withDefaults(
@@ -330,7 +330,7 @@ const emit = defineEmits<{
   (e: 'saveDeeplKey', key: string): void;
   (e: 'clearDeeplKey'): void;
   (e: 'update:provider', val: ProviderConfig): void;
-  (e: 'change', val: any): void;
+  (e: 'change', val: ProviderConfig | Record<string, unknown>): void;
   (e: 'select', id: string): void;
   (e: 'test-connection', provider: ProviderConfig): void;
 }>();
