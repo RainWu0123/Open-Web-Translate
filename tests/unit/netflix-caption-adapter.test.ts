@@ -44,7 +44,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     adapter.init();
     adapter.injectControlsButton();
 
-    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn');
+    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
     expect(injectedBtn).not.toBeNull();
     expect(injectedBtn?.title).toBe('OWT 雙語字幕與語言學習 Overlay');
   });

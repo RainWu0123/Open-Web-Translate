@@ -1,8 +1,10 @@
 /**
  * Netflix MAIN-world probe script.
  *
- * Runs in the Netflix page realm to access Cadmium playerApp APIs & JSON manifest intercept.
- * Posts messages to the content script via window.postMessage.
+ * Triple-Strategy Manifest & Player Probe (Strategy A + B + C):
+ * A. Broad JSON.parse hook.
+ * B. Fetch & XHR Response Stream Interceptor.
+ * C. Active Cadmium VideoPlayer API Polling (1000ms).
  */
 export default defineContentScript({
   matches: ['*://*.netflix.com/*'],
@@ -10,7 +12,7 @@ export default defineContentScript({
   runAt: 'document_start',
   main() {
     const SOURCE = 'owt-netflix-main';
-    console.log('[OWT-MAIN] Netflix MAIN world probe initialized');
+    console.log('[OWT-MAIN] Triple-Strategy Netflix probe initialized');
 
     window.postMessage(
       {
@@ -53,7 +55,6 @@ export default defineContentScript({
       }
     }
 
-    /** Defensive Multi-Path getPlayerApi probe */
     function getPlayerApi(): any {
       try {
         const appContext = (window as any).netflix?.appContext;
@@ -67,7 +68,6 @@ export default defineContentScript({
       return null;
     }
 
-    /** Capability-Scored Main Video Player Selection */
     function getMainVideoPlayer(api: any): { player: any; score: number; id: string } | null {
       if (!api || typeof api.getAllPlayerSessionIds !== 'function') return null;
       try {
@@ -143,14 +143,23 @@ export default defineContentScript({
     }
 
     function findTextTracks(obj: unknown, depth = 0): { movieId?: string | number; textTracks: any[] } | null {
-      if (!obj || typeof obj !== 'object' || depth > 5) return null;
+      if (!obj || typeof obj !== 'object' || depth > 6) return null;
       const rec = obj as Record<string, unknown>;
+
       if (Array.isArray(rec.textTracks) && rec.textTracks.length > 0) {
         return {
           movieId: (rec.movieId || rec.videoId || rec.movie_id) as any,
           textTracks: rec.textTracks,
         };
       }
+
+      if (Array.isArray(rec.timedtexttracks) && rec.timedtexttracks.length > 0) {
+        return {
+          movieId: (rec.movieId || rec.videoId || rec.movie_id) as any,
+          textTracks: rec.timedtexttracks,
+        };
+      }
+
       for (const val of Object.values(rec)) {
         if (val && typeof val === 'object') {
           const res = findTextTracks(val, depth + 1);
@@ -164,6 +173,8 @@ export default defineContentScript({
 
     function emitManifestTracks(movieId: string, rawTracks: any[]): void {
       const tracks = rawTracks.map(normalizeManifestTrack).filter(Boolean) as ManifestTrackPayload[];
+      if (tracks.length === 0) return;
+
       const signature = [movieId, ...tracks.map((t) => `${t.id}:${t.language}:${t.hydrated}`)].join('|');
 
       if (signature === lastManifestSignature) return;
@@ -173,19 +184,23 @@ export default defineContentScript({
         movieId,
         tracks,
       });
-      console.log(`[OWT-MAIN] Manifest tracks captured: ${tracks.length} tracks`);
+      console.log(`[OWT-MAIN] Manifest tracks captured (${tracks.length} tracks) for movieId: ${movieId}`);
     }
 
-    /**
-     * High Performance JSON.parse patch with early-exit guard.
-     */
+    // --- Strategy A: JSON.parse Patch ---
     function installManifestJsonHook(): void {
       const originalJsonParse = JSON.parse;
 
       JSON.parse = function patchedJsonParse(text: string, reviver?: any): unknown {
         const parsed = originalJsonParse.call(JSON, text, reviver);
 
-        if (typeof text === 'string' && text.length > 500 && text.includes('timedtexttracks')) {
+        if (
+          typeof text === 'string' &&
+          (text.includes('textTracks') ||
+            text.includes('timedtexttracks') ||
+            text.includes('ttDownloadables') ||
+            text.includes('profiles'))
+        ) {
           try {
             const manifestInfo = findTextTracks(parsed);
             if (manifestInfo) {
@@ -203,11 +218,68 @@ export default defineContentScript({
       };
     }
 
-    installManifestJsonHook();
+    // --- Strategy B: Fetch / XHR Stream Patch ---
+    function installNetworkHooks(): void {
+      const originalFetch = window.fetch;
+      window.fetch = async function (...args) {
+        const response = await originalFetch.apply(this, args);
+        try {
+          const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
+          if (url.includes('timedtext') || url.includes('manifest') || url.includes('metadata')) {
+            const clone = response.clone();
+            clone.text().then((bodyText) => {
+              if (bodyText && bodyText.length > 200) {
+                try {
+                  const json = JSON.parse(bodyText);
+                  const info = findTextTracks(json);
+                  if (info) {
+                    emitManifestTracks('fetch_stream', info.textTracks);
+                  }
+                } catch {}
+              }
+            });
+          }
+        } catch {}
+        return response;
+      };
+    }
 
-    /**
-     * Listen for content script requests (e.g. fetch TTML XML or hydrate Cadmium track).
-     */
+    // --- Strategy C: Active Cadmium Player Polling (1000ms) ---
+    function startCadmiumPlayerPoller(): void {
+      setInterval(() => {
+        try {
+          const api = getPlayerApi();
+          const mainCand = getMainVideoPlayer(api);
+          if (mainCand?.player && typeof mainCand.player.getTimedTextTrackList === 'function') {
+            const rawList = mainCand.player.getTimedTextTrackList() || [];
+            if (rawList.length > 0) {
+              const tracks = rawList
+                .map((t: any) => ({
+                  id: String(t.trackId || t.id || t.bcp47 || ''),
+                  label: String(t.label || t.languageDescription || t.language || ''),
+                  language: String(t.language || t.bcp47 || 'unknown'),
+                  isCC: Boolean(t.isClosedCaptions || t.isCC),
+                  hydrated: true,
+                  isImageBased: Boolean(t.isImage),
+                  downloadables: t.downloadables || {},
+                  rawTrack: t,
+                }))
+                .filter((t: any) => t.id);
+
+              if (tracks.length > 0) {
+                emitManifestTracks('cadmium_active_poll', tracks);
+              }
+            }
+          }
+        } catch {}
+      }, 1000);
+    }
+
+    installManifestJsonHook();
+    installNetworkHooks();
+    startCadmiumPlayerPoller();
+
+    // --- Content Script PostMessage Handlers ---
     window.addEventListener('message', async (event) => {
       if (event.source !== window) return;
       const data = event.data;

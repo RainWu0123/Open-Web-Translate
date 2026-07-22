@@ -2,7 +2,7 @@ import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { parseNetflixTtmlDetailed, SubtitleCue as TtmlCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
-import type { NetflixConfig } from '@/core/contracts/messages';
+import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { NetflixTrackManager, DiscoveredTrack, isBitmapImsc } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 import { NetflixOverlayRenderer } from './netflix-overlay-renderer';
@@ -69,6 +69,7 @@ export class NetflixCaptionAdapter {
     this.setupSettingsListener();
     this.setupRuntimeConfigListener();
     this.setupHotkeyListeners();
+    this.setupStateMessageListener();
     this.overlayRenderer.init();
 
     if (this.controlsPollTimer) clearInterval(this.controlsPollTimer);
@@ -123,6 +124,64 @@ export class NetflixCaptionAdapter {
     this.applyNativeSubtitleMask(false);
     this.overlayRenderer.renderCues('', '');
     logger.info('NetflixCaptionAdapter stopped');
+  }
+
+  public getStateInfo(): NetflixStateInfo {
+    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
+    const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();
+    const mode = globalSubtitleSessionStore.getEngineMode();
+    const discoveredCount = this.trackManager.getDiscoveredTracks().length;
+
+    const primaryStatus = primaryTrack
+      ? `${primaryTrack.lang} · text · ${primaryTrack.cues.length} cues · READY`
+      : `未載入 (Found ${discoveredCount} tracks)`;
+
+    const secondaryStatus = secondaryTrack
+      ? `${secondaryTrack.lang} · text · ${secondaryTrack.cues.length} cues · READY`
+      : '未載入 (No Secondary)';
+
+    let modeLabel = '原生播放器模式 (Native Only)';
+    let modeClass = 'native-only';
+
+    if (mode === 'dual-native') {
+      modeLabel = '官方雙語模式 (Dual Native)';
+      modeClass = 'dual-native';
+    } else if (mode === 'primary-native-ai-secondary') {
+      modeLabel = '官方主軌 + AI 翻譯模式';
+      modeClass = 'ai-mode';
+    }
+
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const nowMs = Math.round((video?.currentTime || 0) * 1000);
+    const activePair = globalSubtitleSessionStore.getActivePair(nowMs);
+
+    return {
+      isActive: this.isActive,
+      primaryStatus,
+      secondaryStatus,
+      modeLabel,
+      modeClass,
+      discoveredTracksCount: discoveredCount,
+      activePreview: activePair
+        ? {
+            primary: activePair.primary.text,
+            secondary: activePair.secondary?.text || '',
+          }
+        : null,
+    };
+  }
+
+  private setupStateMessageListener(): void {
+    try {
+      browser.runtime.onMessage.addListener((message: any, sender: any, sendResponse: any) => {
+        if (message?.type === 'GET_NETFLIX_STATE') {
+          sendResponse(this.getStateInfo());
+          return true;
+        }
+      });
+    } catch {
+      // ignore
+    }
   }
 
   private applyNativeSubtitleMask(hide: boolean): void {
@@ -184,8 +243,8 @@ export class NetflixCaptionAdapter {
 
   private setupMainWorldListener(): void {
     window.addEventListener('message', (event) => {
-      if (event.source !== window || !event.data || typeof event.data !== 'object') return;
       const data = event.data;
+      if (!data || typeof data !== 'object') return;
       if (data.source !== 'owt-netflix-main') return;
 
       if (data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') {
@@ -214,7 +273,7 @@ export class NetflixCaptionAdapter {
         });
 
         this.trackManager.setDiscoveredTracks(discovered);
-        logger.info(`Captured ${discovered.length} tracks from manifest`);
+        logger.info(`Captured ${discovered.length} tracks from manifest/player`);
         if (this.isActive) {
           void this.refreshSelectedTrack();
         }

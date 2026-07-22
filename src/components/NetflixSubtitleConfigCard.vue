@@ -129,10 +129,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
-import type { NetflixConfig } from '@/core/contracts/messages';
-import { globalSubtitleSessionStore } from '@/core/session/subtitle-session-store';
+import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 
 const config = ref<NetflixConfig>({
   enabled: true,
@@ -144,47 +143,31 @@ const config = ref<NetflixConfig>({
   learningMode: true,
 });
 
-const hudInfo = computed(() => {
-  const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
-  const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();
-  const mode = globalSubtitleSessionStore.getEngineMode();
-
-  const primaryStatus = primaryTrack
-    ? `${primaryTrack.lang} · text · ${primaryTrack.cues.length} cues · READY`
-    : '未載入 (No Track)';
-
-  const secondaryStatus = secondaryTrack
-    ? `${secondaryTrack.lang} · text · ${secondaryTrack.cues.length} cues · READY`
-    : '未載入 (No Track)';
-
-  let modeLabel = '原生播放器模式 (Native Only)';
-  let modeClass = 'native-only';
-
-  if (mode === 'dual-native') {
-    modeLabel = '官方雙語模式 (Dual Native)';
-    modeClass = 'dual-native';
-  } else if (mode === 'primary-native-ai-secondary') {
-    modeLabel = '官方主軌 + AI 翻譯模式';
-    modeClass = 'ai-mode';
-  }
-
-  const activePair = globalSubtitleSessionStore.getActivePair(
-    typeof window !== 'undefined' ? Math.round(((document.querySelector('video') as HTMLVideoElement)?.currentTime || 0) * 1000) : 0
-  );
-
-  return {
-    primaryStatus,
-    secondaryStatus,
-    modeLabel,
-    modeClass,
-    activePreview: activePair
-      ? {
-          primary: activePair.primary.text,
-          secondary: activePair.secondary?.text || '',
-        }
-      : null,
-  };
+const hudInfo = ref<NetflixStateInfo>({
+  isActive: false,
+  primaryStatus: '未載入 (No Track)',
+  secondaryStatus: '未載入 (No Track)',
+  modeLabel: '原生播放器模式 (Native Only)',
+  modeClass: 'native-only',
+  discoveredTracksCount: 0,
+  activePreview: null,
 });
+
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+async function queryTabState() {
+  try {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    if (tabs[0]?.id) {
+      const state = await browser.tabs.sendMessage(tabs[0].id, { type: 'GET_NETFLIX_STATE' });
+      if (state) {
+        hudInfo.value = state;
+      }
+    }
+  } catch {
+    // Tab might not be ready or not a netflix tab
+  }
+}
 
 onMounted(async () => {
   try {
@@ -195,6 +178,13 @@ onMounted(async () => {
   } catch {
     // fallback
   }
+
+  await queryTabState();
+  pollTimer = setInterval(queryTabState, 1000);
+});
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer);
 });
 
 async function toggleEnabled() {

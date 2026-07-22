@@ -70,6 +70,19 @@ export interface NetflixConfig {
   learningMode: boolean;
 }
 
+export interface NetflixStateInfo {
+  isActive: boolean;
+  primaryStatus: string;
+  secondaryStatus: string;
+  modeLabel: string;
+  modeClass: string;
+  discoveredTracksCount: number;
+  activePreview?: {
+    primary: string;
+    secondary: string;
+  } | null;
+}
+
 // ─── Messages (Content/Popup/Options → Background/Tab) ────────────
 
 export interface TranslateRequestMessage {
@@ -131,6 +144,10 @@ export interface UpdateNetflixConfigMessage {
   payload: Partial<NetflixConfig>;
 }
 
+export interface GetNetflixStateMessage {
+  type: 'GET_NETFLIX_STATE';
+}
+
 /** All messages that can be sent in the messaging system */
 export type BackgroundMessage =
   | TranslateRequestMessage
@@ -144,7 +161,8 @@ export type BackgroundMessage =
   | GetVocabItemsMessage
   | DeleteVocabItemMessage
   | ClearVocabItemsMessage
-  | UpdateNetflixConfigMessage;
+  | UpdateNetflixConfigMessage
+  | GetNetflixStateMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -190,6 +208,7 @@ export type ResponseMap = {
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
   UPDATE_NETFLIX_CONFIG: boolean;
+  GET_NETFLIX_STATE: NetflixStateInfo;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────
