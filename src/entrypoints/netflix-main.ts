@@ -8,7 +8,7 @@ function post(type: string, payload: Record<string, unknown> = {}): void {
       type,
       ...payload,
     },
-    '*',
+    location.origin,
   );
 }
 
@@ -182,6 +182,8 @@ export default defineUnlistedScript({
 
     let capturedTracksStore: any[] = [];
     let lastCaptureSource = 'none';
+    let tracksRevision = 0;
+    let lastTracksFingerprint = '';
 
     // Expose F12 Debug helper directly on MAIN window
     (window as any).__OWT_DEBUG__ = () => {
@@ -213,7 +215,7 @@ export default defineUnlistedScript({
     console.log('[OWT-BOOT] step4-installed');
     console.log('[OWT-BOOT] step5-installed');
 
-    function emitManifestTracks(sourceLabel: string, tracks: any[]): void {
+    function emitManifestTracks(sourceLabel: string, tracks: any[], force: boolean = false): void {
       if (!tracks || tracks.length === 0) return;
 
       const normalizedTracks = tracks.map((t: any) => {
@@ -229,14 +231,24 @@ export default defineUnlistedScript({
         };
       });
 
+      const fingerprint = normalizedTracks
+        .map((t) => `${t.id}:${t.language}:${Boolean(t.url)}`)
+        .sort()
+        .join('|');
+
+      if (!force && fingerprint === lastTracksFingerprint) return;
+
+      lastTracksFingerprint = fingerprint;
+      tracksRevision += 1;
       capturedTracksStore = normalizedTracks;
       lastCaptureSource = sourceLabel;
+
       console.log(
-        `[OWT-MAIN] [Step 2 OK] Captured ${normalizedTracks.length} tracks via ${sourceLabel} (With URLs: ${
+        `[OWT-MAIN] [Step 2 Publish] Captured ${normalizedTracks.length} tracks via ${sourceLabel} (With URLs: ${
           normalizedTracks.filter((t) => Boolean(t.url)).length
-        })`,
+        }, Revision: ${tracksRevision})`,
       );
-      post('OWT_NETFLIX_MANIFEST_TRACKS', { tracks: normalizedTracks, source: sourceLabel });
+      post('OWT_NETFLIX_TRACKS_UPDATED', { revision: tracksRevision, tracks: normalizedTracks, source: sourceLabel });
     }
 
     function installManifestJsonHook(): void {
@@ -361,13 +373,14 @@ export default defineUnlistedScript({
     // --- Content Script PostMessage Handlers ---
     window.addEventListener('message', async (event) => {
       if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
       const data = event.data;
       if (!data || typeof data !== 'object') return;
       if (data.source && data.source !== CONTENT_SOURCE) return;
 
       if (data.type === 'OWT_NETFLIX_REQUEST_TRACKS') {
         if (capturedTracksStore.length > 0) {
-          post('OWT_NETFLIX_MANIFEST_TRACKS', { tracks: capturedTracksStore, source: 're-query' });
+          emitManifestTracks('re-query', capturedTracksStore, true);
         } else {
           const tracks = extractTracksFromCadmiumPlayer();
           const perfTracks = extractTracksFromPerformanceEntries();

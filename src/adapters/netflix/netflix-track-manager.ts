@@ -118,9 +118,19 @@ export class NetflixTrackManager {
     this.targetLang = lang;
   }
 
-  public findPrimaryTrack(): DiscoveredTrack | undefined {
-    // Find active native audio/subtitle track or first text track
-    return this.discoveredTracks[0];
+  public findPrimaryTrack(currentNativeTrackId?: string, preferredLanguage?: string): DiscoveredTrack | undefined {
+    return (
+      this.discoveredTracks.find((t) => t.id === currentNativeTrackId) ??
+      this.discoveredTracks.find((t) => trackMatchesTargetLanguage(t, preferredLanguage || '')) ??
+      this.discoveredTracks.find((t) => {
+        if (!t.downloadables) return false;
+        const keys = Object.keys(t.downloadables);
+        return keys.some(
+          (k) => k.includes('webvtt') || k.includes('dfxp') || k.includes('simplesdh'),
+        );
+      }) ??
+      this.discoveredTracks[0]
+    );
   }
 
   public findBestMatchingTrack(targetLang: string = this.targetLang): DiscoveredTrack | undefined {

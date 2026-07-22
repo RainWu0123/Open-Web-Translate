@@ -20,6 +20,7 @@ describe('Netflix Triple Strategy Capture & State Messaging Unit Tests', () => {
       value: {
         hostname: 'www.netflix.com',
         pathname: '/watch/82760632',
+        origin: 'https://www.netflix.com',
       },
       writable: true,
     });
@@ -46,17 +47,20 @@ describe('Netflix Triple Strategy Capture & State Messaging Unit Tests', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         source: window,
+        origin: window.location.origin,
         data: {
           source: 'owt-netflix-main',
-          type: 'OWT_NETFLIX_MANIFEST_TRACKS',
+          type: 'OWT_NETFLIX_TRACKS_UPDATED',
+          revision: 1,
           tracks: [
-            { id: 't1', label: 'Japanese', language: 'ja', isCC: false },
-            { id: 't2', label: 'Traditional Chinese', language: 'zh-Hant', isCC: false },
+            { trackId: 't1', language: 'en', bcp47: 'en', url: '' },
+            { trackId: 't2', language: 'zh-Hant', bcp47: 'zh-Hant', url: '' },
           ],
         },
       }),
     );
 
+    // Wait a tick for async handlers if needed, though this is sync
     const state = adapter.getStateInfo();
     expect(state.discoveredTracksCount).toBe(2);
   });

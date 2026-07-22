@@ -48,6 +48,7 @@ export class NetflixCaptionAdapter {
   private controlsButton: HTMLElement | null = null;
   private controlsPollTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFetchError: string | null = null;
+  private latestTracksRevision = 0;
 
   private pendingTtmlRequests = new Map<
     string,
@@ -446,27 +447,38 @@ export class NetflixCaptionAdapter {
     return { ok: false, reason: 'timeout' };
   }
 
-  private async refreshSelectedTrack(): Promise<void> {
+  private async refreshSelectedTrack(reasonLabel: string = 'init'): Promise<void> {
     this.trackManager.setAdapterState('loading_primary');
     const primaryTrack = this.trackManager.findPrimaryTrack();
     const secondaryTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
     const video = document.querySelector('video') as HTMLVideoElement | null;
     const tracksWithUrlCount = this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length;
 
+    console.log(`[OWT][Track Selection] (${reasonLabel})`, {
+      primary: primaryTrack ? { lang: primaryTrack.language, trackId: primaryTrack.id } : null,
+      secondary: secondaryTrack ? { lang: secondaryTrack.language, trackId: secondaryTrack.id } : null,
+    });
+
+    if (this.trackManager.getDiscoveredTracks().length === 0) {
+      console.log('[OWT][Step3 Gate]', {
+        tracksWithUrlCount: 0,
+        skipReason: 'waiting-for-tracks'
+      });
+      this.overlayRenderer.renderCues(
+        '正在讀取 Netflix 字幕軌…',
+        '(請稍候)'
+      );
+      return;
+    }
+
     console.log('[OWT][Step3 Gate]', {
       enabled: this.isActive,
-      userDisabled: this.isUserDisabled,
       selectedPrimaryTrackId: primaryTrack?.id || null,
-      selectedSecondaryTrackId: secondaryTrack?.id || null,
       tracksWithUrlCount,
-      playbackReady: Boolean(video),
-      currentTime: video?.currentTime || 0,
       skipReason: !this.isActive
         ? 'extension-disabled'
         : !primaryTrack
-        ? 'no-primary-track-selected'
-        : tracksWithUrlCount === 0
-        ? 'no-track-urls'
+        ? 'no-usable-primary-track'
         : 'none',
     });
 
@@ -477,13 +489,12 @@ export class NetflixCaptionAdapter {
 
     if (!primaryTrack) {
       console.warn('[OWT][Step3 Skip]', {
-        reason: 'no-primary-track-selected',
+        reason: 'no-usable-primary-track',
         discoveredTracksCount: this.trackManager.getDiscoveredTracks().length,
       });
-      const count = this.trackManager.getDiscoveredTracks().length;
       this.overlayRenderer.renderCues(
-        '⚠️ 尚未擷取到 Netflix 字幕軌',
-        count > 0 ? `(已發現 ${count} 個字幕軌，請切換選單)` : '(請開啟 Netflix 音訊與字幕選單選擇字幕語言)',
+        '⚠️ 找不到可讀取的文字字幕軌',
+        '(已開啟 Netflix 即時 DOM 擷取翻譯)'
       );
       this.startTier3DomFallback();
       return;
@@ -663,11 +674,16 @@ export class NetflixCaptionAdapter {
 
   private setupMainWorldListener(): void {
     window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
       const data = event.data;
       if (!data || typeof data !== 'object') return;
       if (data.source !== 'owt-netflix-main') return;
 
-      if (data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') {
+      if (data.type === 'OWT_NETFLIX_TRACKS_UPDATED') {
+        if (typeof data.revision !== 'number' || data.revision <= this.latestTracksRevision) return;
+        this.latestTracksRevision = data.revision;
+
         const rawTracks = data.tracks || [];
         const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => ({
           id: t.id || t.trackId || t.language,
@@ -681,9 +697,12 @@ export class NetflixCaptionAdapter {
         }));
 
         this.trackManager.setDiscoveredTracks(discovered);
-        logger.info(`Captured ${discovered.length} tracks from manifest/player (With URLs: ${discovered.filter(d => Boolean(d.url)).length})`);
+        
+        const urlsCount = discovered.filter((d) => Boolean(d.url)).length;
+        console.log(`[OWT][Step2 Receive] { revision: ${data.revision}, tracks: ${discovered.length}, tracksWithUrl: ${urlsCount} }`);
+
         if (this.isActive) {
-          void this.refreshSelectedTrack();
+          void this.refreshSelectedTrack('tracks-updated');
         }
       }
 
