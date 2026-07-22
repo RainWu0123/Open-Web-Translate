@@ -61,6 +61,18 @@ export class NetflixCaptionAdapter {
 
   constructor() {}
 
+  public requestMainWorldTracks(): void {
+    if (typeof window !== 'undefined') {
+      window.postMessage(
+        {
+          source: CONTENT_SOURCE,
+          type: 'OWT_NETFLIX_REQUEST_TRACKS',
+        },
+        '*',
+      );
+    }
+  }
+
   public init(): void {
     if (typeof window === 'undefined' || !window.location?.hostname?.includes('netflix.com')) {
       return;
@@ -74,6 +86,41 @@ export class NetflixCaptionAdapter {
     this.setupStateMessageListener();
 
     this.overlayRenderer.init();
+    this.requestMainWorldTracks();
+
+    // Attach F12 Debug Helper to window
+    if (typeof window !== 'undefined') {
+      (window as any).__OWT_DEBUG__ = () => {
+        this.requestMainWorldTracks();
+        const isMainInjected = document.documentElement?.getAttribute('data-owt-netflix-main') === '1';
+        const primary = globalSubtitleSessionStore.getPrimaryTrack();
+        const secondary = globalSubtitleSessionStore.getSecondaryTrack();
+        const video = document.querySelector('video') as HTMLVideoElement | null;
+        const nowMs = Math.round((video?.currentTime || 0) * 1000);
+        const pair = globalSubtitleSessionStore.getActivePair(nowMs);
+
+        console.group('🔍 OWT Netflix Diagnostic Breakdown (5-Step Trace)');
+        console.log('Step 1 [MAIN Script Injected]:', isMainInjected ? '✅ Injected' : '❌ Failed');
+        console.log('Step 2 [Manifest Tracks Discovered]:', `${this.trackManager.getDiscoveredTracks().length} tracks`);
+        console.log('Step 3 [TTML Fetch Last Status]:', this.lastFetchError || 'OK');
+        console.log('Step 4 [Primary Track Cues Parsed]:', primary ? `${primary.cues.length} cues (${primary.lang})` : '❌ Not Loaded');
+        console.log('Step 4 [Secondary Track Cues Parsed]:', secondary ? `${secondary.cues.length} cues (${secondary.lang})` : 'AI Translation Fallback');
+        console.log('Step 5 [Live Video Sync]:', `currentTime=${(video?.currentTime || 0).toFixed(2)}s`, 'Active Pair:', pair);
+        console.groupEnd();
+
+        if (typeof (window as any).__OWT_MAIN_DEBUG__ === 'function') {
+          (window as any).__OWT_MAIN_DEBUG__();
+        }
+
+        return {
+          step1_mainInjected: isMainInjected,
+          step2_discoveredTracks: this.trackManager.getDiscoveredTracks().length,
+          step3_fetchStatus: this.lastFetchError || 'OK',
+          step4_primaryCues: primary?.cues?.length || 0,
+          step5_videoTimeSec: video?.currentTime || 0,
+        };
+      };
+    }
 
     if (this.controlsPollTimer) clearInterval(this.controlsPollTimer);
     this.controlsPollTimer = setInterval(() => {
@@ -123,6 +170,8 @@ export class NetflixCaptionAdapter {
     this.applyOverlayStyleConfig();
     this.overlayRenderer.showOverlay();
 
+    this.requestMainWorldTracks();
+
     // Start live sync engine & DOM Observer capture
     this.syncEngine.start((cue, videoMs) => {
       void this.onCueSyncTick(cue, videoMs);
@@ -167,6 +216,8 @@ export class NetflixCaptionAdapter {
   }
 
   public getStateInfo(): NetflixStateInfo {
+    this.requestMainWorldTracks();
+
     const isMainInjected = document.documentElement?.getAttribute('data-owt-netflix-main') === '1';
     const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
     const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();

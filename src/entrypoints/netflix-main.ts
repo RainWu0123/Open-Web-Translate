@@ -37,19 +37,46 @@ function getMainVideoPlayer(api?: any): { id: string; player: any } | null {
   }
 }
 
+function getUrlsFromEntry(entry: any): string[] {
+  if (!entry) return [];
+  const urls: string[] = [];
+
+  const raw = entry.downloadUrls || entry.urls || entry.url;
+  if (typeof raw === 'string' && raw.startsWith('http')) {
+    urls.push(raw);
+  } else if (Array.isArray(raw)) {
+    for (const u of raw) {
+      if (typeof u === 'string' && u.startsWith('http')) {
+        urls.push(u);
+      } else if (u && typeof u === 'object') {
+        const inner = u.url || u.downloadUrl;
+        if (typeof inner === 'string' && inner.startsWith('http')) urls.push(inner);
+      }
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const u of Object.values(raw)) {
+      if (typeof u === 'string' && u.startsWith('http')) {
+        urls.push(u);
+      } else if (u && typeof u === 'object') {
+        const inner = (u as any).url || (u as any).downloadUrl;
+        if (typeof inner === 'string' && inner.startsWith('http')) urls.push(inner);
+      }
+    }
+  }
+
+  return urls;
+}
+
 function extractTrackUrlUniversal(t: any): string {
   if (!t || typeof t !== 'object') return '';
+
   if (typeof t.url === 'string' && t.url.startsWith('http')) return t.url;
   if (typeof t.cdnUrl === 'string' && t.cdnUrl.startsWith('http')) return t.cdnUrl;
 
-  if (Array.isArray(t.urls) && typeof t.urls[0] === 'string' && t.urls[0].startsWith('http')) {
-    return t.urls[0];
-  }
-  if (Array.isArray(t.downloadUrls) && typeof t.downloadUrls[0] === 'string' && t.downloadUrls[0].startsWith('http')) {
-    return t.downloadUrls[0];
-  }
+  const directUrls = getUrlsFromEntry(t);
+  if (directUrls.length > 0) return directUrls[0];
 
-  const downloadables = t.downloadables || t.ttDownloadables || t.rawTrack?.downloadables || t.rawTrack?.ttDownloadables;
+  const downloadables = t.ttDownloadables || t.downloadables || t.rawTrack?.ttDownloadables || t.rawTrack?.downloadables;
   if (downloadables && typeof downloadables === 'object') {
     const PREFERRED_TEXT_PROFILES = [
       'dfxp-ls-sdh',
@@ -59,23 +86,26 @@ function extractTrackUrlUniversal(t: any): string {
       'dfxp-ls',
       'webvtt-ls',
     ];
+
     for (const prof of PREFERRED_TEXT_PROFILES) {
       const entry = downloadables[prof];
       if (entry) {
-        const u = entry.downloadUrls?.[0] || entry.urls?.[0] || entry.url;
-        if (typeof u === 'string' && u.startsWith('http')) return u;
+        const urls = getUrlsFromEntry(entry);
+        if (urls.length > 0) return urls[0];
       }
     }
-    for (const entry of Object.values(downloadables as Record<string, any>)) {
-      if (entry && !entry.isImage) {
-        const u = entry.downloadUrls?.[0] || entry.urls?.[0] || entry.url;
-        if (typeof u === 'string' && u.startsWith('http')) return u;
+
+    for (const [prof, entry] of Object.entries(downloadables as Record<string, any>)) {
+      if (entry && !entry.isImage && !prof.includes('imsc')) {
+        const urls = getUrlsFromEntry(entry);
+        if (urls.length > 0) return urls[0];
       }
     }
+
     for (const entry of Object.values(downloadables as Record<string, any>)) {
       if (entry) {
-        const u = entry.downloadUrls?.[0] || entry.urls?.[0] || entry.url;
-        if (typeof u === 'string' && u.startsWith('http')) return u;
+        const urls = getUrlsFromEntry(entry);
+        if (urls.length > 0) return urls[0];
       }
     }
   }
@@ -213,6 +243,8 @@ export default defineUnlistedScript({
               tracks = result.timedtexttracks;
             } else if (result.result?.timedtexttracks && Array.isArray(result.result.timedtexttracks)) {
               tracks = result.result.timedtexttracks;
+            } else if (result.value?.timedtexttracks && Array.isArray(result.value.timedtexttracks)) {
+              tracks = result.value.timedtexttracks;
             } else if (result.profiles && Array.isArray(result.tracks)) {
               tracks = result.tracks;
             }
@@ -241,7 +273,7 @@ export default defineUnlistedScript({
             clone.text().then((text) => {
               try {
                 const data = JSON.parse(text);
-                const tracks = data?.timedtexttracks || data?.result?.timedtexttracks;
+                const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
                 if (Array.isArray(tracks) && tracks.length > 0) {
                   emitManifestTracks('fetch response clone', tracks);
                 }
@@ -252,17 +284,38 @@ export default defineUnlistedScript({
 
         return response;
       };
+
+      const origOpen = XMLHttpRequest.prototype.open;
+      const origSend = XMLHttpRequest.prototype.send;
+
+      XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...args: any[]) {
+        (this as any)._owtUrl = typeof url === 'string' ? url : url instanceof URL ? url.href : String(url);
+        return origOpen.apply(this, [method, url, ...args] as any);
+      };
+
+      XMLHttpRequest.prototype.send = function (body?: any) {
+        this.addEventListener('load', function () {
+          try {
+            const url = (this as any)._owtUrl || '';
+            if (url.includes('/manifest') || url.includes('/cadmium/') || url.includes('timedtext')) {
+              if (this.responseText) {
+                const data = JSON.parse(this.responseText);
+                const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
+                if (Array.isArray(tracks) && tracks.length > 0) {
+                  emitManifestTracks('XHR response manifest', tracks);
+                }
+              }
+            }
+          } catch {}
+        });
+        return origSend.apply(this, [body] as any);
+      };
     }
 
     function startCadmiumPlayerPoller(): void {
       let attempts = 0;
       const timer = setInterval(() => {
         attempts++;
-        if (attempts > 60 && capturedTracksStore.length > 0 && capturedTracksStore.some((t) => Boolean(t.url))) {
-          clearInterval(timer);
-          return;
-        }
-
         try {
           const tracks = extractTracksFromCadmiumPlayer();
           const perfTracks = extractTracksFromPerformanceEntries();
@@ -289,7 +342,7 @@ export default defineUnlistedScript({
             emitManifestTracks('cadmium_active_poll', tracks);
           }
         } catch {}
-      }, 1000);
+      }, 2000);
     }
 
     installManifestJsonHook();
@@ -302,6 +355,21 @@ export default defineUnlistedScript({
       const data = event.data;
       if (!data || typeof data !== 'object') return;
       if (data.source && data.source !== CONTENT_SOURCE) return;
+
+      if (data.type === 'OWT_NETFLIX_REQUEST_TRACKS') {
+        if (capturedTracksStore.length > 0) {
+          post('OWT_NETFLIX_MANIFEST_TRACKS', { tracks: capturedTracksStore, source: 're-query' });
+        } else {
+          const tracks = extractTracksFromCadmiumPlayer();
+          const perfTracks = extractTracksFromPerformanceEntries();
+          if (tracks.length > 0) {
+            emitManifestTracks('re-query cadmium', tracks);
+          } else if (perfTracks.length > 0) {
+            emitManifestTracks('re-query perf', perfTracks);
+          }
+        }
+        return;
+      }
 
       if (data.type === 'OWT_NETFLIX_HYDRATE_TRACK') {
         const { trackId, performSeek, txId } = data;
