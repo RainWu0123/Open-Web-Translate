@@ -42,6 +42,9 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     window.addEventListener('fullscreenchange', this.onFullscreenChange);
     window.addEventListener('webkitfullscreenchange', this.onFullscreenChange);
+
+    // Step 1 Debug Guarantee: Ensure testing subtitle is displayed immediately
+    this.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
   }
 
   public destroy(): void {
@@ -78,7 +81,8 @@ export class NetflixOverlayRenderer {
     if (!this.hostEl) {
       this.hostEl = document.createElement('div');
       this.hostEl.id = 'owt-netflix-overlay-host';
-      this.hostEl.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483647;';
+      this.hostEl.style.cssText =
+        'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:2147483647;pointer-events:auto;';
       this.shadowRoot = this.hostEl.attachShadow({ mode: 'open' });
       this.buildShadowDom();
     }
@@ -102,14 +106,8 @@ export class NetflixOverlayRenderer {
     style.textContent = `
       :host {
         display: block;
-        width: 100%;
-        height: 100%;
       }
       .owt-subtitle-box {
-        position: absolute;
-        bottom: ${this.config.bottomPosition}px;
-        left: 50%;
-        transform: translateX(-50%);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -117,13 +115,14 @@ export class NetflixOverlayRenderer {
         pointer-events: auto;
         cursor: grab;
         user-select: none;
-        padding: 6px 14px;
-        background: rgba(0, 0, 0, 0.65);
-        border-radius: 8px;
-        backdrop-filter: blur(4px);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-        max-width: 90%;
-        transition: opacity 0.15s ease, transform 0.05s ease;
+        padding: 8px 18px;
+        background: rgba(15, 23, 42, 0.85);
+        border: 2px solid #38bdf8;
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.6);
+        max-width: 90vw;
+        transition: opacity 0.15s ease;
       }
       .owt-subtitle-box:active {
         cursor: grabbing;
@@ -142,7 +141,7 @@ export class NetflixOverlayRenderer {
       }
       .owt-sub-trans {
         font-size: 22px;
-        color: #818cf8;
+        color: #38bdf8;
       }
       .owt-token {
         display: inline-block;
@@ -168,13 +167,15 @@ export class NetflixOverlayRenderer {
     `;
 
     this.containerEl = document.createElement('div');
-    this.containerEl.className = 'owt-subtitle-box hidden';
+    this.containerEl.className = 'owt-subtitle-box';
 
     this.transSubEl = document.createElement('div');
     this.transSubEl.className = 'owt-sub-line owt-sub-trans';
+    this.transSubEl.textContent = '(這是測試字幕 - 譯文)';
 
     this.origSubEl = document.createElement('div');
     this.origSubEl.className = 'owt-sub-line owt-sub-orig';
+    this.origSubEl.textContent = '(這是測試字幕 - 原文)';
 
     this.loadingEl = document.createElement('div');
     this.loadingEl.className = 'owt-sub-line owt-loading hidden';
@@ -205,7 +206,6 @@ export class NetflixOverlayRenderer {
       const token = globalSubtitleSessionStore.getTokenById(tokenId);
       if (!token) return;
 
-      // Pause Netflix video player
       const video = document.querySelector('video') as HTMLVideoElement | null;
       if (video && !video.paused) {
         video.pause();
@@ -241,8 +241,6 @@ export class NetflixOverlayRenderer {
   private updateStyles(): void {
     if (!this.containerEl || !this.origSubEl || !this.transSubEl) return;
 
-    this.containerEl.style.bottom = `${this.config.bottomPosition}px`;
-
     this.origSubEl.style.fontSize = `${this.config.origSize}px`;
     this.origSubEl.style.color = this.config.origColor;
     this.origSubEl.style.margin = `${this.config.lineSpacing}px 0`;
@@ -276,7 +274,7 @@ export class NetflixOverlayRenderer {
   public renderPair(pair: SubtitlePair | null): void {
     this.currentPair = pair;
     if (!pair) {
-      this.renderCues('', '');
+      this.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
       return;
     }
     const origText = pair.primary.text;
@@ -288,36 +286,29 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     if (!this.containerEl || !this.origSubEl || !this.transSubEl || !this.loadingEl) return;
 
-    const hasOrig = Boolean(origText.trim());
-    const hasTrans = Boolean(transText.trim());
+    const displayOrig = origText.trim() || '(這是測試字幕 - 原文)';
+    const displayTrans = transText.trim() || '(這是測試字幕 - 譯文)';
 
-    if (!hasOrig && !hasTrans) {
-      this.containerEl.classList.add('hidden');
-      this.showNativeSubtitles();
-      return;
-    }
-
-    this.hideNativeSubtitles();
     this.loadingEl.classList.add('hidden');
     this.containerEl.classList.remove('hidden');
 
     const mode = this.config.displayMode;
 
     if (mode === 'target-only') {
-      this.transSubEl.textContent = transText || origText;
+      this.transSubEl.textContent = displayTrans;
       this.transSubEl.classList.remove('hidden');
       this.origSubEl.classList.add('hidden');
     } else if (mode === 'source-only') {
-      this.renderTokenizedLine(this.origSubEl, origText, lang, cueId);
+      this.renderTokenizedLine(this.origSubEl, displayOrig, lang, cueId);
       this.origSubEl.classList.remove('hidden');
       this.transSubEl.classList.add('hidden');
     } else {
       // bilingual
-      this.transSubEl.textContent = transText;
-      this.transSubEl.classList.toggle('hidden', !hasTrans);
+      this.transSubEl.textContent = displayTrans;
+      this.transSubEl.classList.remove('hidden');
 
-      this.renderTokenizedLine(this.origSubEl, origText, lang, cueId);
-      this.origSubEl.classList.toggle('hidden', !hasOrig);
+      this.renderTokenizedLine(this.origSubEl, displayOrig, lang, cueId);
+      this.origSubEl.classList.remove('hidden');
     }
   }
 
@@ -325,7 +316,6 @@ export class NetflixOverlayRenderer {
     this.ensureHostAttached();
     if (!this.containerEl || !this.loadingEl || !this.origSubEl || !this.transSubEl) return;
 
-    this.hideNativeSubtitles();
     this.containerEl.classList.remove('hidden');
     this.origSubEl.classList.add('hidden');
     this.transSubEl.classList.add('hidden');

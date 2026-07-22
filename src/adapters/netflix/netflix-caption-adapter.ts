@@ -70,21 +70,27 @@ export class NetflixCaptionAdapter {
     this.setupRuntimeConfigListener();
     this.setupHotkeyListeners();
     this.setupStateMessageListener();
+
+    // Step 1 Debug: Force overlay to render immediately upon page load
     this.overlayRenderer.init();
+    this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
 
     if (this.controlsPollTimer) clearInterval(this.controlsPollTimer);
     this.controlsPollTimer = setInterval(() => {
       this.injectControlsButton();
       this.tryAutoStart();
+      this.overlayRenderer.ensureHostAttached();
     }, 1000);
 
     window.addEventListener('mousemove', () => {
       this.injectControlsButton();
+      this.overlayRenderer.ensureHostAttached();
     });
 
     this.whenDomReady(() => {
       this.injectControlsButton();
       this.tryAutoStart();
+      this.overlayRenderer.ensureHostAttached();
     });
   }
 
@@ -122,7 +128,7 @@ export class NetflixCaptionAdapter {
     this.syncEngine.stop();
     this.domObserver.stop();
     this.applyNativeSubtitleMask(false);
-    this.overlayRenderer.renderCues('', '');
+    this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
     logger.info('NetflixCaptionAdapter stopped');
   }
 
@@ -532,7 +538,7 @@ export class NetflixCaptionAdapter {
     this.domObserver.start((capturedText) => {
       if (!this.isActive) return;
       if (!capturedText) {
-        this.overlayRenderer.renderCues('', '');
+        this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
         return;
       }
 
@@ -552,7 +558,7 @@ export class NetflixCaptionAdapter {
     }
 
     if (!cue || !cue.text.trim()) {
-      this.overlayRenderer.renderCues('', '');
+      this.overlayRenderer.renderCues('(這是測試字幕 - 原文)', '(這是測試字幕 - 譯文)');
       return;
     }
 
