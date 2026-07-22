@@ -177,10 +177,41 @@ function extractTracksFromPerformanceEntries(): any[] {
 
 export default defineUnlistedScript({
   main() {
-    console.log('[OWT-MAIN] netflix-main.js injected into MAIN world successfully!');
+    console.log('[OWT-BOOT] version=v0.1.0-trace');
+    console.log('[OWT-BOOT] debug-hook-registering');
 
     let capturedTracksStore: any[] = [];
     let lastCaptureSource = 'none';
+
+    // Expose F12 Debug helper directly on MAIN window
+    (window as any).__OWT_DEBUG__ = () => {
+      const api = getPlayerApi();
+      const playerObj = getMainVideoPlayer(api);
+      console.group('🔍 OWT Netflix MAIN-World Diagnostic Dump');
+      console.log('1. Player API Present:', Boolean(api));
+      console.log('2. Main Video Player Object:', playerObj);
+      console.log('3. Last Capture Source:', lastCaptureSource);
+      console.log('4. Captured Tracks Count:', capturedTracksStore.length);
+      console.log('5. Captured Tracks List:', capturedTracksStore);
+      console.log('6. Cadmium TimedTextTrackList:', playerObj?.player?.getTimedTextTrackList?.() || []);
+      console.log('7. Performance Log TimedText Entries:', extractTracksFromPerformanceEntries());
+      console.groupEnd();
+      return {
+        boot: 'ok',
+        version: 'v0.1.0-trace',
+        playerApi: Boolean(api),
+        tracksCount: capturedTracksStore.length,
+        tracksWithUrlCount: capturedTracksStore.filter((t) => Boolean(t.url)).length,
+        source: lastCaptureSource,
+        tracks: capturedTracksStore,
+      };
+    };
+    (window as any).__OWT_MAIN_DEBUG__ = (window as any).__OWT_DEBUG__;
+
+    console.log('[OWT-BOOT] debug-hook-registered', typeof (window as any).__OWT_DEBUG__);
+    console.log('[OWT-BOOT] step3-installed');
+    console.log('[OWT-BOOT] step4-installed');
+    console.log('[OWT-BOOT] step5-installed');
 
     function emitManifestTracks(sourceLabel: string, tracks: any[]): void {
       if (!tracks || tracks.length === 0) return;
@@ -207,28 +238,6 @@ export default defineUnlistedScript({
       );
       post('OWT_NETFLIX_MANIFEST_TRACKS', { tracks: normalizedTracks, source: sourceLabel });
     }
-
-    // Expose F12 Debug helper in MAIN world
-    (window as any).__OWT_MAIN_DEBUG__ = () => {
-      const api = getPlayerApi();
-      const playerObj = getMainVideoPlayer(api);
-      console.group('🔍 OWT Netflix MAIN-World Diagnostic Dump');
-      console.log('1. Player API Present:', Boolean(api));
-      console.log('2. Main Video Player Object:', playerObj);
-      console.log('3. Last Capture Source:', lastCaptureSource);
-      console.log('4. Captured Tracks Count:', capturedTracksStore.length);
-      console.log('5. Captured Tracks List:', capturedTracksStore);
-      console.log('6. Cadmium TimedTextTrackList:', playerObj?.player?.getTimedTextTrackList?.() || []);
-      console.log('7. Performance Log TimedText Entries:', extractTracksFromPerformanceEntries());
-      console.groupEnd();
-      return {
-        playerApi: Boolean(api),
-        tracksCount: capturedTracksStore.length,
-        tracksWithUrlCount: capturedTracksStore.filter((t) => Boolean(t.url)).length,
-        source: lastCaptureSource,
-        tracks: capturedTracksStore,
-      };
-    };
 
     function installManifestJsonHook(): void {
       const originalParse = JSON.parse;
