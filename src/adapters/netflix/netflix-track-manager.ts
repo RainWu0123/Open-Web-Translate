@@ -1,5 +1,6 @@
 import { SubtitleCue, parseNetflixTtmlDetailed } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
+import { NETFLIX_PREFERRED_TEXT_PROFILES, isSubtitleResourceUrl } from './netflix-track-constants';
 
 const logger = createLogger('NetflixTrackManager');
 
@@ -192,15 +193,7 @@ export class NetflixTrackManager implements INetflixTrackManager {
 
     if (!track.downloadables) return null;
 
-    const PREFERRED_PROFILES = [
-      'dfxp-ls-sdh',
-      'simplesdh',
-      'webvtt-lssdh',
-      'dfxp-teletext-dfxp-ls-sdh',
-      'dfxp-ls',
-    ];
-
-    for (const profileName of PREFERRED_PROFILES) {
+    for (const profileName of NETFLIX_PREFERRED_TEXT_PROFILES) {
       const entry = track.downloadables[profileName];
       if (entry && !entry.isImage) {
         const url = entry.downloadUrls?.[0] || entry.urls?.[0];
@@ -232,16 +225,7 @@ export class NetflixTrackManager implements INetflixTrackManager {
         const newTrackUrls: string[] = [];
 
         for (const entry of entries) {
-          const name = entry.name.toLowerCase();
-          if (
-            (name.includes('.dfxp') ||
-              name.includes('.vtt') ||
-              name.includes('timedtext') ||
-              name.includes('format=dfxp') ||
-              name.includes('format=webvtt')) &&
-            !name.includes('path=video') &&
-            !name.includes('path=audio')
-          ) {
+          if (isSubtitleResourceUrl(entry.name)) {
             newTrackUrls.push(entry.name);
           }
         }

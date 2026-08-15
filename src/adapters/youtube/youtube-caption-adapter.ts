@@ -1,6 +1,6 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { createLogger } from '@/shared/logger';
+import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
 
 const logger = createLogger('YouTubeCaptionAdapter');
 
@@ -9,29 +9,15 @@ interface RequestState {
   abortController: AbortController;
 }
 
-export class YouTubeCaptionAdapter {
-  private isActive = false;
+export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   private observer: MutationObserver | null = null;
   private observerTarget: Element | null = null;
   private controlsButton: HTMLElement | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastMouseMoveTime = 0;
 
-  private targetLang = 'zh-Hant';
-  private displayMode = 'bilingual';
-  private subtitleOriginalFontSize = 18;
-  private subtitleTranslatedFontSize = 22;
-  private subtitleOriginalColor = '#ffffff';
-  private subtitleTranslatedColor = '#818cf8';
-
-  private routeGeneration = 0;
-  private currentVideoId: string | null = null;
-
-  private inlineTranslationCache = new Map<string, string>();
   private pendingRequests = new Map<string, RequestState>();
 
   constructor() {
-    // Constructor kept lightweight
+    super();
   }
 
   public init() {
@@ -39,7 +25,7 @@ export class YouTubeCaptionAdapter {
       logger.info('Initializing YouTubeCaptionAdapter on youtube.com');
       this.setupNavigationListeners();
       this.setupSettingsListener();
-      this.setupMouseMoveInjectionListener();
+      this.wireControlsButtonReinjection();
 
       this.injectControlsButton();
       if (document.readyState === 'loading') {
@@ -54,87 +40,26 @@ export class YouTubeCaptionAdapter {
    * Listens to mouse movements on YouTube.
    * When controls reappear on hover, ensures OWT button is always injected.
    */
-  private setupMouseMoveInjectionListener() {
-    if (typeof window === 'undefined') return;
-
-    window.addEventListener(
-      'mousemove',
-      () => {
-        const now = Date.now();
-        // Throttle check to at most once per 400ms
-        if (now - this.lastMouseMoveTime < 400) return;
-        this.lastMouseMoveTime = now;
-
-        if (window.location.hostname.includes('youtube.com')) {
-          const btn = document.querySelector('.owt-yt-toggle-btn');
-          if (!btn) {
-            this.injectControlsButton();
-          }
-        }
-      },
-      { passive: true }
-    );
-  }
-
-  private setupSettingsListener() {
-    try {
-      SettingsStorage.onChange((newSettings) => {
-        if (newSettings) {
-          this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
-          this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
-          this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
-          this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
-          this.targetLang = newSettings.targetLanguage || 'zh-Hant';
-          this.displayMode = newSettings.displayMode || 'bilingual';
-          if (this.isActive) {
-            this.processCaptions();
-          }
-        }
-      });
-    } catch {
-      // Ignore if storage listener unavailable
-    }
+  private wireControlsButtonReinjection() {
+    this.setupMouseMoveInjectionListener(400, () => {
+      if (document.querySelector('.owt-yt-toggle-btn')) return;
+      this.injectControlsButton();
+    });
   }
 
   private setupNavigationListeners() {
-    let lastUrl = window.location.href;
-    const handleNavigation = () => {
-      const currentUrl = window.location.href;
-      if (currentUrl !== lastUrl) {
-        lastUrl = currentUrl;
-        const newVideoId = new URLSearchParams(window.location.search).get('v');
-        if (newVideoId !== this.currentVideoId) {
-          this.currentVideoId = newVideoId;
-          this.routeGeneration++;
-          this.abortPendingRequests();
-          this.restoreNativeSegments();
-        }
-        this.injectControlsButton();
-      }
-    };
+    const handleNavigation = this.createNavigationHandler(() =>
+      new URLSearchParams(window.location.search).get('v'),
+    );
 
     window.addEventListener('popstate', handleNavigation);
     window.addEventListener('hashchange', handleNavigation);
     window.addEventListener('yt-navigate-finish', handleNavigation);
   }
 
-  private async handleToggleClick() {
-    if (this.isActive) {
-      this.stop();
-    } else {
-      try {
-        const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
-        const targetLang = settings?.targetLanguage || 'zh-Hant';
-        const displayMode = settings?.displayMode || 'bilingual';
-        const origSize = settings?.subtitleOriginalFontSize || 18;
-        const transSize = settings?.subtitleTranslatedFontSize || 22;
-        const origColor = settings?.subtitleOriginalColor || '#ffffff';
-        const transColor = settings?.subtitleTranslatedColor || '#818cf8';
-        await this.start(targetLang, displayMode, origSize, transSize, origColor, transColor);
-      } catch (e) {
-        await this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
-      }
-    }
+  protected onVideoChanged(): void {
+    this.abortPendingRequests();
+    this.restoreNativeSegments();
   }
 
   private maxConcurrentRequests = 3;
@@ -160,7 +85,7 @@ export class YouTubeCaptionAdapter {
     if (next) next();
   }
 
-  private injectControlsButton() {
+  public injectControlsButton(): void {
     if (typeof document === 'undefined') return;
 
     const subtitlesBtn = document.querySelector('.ytp-subtitles-button');
@@ -227,9 +152,9 @@ export class YouTubeCaptionAdapter {
     }
   }
 
-  async start(targetLang: string, displayMode: string, origSize = 18, transSize = 22, origColor = '#ffffff', transColor = '#818cf8') {
-    this.targetLang = targetLang;
-    this.displayMode = displayMode;
+  async start(targetLang?: string, displayMode?: string, origSize = 18, transSize = 22, origColor = '#ffffff', transColor = '#818cf8') {
+    if (targetLang) this.targetLang = targetLang;
+    if (displayMode) this.displayMode = displayMode;
     this.subtitleOriginalFontSize = origSize;
     this.subtitleTranslatedFontSize = transSize;
     this.subtitleOriginalColor = origColor;
@@ -252,10 +177,7 @@ export class YouTubeCaptionAdapter {
       this.observer = null;
       this.observerTarget = null;
     }
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+    this.clearDebounceTimer();
 
     this.requestQueue = [];
     this.activeRequestCount = 0;
@@ -318,7 +240,7 @@ export class YouTubeCaptionAdapter {
     this.processCaptions();
   }
 
-  private processCaptions(): void {
+  public processCaptions(): void {
     if (!this.isActive) return;
 
     const segments = document.querySelectorAll('.ytp-caption-segment, .caption-visual-line');

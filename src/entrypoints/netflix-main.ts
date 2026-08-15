@@ -1,3 +1,12 @@
+import { createLogger } from '@/shared/logger';
+import {
+  NETFLIX_PREFERRED_TEXT_PROFILES,
+  isSubtitleResourceUrl,
+  looksLikeTrackUrl,
+} from '@/adapters/netflix/netflix-track-constants';
+
+const logger = createLogger('NetflixMain');
+
 const MAIN_SOURCE = 'owt-netflix-main';
 const CONTENT_SOURCE = 'owt-netflix-content';
 
@@ -40,9 +49,7 @@ function extractTextFromMp4Segment(bytes: Uint8Array): string | null {
 
     let endTag = '';
     const prefix = rawString.substring(startIdx, startIdx + 15);
-    if (prefix.startsWith('<?xml')) {
-      endTag = '</tt>';
-    } else if (prefix.startsWith('<tt')) {
+    if (prefix.startsWith('<?xml') || prefix.startsWith('<tt')) {
       endTag = '</tt>';
     } else if (prefix.startsWith('<smpte:tt')) {
       endTag = '</smpte:tt>';
@@ -83,7 +90,7 @@ function extractTextFromMp4Segment(bytes: Uint8Array): string | null {
 }
 
 function detectSubtitleFormat(bytes: Uint8Array): 'webvtt' | 'ttml' | 'mp4-timed-text' | 'unknown' {
-  console.log('[OWT-FORMAT-DETECTOR] invoked', {
+  logger.debug('[OWT-FORMAT-DETECTOR] invoked', {
     bytes: bytes.length,
     magic: readAsciiPrefix(bytes, 24),
   });
@@ -106,7 +113,7 @@ function detectSubtitleFormat(bytes: Uint8Array): 'webvtt' | 'ttml' | 'mp4-timed
 
   const extractedText = extractTextFromMp4Segment(bytes);
   if (extractedText) {
-    console.log('[OWT-FORMAT-DETECTOR] Successfully extracted text segment', {
+    logger.debug('[OWT-FORMAT-DETECTOR] Successfully extracted text segment', {
       extractedBytes: extractedText.length,
     });
     return extractedText.includes('WEBVTT') ? 'webvtt' : 'ttml';
@@ -177,19 +184,12 @@ function getUrlsFromEntry(entry: any): string[] {
 function findUrlsInObject(obj: any, depth = 0, maxDepth = 6): string[] {
   let urls: string[] = [];
   if (!obj || depth > maxDepth || typeof obj !== 'object') return urls;
-  
+
   for (const key of Object.keys(obj)) {
     try {
       const val = obj[key];
       if (typeof val === 'string') {
-        if (
-          val.startsWith('http') && 
-          val.includes('nflxvideo.net') && 
-          !val.includes('path=video') && 
-          !val.includes('path=audio') &&
-          !val.includes('/video/') &&
-          !val.includes('/audio/')
-        ) {
+        if (looksLikeTrackUrl(val)) {
           urls.push(val);
         }
       } else if (val && typeof val === 'object') {
@@ -208,16 +208,7 @@ function extractTrackUrlUniversal(t: any): string {
 
   const downloadables = t.ttDownloadables || t.downloadables || t.rawTrack?.ttDownloadables || t.rawTrack?.downloadables;
   if (downloadables && typeof downloadables === 'object') {
-    const PREFERRED_TEXT_PROFILES = [
-      'dfxp-ls-sdh',
-      'simplesdh',
-      'webvtt-lssdh',
-      'dfxp-teletext-dfxp-ls-sdh',
-      'dfxp-ls',
-      'webvtt-ls',
-    ];
-
-    for (const prof of PREFERRED_TEXT_PROFILES) {
+    for (const prof of NETFLIX_PREFERRED_TEXT_PROFILES) {
       const entry = downloadables[prof];
       if (entry) {
         const urls = getUrlsFromEntry(entry);
@@ -243,9 +234,7 @@ function extractTrackUrlUniversal(t: any): string {
   // Deep scan for hidden URLs in the Cadmium track object
   const hiddenUrls = findUrlsInObject(t.rawTrack || t);
   if (hiddenUrls.length > 0) {
-    // Prefer URLs that don't look like huge media segments if possible,
-    // though any subtitle URL is fine.
-    const textUrl = hiddenUrls.find(u => u.includes('timedtext') || u.includes('/tt/') || u.includes('.dfxp') || u.includes('.vtt'));
+    const textUrl = hiddenUrls.find((u) => isSubtitleResourceUrl(u));
     return textUrl || hiddenUrls[0];
   }
 
@@ -283,32 +272,16 @@ function extractCandidateRepresentations(t: any): { profile: string, url: string
   return candidates;
 }
 
-function extractTracksFromCadmiumPlayer(): any[] {
-  const api = getPlayerApi();
-  const playerObj = getMainVideoPlayer(api);
+/** Raw Cadmium track list; normalization happens once, in emitManifestTracks. */
+function extractRawCadmiumTracks(): any[] {
+  const playerObj = getMainVideoPlayer();
   if (!playerObj?.player) return [];
 
   const player = playerObj.player;
   if (typeof player.getTimedTextTrackList !== 'function') return [];
 
   try {
-    const rawList = player.getTimedTextTrackList() || [];
-    if (rawList.length > 0 && !(window as any).__OWT_LOGGED_RAW_TRACKS) {
-      (window as any).__OWT_LOGGED_RAW_TRACKS = true;
-      console.log('[OWT-DIAGNOSTIC-RAW-TRACKS]', rawList);
-    }
-    return rawList.map((t: any) => {
-      const url = extractTrackUrlUniversal(t);
-      return {
-        id: t.trackId || t.id || t.bcp47 || t.language,
-        label: t.label || t.languageDescription || t.language,
-        language: t.bcp47 || t.language || 'unknown',
-        url,
-        isCC: Boolean(t.isClosedCaptions || t.isCaption),
-        rawTrack: t,
-        downloadables: t.downloadables || t.ttDownloadables,
-      };
-    });
+    return player.getTimedTextTrackList() || [];
   } catch {
     return [];
   }
@@ -317,46 +290,15 @@ function extractTracksFromCadmiumPlayer(): any[] {
 function extractTracksFromPerformanceEntries(): any[] {
   try {
     const entries = performance.getEntriesByType('resource');
-    const timedTextEntries = entries.filter((e) => {
-      const name = e.name.toLowerCase();
-      if (
-        name.includes('.mp4') ||
-        name.includes('midx') ||
-        name.includes('moof') ||
-        name.includes('path=video') ||
-        name.includes('path=audio') ||
-        name.includes('/video/') ||
-        name.includes('/audio/')
-      ) {
-        return false;
-      }
-      return (
-        name.includes('.dfxp') ||
-        name.includes('.vtt') ||
-        name.includes('format=dfxp') ||
-        name.includes('format=webvtt') ||
-        name.includes('profiles=dfxp') ||
-        name.includes('profiles=webvtt') ||
-        name.includes('/tt/') ||
-        name.includes('timedtext')
-      );
-    });
+    const timedTextEntries = entries.filter((e) => isSubtitleResourceUrl(e.name));
     if (timedTextEntries.length === 0) return [];
 
     return timedTextEntries.map((e, idx) => ({
-      id: `perf_track_${idx}`,
-      label: `Captured Track ${idx + 1}`,
+      trackId: `perf_track_${idx}`,
+      languageDescription: `Captured Track ${idx + 1}`,
       language: 'auto',
       url: e.name,
-      isCC: false,
-      rawTrack: { url: e.name },
-      downloadables: {
-        dfxp: {
-          isImage: false,
-          downloadUrls: [e.name],
-          urls: [e.name],
-        },
-      },
+      isClosedCaptions: false,
     }));
   } catch {
     return [];
@@ -365,13 +307,20 @@ function extractTracksFromPerformanceEntries(): any[] {
 
 export default defineUnlistedScript({
   main() {
-    console.log('[OWT-BOOT] version=v0.1.0-trace');
-    console.log('[OWT-BOOT] debug-hook-registering');
+    logger.info('[OWT-BOOT] version=v0.1.1');
 
     let capturedTracksStore: any[] = [];
     let lastCaptureSource = 'none';
     let tracksRevision = 0;
     let lastTracksFingerprint = '';
+    let pollerTimer: ReturnType<typeof setInterval> | null = null;
+    let pollerIdleTicks = 0;
+    let jsonParseHookInstalled = false;
+
+    const POLL_INTERVAL_MS = 2000;
+    // Stop polling after this many consecutive ticks with no tracks at all
+    // (10 min); a REQUEST_TRACKS message restarts it on demand.
+    const POLL_MAX_IDLE_TICKS = 300;
 
     // Expose F12 Debug helper directly on MAIN window
     (window as any).__OWT_DEBUG__ = () => {
@@ -388,7 +337,7 @@ export default defineUnlistedScript({
       console.groupEnd();
       return {
         boot: 'ok',
-        version: 'v0.1.0-trace',
+        version: 'v0.1.1',
         playerApi: Boolean(api),
         tracksCount: capturedTracksStore.length,
         tracksWithUrlCount: capturedTracksStore.filter((t) => Boolean(t.url)).length,
@@ -398,24 +347,20 @@ export default defineUnlistedScript({
     };
     (window as any).__OWT_MAIN_DEBUG__ = (window as any).__OWT_DEBUG__;
 
-    console.log('[OWT-BOOT] debug-hook-registered', typeof (window as any).__OWT_DEBUG__);
-    console.log('[OWT-BOOT] step3-installed');
-    console.log('[OWT-BOOT] step4-installed');
-    console.log('[OWT-BOOT] step5-installed');
-
     function emitManifestTracks(sourceLabel: string, tracks: any[], force: boolean = false): void {
       if (!tracks || tracks.length === 0) return;
 
+      // Single normalization point: candidates + best URL extracted once here.
       const normalizedTracks = tracks.map((t: any) => {
         const candidates = extractCandidateRepresentations(t);
         const bestCandidate = candidates.find(c => c.isText) || candidates[0];
         const url = bestCandidate ? bestCandidate.url : '';
         return {
-          id: t.id || t.trackId || t.language,
+          id: t.id ?? t.trackId ?? t.language,
           label: t.label || t.languageDescription || t.language,
           language: t.language || t.bcp47 || 'unknown',
           url,
-          isCC: Boolean(t.isCC || t.isClosedCaptions),
+          isCC: Boolean(t.isCC || t.isClosedCaptions || t.isCaption),
           rawTrack: t,
           downloadables: t.downloadables || t.ttDownloadables,
           candidates,
@@ -434,12 +379,15 @@ export default defineUnlistedScript({
       capturedTracksStore = normalizedTracks;
       lastCaptureSource = sourceLabel;
 
-      console.log(
-        `[OWT-MAIN] [Step 2 Publish] Captured ${normalizedTracks.length} tracks via ${sourceLabel} (With URLs: ${
-          normalizedTracks.filter((t) => Boolean(t.url)).length
-        }, Revision: ${tracksRevision})`,
+      const tracksWithUrl = normalizedTracks.filter((t) => Boolean(t.url)).length;
+      logger.info(
+        `[Step 2 Publish] Captured ${normalizedTracks.length} tracks via ${sourceLabel} ` +
+        `(With URLs: ${tracksWithUrl}, Revision: ${tracksRevision})`,
       );
-      
+
+      // Strictly JSON-serializable payload only — Firefox content scripts
+      // reject structured-clone payloads containing page objects (DataCloneError),
+      // so rawTrack/downloadables must never cross the bridge.
       const safeTracks = normalizedTracks.map(t => ({
         trackId: String(t.id),
         language: String(t.language),
@@ -460,28 +408,31 @@ export default defineUnlistedScript({
 
       try {
         window.postMessage(payload, location.origin);
-        console.log('[OWT-MAIN][Step2 Posted]', {
+        logger.debug('[Step2 Posted]', {
           revision: payload.revision,
           tracks: payload.tracks.length,
           tracksWithUrl: payload.tracks.filter(t => Boolean(t.url)).length,
           firstTrack: payload.tracks[0],
         });
       } catch (err: any) {
-        console.error('[OWT-MAIN][Step2 Post Failed]', {
-          name: err?.name,
-          message: err?.message,
-        });
+        logger.warn('[Step2 PostMessage failed]', { name: err?.name, message: err?.message });
       }
 
+      // CustomEvent fallback channel for Firefox (payload is a JSON string to
+      // avoid DataCloneError entirely); the content script listens for both.
       try {
         document.dispatchEvent(new CustomEvent('owt:tracks-updated', {
           detail: JSON.stringify(payload),
         }));
       } catch (err: any) {
-        console.error('[OWT-MAIN][CustomEvent Post Failed]', {
-          name: err?.name,
-          message: err?.message,
-        });
+        logger.warn('[CustomEvent dispatch failed]', { name: err?.name, message: err?.message });
+      }
+
+      // Mission accomplished: stop burning CPU once text tracks with real
+      // download URLs are in hand.
+      if (tracksWithUrl > 0) {
+        uninstallManifestJsonHook();
+        stopPoller();
       }
     }
 
@@ -502,16 +453,27 @@ export default defineUnlistedScript({
       return null;
     }
 
+    let originalJsonParse: typeof JSON.parse | null = null;
+
     function installManifestJsonHook(): void {
-      const originalParse = JSON.parse;
+      if (jsonParseHookInstalled) return;
+      jsonParseHookInstalled = true;
+      originalJsonParse = JSON.parse;
       JSON.parse = function (text: string, reviver?: (key: string, value: any) => any) {
-        const result = originalParse.call(this, text, reviver);
+        const result = originalJsonParse!.call(this, text, reviver);
 
         try {
-          if (result && typeof result === 'object') {
+          // Cheap substring gate BEFORE the deep walk: Netflix pages call
+          // JSON.parse constantly, and almost no payload contains manifests.
+          if (
+            typeof text === 'string' &&
+            text.includes('timedtexttracks') &&
+            result &&
+            typeof result === 'object'
+          ) {
             const tracks = findTimedTextTracks(result);
             if (tracks && tracks.length > 0) {
-              console.log('[OWT-MAIN] [Manifest Deep Intercept] Found tracks in JSON.parse', tracks.length);
+              logger.debug('[Manifest Deep Intercept] Found tracks in JSON.parse', tracks.length);
               emitManifestTracks('JSON.parse deep intercept', tracks);
             }
           }
@@ -521,6 +483,14 @@ export default defineUnlistedScript({
 
         return result;
       };
+    }
+
+    function uninstallManifestJsonHook(): void {
+      if (!jsonParseHookInstalled || !originalJsonParse) return;
+      JSON.parse = originalJsonParse;
+      originalJsonParse = null;
+      jsonParseHookInstalled = false;
+      logger.debug('[Manifest JSON.parse hook restored]');
     }
 
     function installNetworkHooks(): void {
@@ -534,6 +504,7 @@ export default defineUnlistedScript({
             const clone = response.clone();
             clone.text().then((text) => {
               try {
+                if (!text.includes('timedtexttracks')) return;
                 const data = JSON.parse(text);
                 const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
                 if (Array.isArray(tracks) && tracks.length > 0) {
@@ -548,42 +519,73 @@ export default defineUnlistedScript({
       };
     }
 
-    function startCadmiumPlayerPoller(): void {
-      let attempts = 0;
-      const timer = setInterval(() => {
-        attempts++;
-        try {
-          const tracks = extractTracksFromCadmiumPlayer();
-          const perfTracks = extractTracksFromPerformanceEntries();
+    function stopPoller(): void {
+      if (pollerTimer !== null) {
+        clearInterval(pollerTimer);
+        pollerTimer = null;
+        logger.debug('[Cadmium poller stopped]', { source: lastCaptureSource, idleTicks: pollerIdleTicks });
+      }
+    }
 
-          if (tracks.length > 0 && perfTracks.length > 0) {
-            const hydratedTracks = tracks.map((t, idx) => {
-              if (!t.url) {
-                const matchedPerf =
-                  perfTracks.find(
-                    (p) =>
-                      p.url.toLowerCase().includes(t.language.toLowerCase()) ||
-                      p.url.toLowerCase().includes(t.id.toLowerCase()),
-                  ) || perfTracks[idx % perfTracks.length];
-                if (matchedPerf) {
-                  return { ...t, url: matchedPerf.url };
-                }
+    function pollOnce(): boolean {
+      try {
+        const tracks = extractRawCadmiumTracks();
+        const perfTracks = extractTracksFromPerformanceEntries();
+
+        if (tracks.length > 0 && perfTracks.length > 0) {
+          const hydratedTracks = tracks.map((t, idx) => {
+            const hasOwnUrl =
+              Boolean(t.url) || getUrlsFromEntry(t.ttDownloadables || t.downloadables).length > 0;
+            if (!hasOwnUrl) {
+              const langKey = String(t.bcp47 || t.language || '').toLowerCase();
+              const idKey = String(t.trackId || t.id || '').toLowerCase();
+              const matchedPerf =
+                perfTracks.find(
+                  (p) =>
+                    (langKey && p.url.toLowerCase().includes(langKey)) ||
+                    (idKey && p.url.toLowerCase().includes(idKey)),
+                ) || perfTracks[idx % perfTracks.length];
+              if (matchedPerf) {
+                return { ...t, url: matchedPerf.url };
               }
-              return t;
-            });
-            emitManifestTracks('cadmium_perf_hydrated', hydratedTracks);
-          } else if (perfTracks.length > 0) {
-            emitManifestTracks('performance_network_log', perfTracks);
-          } else if (tracks.length > 0) {
-            emitManifestTracks('cadmium_active_poll', tracks);
-          }
-        } catch {}
-      }, 2000);
+            }
+            return t;
+          });
+          emitManifestTracks('cadmium_perf_hydrated', hydratedTracks);
+          return true;
+        } else if (perfTracks.length > 0) {
+          emitManifestTracks('performance_network_log', perfTracks);
+          return true;
+        } else if (tracks.length > 0) {
+          emitManifestTracks('cadmium_active_poll', tracks);
+          return true;
+        }
+      } catch (err) {
+        logger.warn('[Cadmium poll tick failed]', err);
+      }
+      return false;
+    }
+
+    function startPoller(): void {
+      if (pollerTimer !== null) return;
+      pollerIdleTicks = 0;
+      pollerTimer = setInterval(() => {
+        const foundSomething = pollOnce();
+        if (foundSomething) {
+          pollerIdleTicks = 0;
+          return;
+        }
+        pollerIdleTicks += 1;
+        if (pollerIdleTicks >= POLL_MAX_IDLE_TICKS) {
+          logger.debug('[Cadmium poller idle timeout — stopping until next REQUEST_TRACKS]');
+          stopPoller();
+        }
+      }, POLL_INTERVAL_MS);
     }
 
     installManifestJsonHook();
     installNetworkHooks();
-    startCadmiumPlayerPoller();
+    startPoller();
 
     // --- Content Script PostMessage Handlers ---
     window.addEventListener('message', async (event) => {
@@ -594,16 +596,14 @@ export default defineUnlistedScript({
       if (data.source && data.source !== CONTENT_SOURCE) return;
 
       if (data.type === 'OWT_NETFLIX_REQUEST_TRACKS') {
+        // Re-arm discovery: navigation may have invalidated previous captures.
+        installManifestJsonHook();
+        startPoller();
+
         if (capturedTracksStore.length > 0) {
           emitManifestTracks('re-query', capturedTracksStore, true);
         } else {
-          const tracks = extractTracksFromCadmiumPlayer();
-          const perfTracks = extractTracksFromPerformanceEntries();
-          if (tracks.length > 0) {
-            emitManifestTracks('re-query cadmium', tracks);
-          } else if (perfTracks.length > 0) {
-            emitManifestTracks('re-query perf', perfTracks);
-          }
+          pollOnce();
         }
         return;
       }
@@ -636,19 +636,19 @@ export default defineUnlistedScript({
 
           if (match) {
             player.setTimedTextTrack(match);
-            console.log(`[OWT-MAIN] Cadmium setTimedTextTrack called for ${trackId}`);
+            logger.debug(`Cadmium setTimedTextTrack called for ${trackId}`);
 
             if (performSeek) {
               const time = Number(player.getCurrentTime?.() ?? -1);
               if (time >= 0) {
                 player.seek(time);
-                console.log(`[OWT-MAIN] Cadmium player.seek(${time}) executed for hydration transaction ${txId}`);
+                logger.debug(`Cadmium player.seek(${time}) executed for hydration transaction ${txId}`);
               }
             }
 
             const explicitUrl = extractTrackUrlUniversal(match);
             if (explicitUrl) {
-               console.log('[OWT-MAIN] Hydration found explicit URL via deep scan', explicitUrl.substring(0, 80));
+               logger.debug('Hydration found explicit URL via deep scan', explicitUrl.substring(0, 80));
                post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: true, url: explicitUrl });
                return;
             }
@@ -659,18 +659,10 @@ export default defineUnlistedScript({
               const entries = performance.getEntriesByType('resource');
               const recentEntry = entries
                 .reverse()
-                .find(
-                  (e) =>
-                    e.startTime >= hydrationStartTime - 100 &&
-                    e.name.includes('nflxvideo.net') &&
-                    !e.name.includes('path=video') &&
-                    !e.name.includes('path=audio') &&
-                    !e.name.includes('/video/') &&
-                    !e.name.includes('/audio/')
-                );
+                .find((e) => e.startTime >= hydrationStartTime - 100 && looksLikeTrackUrl(e.name));
 
               const capturedUrl = recentEntry ? recentEntry.name : '';
-              console.log('[OWT-MAIN] [Hydration Network Match]', {
+              logger.debug('[Hydration Network Match]', {
                 txId,
                 trackId,
                 capturedUrl: capturedUrl ? capturedUrl.substring(0, 80) + '...' : 'none',
@@ -689,7 +681,7 @@ export default defineUnlistedScript({
                 });
                 emitManifestTracks('hydration_network_bind', updatedTracks, true);
               }
-              
+
               post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: true, url: capturedUrl });
             }, 600);
           } else {
@@ -702,12 +694,11 @@ export default defineUnlistedScript({
       }
 
       if (data.type === 'OWT_NETFLIX_FETCH_TTML') {
-        console.log('[OWT-FETCH-ROUTE] version=2026-07-23-a1');
         const requestId = data.requestId;
         const url = data.url;
         if (typeof requestId !== 'string' || typeof url !== 'string') return;
 
-        console.log('[OWT-OWN-FETCH-BEGIN]', { requestId, url: url.length > 50 ? url.substring(0, 50) + '...' : url });
+        logger.debug('[Step 3 fetch begin]', { requestId, url: url.length > 50 ? url.substring(0, 50) + '...' : url });
 
         try {
           const fetchPromise = fetch(url, {
@@ -715,13 +706,13 @@ export default defineUnlistedScript({
             credentials: 'same-origin',
             cache: 'no-store',
           }).catch((err) => {
-            console.warn('[OWT-MAIN] Fetch explicitly rejected:', err);
+            logger.warn('[Step 3 FAIL] Fetch explicitly rejected:', err);
             return null;
           });
 
           const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => {
-              console.warn('[OWT-MAIN] Fetch timed out after 10000ms');
+              logger.warn('[Step 3 FAIL] Fetch timed out after 10000ms');
               resolve(null);
             }, 10000);
           });
@@ -729,7 +720,7 @@ export default defineUnlistedScript({
           let response = await Promise.race([fetchPromise, timeoutPromise]);
 
           if (!response || !response.ok) {
-            console.warn(`[OWT-MAIN] [Step 3 FAIL] Fetch HTTP ${response?.status || 'Network Error'} for URL: ${url}`);
+            logger.warn(`[Step 3 FAIL] Fetch HTTP ${response?.status || 'Network Error'} for URL: ${url}`);
             post('OWT_NETFLIX_TTML_RESULT', {
               requestId,
               ok: false,
@@ -749,15 +740,13 @@ export default defineUnlistedScript({
             xml = extractTextFromMp4Segment(bytes) || new TextDecoder('utf-8').decode(bytes);
           }
 
-          console.log('[OWT-MAIN] [Step 3 OK] Downloaded track', {
+          logger.info('[Step 3 OK] Downloaded track', {
             httpStatus: response.status,
             contentType,
             bodyBytes: bytes.byteLength,
             detectedFormat,
             magic: readAsciiPrefix(bytes, 32),
           });
-
-          console.log('[OWT-OWN-FETCH-END]', { requestId, status: response.status, detectedFormat });
 
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
@@ -769,7 +758,7 @@ export default defineUnlistedScript({
             url,
           });
         } catch (err: any) {
-          console.warn(`[OWT-MAIN] [Step 3 FAIL] Exception during fetch: ${err?.message}`);
+          logger.warn(`[Step 3 FAIL] Exception during fetch: ${err?.message}`);
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
             ok: false,

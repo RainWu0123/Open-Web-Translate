@@ -1,9 +1,9 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { parseNetflixTtml, type SubtitleCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
 import { SubtitleOverlayRenderer } from '@/shared/ui/subtitle-overlay-renderer';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
+import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
 import { NetflixTrackManager, type DiscoveredTrack } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 
@@ -16,33 +16,19 @@ const logger = createLogger('NetflixCaptionAdapter');
  * fixed layer. This prevents Netflix from deleting the translated line during
  * its next caption update.
  */
-export class NetflixCaptionAdapter {
-  private isActive = false;
+export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private observer: MutationObserver | null = null;
   private controlsButton: HTMLElement | null = null;
   private selectorMenu: HTMLElement | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastMouseMoveTime = 0;
 
-  private targetLang = 'zh-Hant';
-  private displayMode = 'bilingual';
-  private subtitleOriginalFontSize = 18;
-  private subtitleTranslatedFontSize = 22;
-  private subtitleOriginalColor = '#ffffff';
-  private subtitleTranslatedColor = '#818cf8';
-
-  private routeGeneration = 0;
-  private currentVideoId: string | null = null;
   private discoveredTracks: DiscoveredTrack[] = [];
   private selectedTrackId = 'ai-translate';
   private secondaryCues: SubtitleCue[] = [];
 
-  private inlineTranslationCache = new Map<string, string>();
   private pendingTranslationFingerprints = new Set<string>();
   private lastProcessedText = '';
-  private hiddenNativeSubtitleStyles = new Map<HTMLElement, string>();
   private overlayPositionListenersAttached = false;
-  
+
   private trackManager = new NetflixTrackManager();
   private syncEngine = new NetflixSyncEngine();
   private overlayRenderer = new SubtitleOverlayRenderer('owt-netflix-overlay-host');
@@ -106,12 +92,6 @@ export class NetflixCaptionAdapter {
     }
   }
 
-  public async fetchTtmlXml(url: string): Promise<string> {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  }
-
   public async hydrateTrack(track: DiscoveredTrack) {
     if (!track?.url) return { ok: false, reason: 'track-not-found' };
     try {
@@ -130,8 +110,9 @@ export class NetflixCaptionAdapter {
 
     logger.info('Initializing NetflixCaptionAdapter on netflix.com');
     this.setupNavigationListeners();
+    this.loadInitialSettings();
     this.setupSettingsListener();
-    this.setupMouseMoveInjectionListener();
+    this.wireControlsButtonReinjection();
     this.setupMainWorldMessageListener();
     this.setupOverlayPositionListeners();
 
@@ -146,59 +127,128 @@ export class NetflixCaptionAdapter {
   }
 
   private setupMainWorldMessageListener() {
+    const handleTracksPayload = (payload: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const data = payload as { type?: string; tracks?: unknown };
+      if (
+        (data.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
+         data.type === 'OWT_NETFLIX_TRACKS_UPDATED' ||
+         data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') &&
+        Array.isArray(data.tracks)
+      ) {
+        this.discoveredTracks = data.tracks as DiscoveredTrack[];
+        this.trackManager.setDiscoveredTracks(this.discoveredTracks);
+        this.updateSelectorMenuOptions();
+      }
+    };
+
+    // Primary channel: postMessage from the MAIN-world script.
     window.addEventListener('message', (event) => {
       if (event.source !== window) return;
-      const type = event.data?.type;
-      if (
-        (type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
-         type === 'OWT_NETFLIX_TRACKS_UPDATED' ||
-         type === 'OWT_NETFLIX_MANIFEST_TRACKS') &&
-        Array.isArray(event.data.tracks)
-      ) {
-        this.discoveredTracks = event.data.tracks;
-        this.trackManager.setDiscoveredTracks(event.data.tracks);
-        this.updateSelectorMenuOptions();
+      handleTracksPayload(event.data);
+    });
+
+    // Fallback channel: CustomEvent carrying a JSON-stringified payload.
+    // Firefox has thrown DataCloneError on postMessage payloads crossing the
+    // page/content boundary in some versions; the MAIN-world script mirrors
+    // every TRACKS_UPDATED dispatch on this channel, so failing postMessage
+    // alone must not lose the tracks.
+    document.addEventListener('owt:tracks-updated', (event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (typeof detail !== 'string') return;
+      try {
+        handleTracksPayload(JSON.parse(detail));
+      } catch {
+        logger.warn('Received malformed owt:tracks-updated payload');
       }
     });
   }
 
-  private setupMouseMoveInjectionListener() {
-    document.addEventListener(
-      'mousemove',
-      () => {
-        const now = Date.now();
-        if (now - this.lastMouseMoveTime <= 1000) return;
-        this.lastMouseMoveTime = now;
+  /**
+   * Fetch a TTML/WebVTT track document through the MAIN-world bridge.
+   *
+   * The subtitle CDN (nflxvideo.net) is cross-origin from netflix.com: page
+   * credentials are required and Chrome MV3 content scripts cannot fetch
+   * cross-origin directly, so the page-context script performs the download.
+   */
+  private fetchTtmlViaMainWorld(url: string, timeoutMs = 12000): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const requestId = `ttml_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-        if (!this.controlsButton || !document.body.contains(this.controlsButton)) {
-          this.injectControlsButton();
+      const cleanup = () => {
+        window.removeEventListener('message', onMessage);
+        clearTimeout(failTimer);
+      };
+
+      const onMessage = (event: MessageEvent) => {
+        if (event.source !== window) return;
+        const data = event.data;
+        if (!data || typeof data !== 'object' || data.type !== 'OWT_NETFLIX_TTML_RESULT' || data.requestId !== requestId) {
+          return;
         }
-      },
-      { passive: true },
-    );
+        cleanup();
+        if (data.ok && typeof data.xml === 'string' && data.xml.length > 0) {
+          resolve(data.xml);
+        } else {
+          reject(new Error(`HTTP ${data.status || 'network error'}`));
+        }
+      };
+
+      const failTimer = setTimeout(() => {
+        cleanup();
+        reject(new Error('MAIN-world bridge timeout'));
+      }, timeoutMs);
+
+      window.addEventListener('message', onMessage);
+      window.postMessage(
+        { source: 'owt-netflix-content', type: 'OWT_NETFLIX_FETCH_TTML', requestId, url },
+        location.origin,
+      );
+    });
+  }
+
+  public async fetchTtmlXml(url: string): Promise<string> {
+    try {
+      return await this.fetchTtmlViaMainWorld(url);
+    } catch (bridgeErr) {
+      // Fallback: direct fetch works on Firefox MV2 (content scripts honour
+      // host permissions) and for same-origin URLs when the bridge is absent.
+      logger.warn('MAIN-world TTML fetch failed, falling back to direct fetch', bridgeErr);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.text();
+    }
+  }
+
+  private wireControlsButtonReinjection() {
+    this.setupMouseMoveInjectionListener(1000, () => {
+      if (!this.controlsButton || !document.body.contains(this.controlsButton)) {
+        this.injectControlsButton();
+      }
+    });
+  }
+
+  private getNetflixVideoId(): string {
+    const watchMatch = window.location.pathname.match(/\/watch\/(\d+)/);
+    return watchMatch ? watchMatch[1] : window.location.href;
+  }
+
+  protected onVideoChanged(): void {
+    this.lastProcessedText = '';
+    this.discoveredTracks = [];
+    this.secondaryCues = [];
+    this.inlineTranslationCache.clear();
+    this.pendingTranslationFingerprints.clear();
+    this.clearOverlay();
+  }
+
+  protected onSharedSettingsApplied(): void {
+    // Force re-render so style changes (size/colors) apply to the visible line.
+    this.lastProcessedText = '';
   }
 
   private setupNavigationListeners() {
-    let lastUrl = window.location.href;
-    const handleNavigation = () => {
-      const currentUrl = window.location.href;
-      if (currentUrl === lastUrl) return;
-
-      lastUrl = currentUrl;
-      const watchMatch = window.location.pathname.match(/\/watch\/(\d+)/);
-      const newVideoId = watchMatch ? watchMatch[1] : currentUrl;
-      if (newVideoId !== this.currentVideoId) {
-        this.currentVideoId = newVideoId;
-        this.routeGeneration += 1;
-        this.lastProcessedText = '';
-        this.discoveredTracks = [];
-        this.secondaryCues = [];
-        this.inlineTranslationCache.clear();
-        this.pendingTranslationFingerprints.clear();
-        this.clearOverlay();
-      }
-      this.injectControlsButton();
-    };
+    const handleNavigation = this.createNavigationHandler(() => this.getNetflixVideoId());
 
     window.addEventListener('popstate', handleNavigation);
     window.addEventListener('hashchange', handleNavigation);
@@ -218,27 +268,6 @@ export class NetflixCaptionAdapter {
     }
   }
 
-  private async handleToggleClick() {
-    if (this.isActive) {
-      this.stop();
-      return;
-    }
-
-    try {
-      const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
-      await this.start(
-        settings?.targetLanguage || 'zh-Hant',
-        settings?.displayMode || 'bilingual',
-        settings?.subtitleOriginalFontSize || 18,
-        settings?.subtitleTranslatedFontSize || 22,
-        settings?.subtitleOriginalColor || '#ffffff',
-        settings?.subtitleTranslatedColor || '#818cf8',
-      );
-    } catch {
-      await this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
-    }
-  }
-
   async start(
     targetLang?: string,
     displayMode?: string,
@@ -254,8 +283,7 @@ export class NetflixCaptionAdapter {
     this.subtitleOriginalColor = origColor;
     this.subtitleTranslatedColor = transColor;
 
-    const watchMatch = window.location.pathname.match(/\/watch\/(\d+)/);
-    const videoId = watchMatch ? watchMatch[1] : window.location.href;
+    const videoId = this.getNetflixVideoId();
     if (videoId !== this.currentVideoId) {
       this.currentVideoId = videoId;
       this.routeGeneration += 1;
@@ -396,7 +424,7 @@ export class NetflixCaptionAdapter {
     return lines.join('\n');
   }
 
-  private processCaptions() {
+  public processCaptions(): void {
     if (!this.isActive) return;
 
     if (this.debounceTimer) {
@@ -676,9 +704,8 @@ export class NetflixCaptionAdapter {
 
   private async loadSecondaryTrack(track: DiscoveredTrack) {
     try {
-      const response = await fetch(track.url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      this.secondaryCues = parseNetflixTtml(await response.text());
+      const xml = await this.fetchTtmlXml(track.url);
+      this.secondaryCues = parseNetflixTtml(xml);
       logger.info('Parsed secondary Netflix TTML cues', this.secondaryCues.length);
     } catch (error) {
       this.secondaryCues = [];
@@ -698,39 +725,4 @@ export class NetflixCaptionAdapter {
       : 'none';
   }
 
-  private setupSettingsListener() {
-    Promise.resolve(messageRouter.sendMessage({ type: 'GET_SETTINGS' }))
-      .then((settings) => {
-        if (settings?.targetLanguage) this.targetLang = settings.targetLanguage;
-        if (settings?.displayMode) this.displayMode = settings.displayMode;
-        if (settings?.subtitleOriginalFontSize) {
-          this.subtitleOriginalFontSize = settings.subtitleOriginalFontSize;
-        }
-        if (settings?.subtitleTranslatedFontSize) {
-          this.subtitleTranslatedFontSize = settings.subtitleTranslatedFontSize;
-        }
-        if (settings?.subtitleOriginalColor) this.subtitleOriginalColor = settings.subtitleOriginalColor;
-        if (settings?.subtitleTranslatedColor) this.subtitleTranslatedColor = settings.subtitleTranslatedColor;
-      })
-      .catch(() => {});
-
-    try {
-      SettingsStorage.onChange((newSettings) => {
-        if (newSettings) {
-          this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
-          this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
-          this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
-          this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
-          this.targetLang = newSettings.targetLanguage || 'zh-Hant';
-          this.displayMode = newSettings.displayMode || 'bilingual';
-          if (this.isActive) {
-            this.lastProcessedText = '';
-            this.processCaptions();
-          }
-        }
-      });
-    } catch {
-      // Ignore if storage listener unavailable
-    }
-  }
 }
