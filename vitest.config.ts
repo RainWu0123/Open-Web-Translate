@@ -1,9 +1,11 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [vue() as any],
+  // Cast: @vitejs/plugin-vue's Plugin type targets a newer Vite than vitest bundles.
+  plugins: [vue() as never],
   test: {
     environment: 'jsdom',
     pool: 'forks',
@@ -13,4 +15,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-} as any);
+});

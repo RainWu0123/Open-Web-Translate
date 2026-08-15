@@ -200,10 +200,18 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       }, timeoutMs);
 
       window.addEventListener('message', onMessage);
-      window.postMessage(
-        { source: 'owt-netflix-content', type: 'OWT_NETFLIX_FETCH_TTML', requestId, url },
-        location.origin,
-      );
+      try {
+        window.postMessage(
+          { source: 'owt-netflix-content', type: 'OWT_NETFLIX_FETCH_TTML', requestId, url },
+          location.origin,
+        );
+      } catch (err) {
+        // Firefox throws DataCloneError synchronously on some payloads;
+        // reject immediately so the direct-fetch fallback kicks in instead
+        // of hanging until the bridge timeout.
+        cleanup();
+        reject(err instanceof Error ? err : new Error('postMessage failed'));
+      }
     });
   }
 

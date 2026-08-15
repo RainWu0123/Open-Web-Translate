@@ -237,7 +237,9 @@ export class SubtitleSessionStore {
 
   private async loadSavedVocabulary(): Promise<void> {
     try {
-      const list = await extensionBridge.getSyncStorage<VocabularyCard[]>('owt_saved_vocabulary');
+      // storage.local, not sync: vocabulary cards grow unboundedly and sync
+      // storage silently rejects writes past its ~100KB quota.
+      const list = await extensionBridge.getLocalStorage<VocabularyCard[]>('owt_saved_vocabulary');
       if (list && Array.isArray(list)) {
         for (const card of list) {
           this.vocabulary.set(card.id, card);
@@ -251,7 +253,7 @@ export class SubtitleSessionStore {
   private async persistVocabulary(): Promise<void> {
     try {
       const list = Array.from(this.vocabulary.values());
-      await extensionBridge.setSyncStorage('owt_saved_vocabulary', list);
+      await extensionBridge.setLocalStorage('owt_saved_vocabulary', list);
     } catch {
       // fallback
     }

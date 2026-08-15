@@ -14,9 +14,8 @@
     "zip": "wxt zip",
     "zip:chrome": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
-    "compile": "vue-tsc --noEmit",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run --environment jsdom",
+    "test": "vitest run",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
