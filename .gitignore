@@ -14,6 +14,20 @@ stats-*.json
 .wxt
 web-ext.config.ts
 
+# AI agent session artifacts (ephemeral handoffs, not project docs)
+.agents/
+
+# Local debugging dumps (diffs, captures, one-off scratch scripts)
+diff*.txt
+netflix_diff*.txt
+adapter.txt
+stat.txt
+log*.txt
+scratch_*.js
+scratch_*.cjs
+test-regex.js
+apply_fixes.py
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

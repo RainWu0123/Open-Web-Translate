@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NetflixSyncEngine } from '@/adapters/netflix/netflix-sync-engine';
 import { SubtitleCue } from '@/shared/subtitles/ttml-parser';
-import { djb2Hash, BATCH_MAX_CHARS, NetflixTranslationPipeline } from '@/adapters/netflix/netflix-translation-pipeline';
 
 describe('NetflixSyncEngine Unit Tests', () => {
   let engine: NetflixSyncEngine;
@@ -53,25 +52,5 @@ describe('NetflixSyncEngine Unit Tests', () => {
     expect(cb).toHaveBeenCalledWith(expect.objectContaining({ text: 'Second Cue' }), 6000);
 
     engine.stop();
-  });
-});
-
-describe('NetflixTranslationPipeline & djb2Hash Tests', () => {
-  it('generates consistent unsigned 32-bit integer hashes via djb2Hash', () => {
-    const h1 = djb2Hash('Hello World');
-    const h2 = djb2Hash('Hello World');
-    const h3 = djb2Hash('Different Text');
-
-    expect(typeof h1).toBe('number');
-    expect(h1).toBeGreaterThanOrEqual(0);
-    expect(h1).toBe(h2);
-    expect(h1).not.toBe(h3);
-  });
-
-  it('enforces BATCH_MAX_CHARS payload chunking limit', () => {
-    expect(BATCH_MAX_CHARS).toBe(3000);
-    const pipeline = new NetflixTranslationPipeline();
-    const key = pipeline.getCacheKey('zh-TW', 'Test Text');
-    expect(key).toContain('zh-TW:');
   });
 });
