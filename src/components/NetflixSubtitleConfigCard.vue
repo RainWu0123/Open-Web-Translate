@@ -44,6 +44,7 @@
           max="48"
           v-model.number="config.primarySize"
           @input="onConfigChange"
+          @change="onConfigChange"
           data-testid="primary-size-slider"
         />
       </div>
@@ -59,6 +60,7 @@
           max="48"
           v-model.number="config.secondarySize"
           @input="onConfigChange"
+          @change="onConfigChange"
           data-testid="secondary-size-slider"
         />
       </div>
@@ -129,75 +131,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { browser } from 'wxt/browser';
-import { messageRouter } from '@/infrastructure/messaging/message-router';
-import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
+import { useNetflixSession } from '@/core/session/subtitle-session-store';
 
-const config = ref<NetflixConfig>({
-  enabled: true,
-  primarySize: 18,
-  secondarySize: 22,
-  bottomPosition: 80,
-  lineSpacing: 4,
-  enableBitmapRescue: true,
-  learningMode: true,
-});
-
-const hudInfo = ref<NetflixStateInfo>({
-  isActive: false,
-  primaryStatus: '未載入 (No Track)',
-  secondaryStatus: '未載入 (No Track)',
-  modeLabel: '原生播放器模式 (Native Only)',
-  modeClass: 'native-only',
-  discoveredTracksCount: 0,
-  activePreview: null,
-});
-
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-async function queryTabState() {
-  try {
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    const tabId = tabs[0]?.id;
-    if (tabId) {
-      let state: any = null;
-      try {
-        state = await browser.tabs.sendMessage(tabId, { type: 'GET_NETFLIX_STATE' });
-      } catch {}
-
-      if (!state) {
-        try {
-          state = await messageRouter.sendMessage({ type: 'GET_NETFLIX_STATE' } as any);
-        } catch {}
-      }
-
-      if (state && typeof state === 'object' && state.primaryStatus) {
-        hudInfo.value = state;
-      }
-    }
-  } catch {
-    // Tab might not be ready or not a netflix tab
-  }
-}
-
-onMounted(async () => {
-  try {
-    const res = await browser.storage.sync.get('owt_netflix_config');
-    if (res?.owt_netflix_config) {
-      config.value = { ...config.value, ...res.owt_netflix_config };
-    }
-  } catch {
-    // fallback
-  }
-
-  await queryTabState();
-  pollTimer = setInterval(queryTabState, 1000);
-});
-
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer);
-});
+const { config, hudInfo, updateConfig } = useNetflixSession();
 
 async function toggleEnabled() {
   config.value.enabled = !config.value.enabled;
@@ -205,21 +141,7 @@ async function toggleEnabled() {
 }
 
 async function onConfigChange() {
-  try {
-    await browser.storage.sync.set({ owt_netflix_config: { ...config.value } });
-
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    if (tabs[0]?.id) {
-      await browser.tabs.sendMessage(tabs[0].id, {
-        type: 'UPDATE_NETFLIX_CONFIG',
-        payload: { ...config.value },
-      }).catch(() => {
-        // Tab might not have content script ready
-      });
-    }
-  } catch {
-    // ignore
-  }
+  await updateConfig(config.value);
 }
 </script>
 

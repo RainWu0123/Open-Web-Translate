@@ -12,6 +12,113 @@ function post(type: string, payload: Record<string, unknown> = {}): void {
   );
 }
 
+function readAsciiPrefix(bytes: Uint8Array, length = 32) {
+  return [...bytes.slice(0, length)]
+    .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.'))
+    .join('');
+}
+
+function hasControlBytes(str: string): boolean {
+  return /[\x00-\x08\x0b\x0c\x0e-\x1f\ufffd]/.test(str);
+}
+
+function extractTextFromMp4Segment(bytes: Uint8Array): string | null {
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  const rawString = decoder.decode(bytes);
+
+  const ttmlDocs: string[] = [];
+  let searchIdx = 0;
+
+  while (searchIdx < rawString.length) {
+    let startIdx = rawString.indexOf('<?xml', searchIdx);
+    const altStart1 = rawString.indexOf('<tt', searchIdx);
+    const altStart2 = rawString.indexOf('<smpte:tt', searchIdx);
+
+    const candidates = [startIdx, altStart1, altStart2].filter(idx => idx !== -1);
+    if (candidates.length === 0) break;
+    startIdx = Math.min(...candidates);
+
+    let endTag = '';
+    const prefix = rawString.substring(startIdx, startIdx + 15);
+    if (prefix.startsWith('<?xml')) {
+      endTag = '</tt>';
+    } else if (prefix.startsWith('<tt')) {
+      endTag = '</tt>';
+    } else if (prefix.startsWith('<smpte:tt')) {
+      endTag = '</smpte:tt>';
+    }
+
+    let endIdx = rawString.indexOf(endTag, startIdx);
+    if (endIdx === -1 && endTag === '</tt>') {
+        endIdx = rawString.indexOf('</smpte:tt>', startIdx);
+        if (endIdx !== -1) endTag = '</smpte:tt>';
+    }
+
+    if (endIdx !== -1) {
+      let doc = rawString.substring(startIdx, endIdx + endTag.length);
+      if (!hasControlBytes(doc)) {
+        doc = doc.replace(/<\?xml[^>]*\?>/g, '').trim();
+        ttmlDocs.push(doc);
+      }
+      searchIdx = endIdx + endTag.length;
+    } else {
+      break;
+    }
+  }
+
+  if (ttmlDocs.length > 0) {
+    if (ttmlDocs.length === 1) return ttmlDocs[0];
+    return `<root>\n${ttmlDocs.join('\n')}\n</root>`;
+  }
+
+  const vttStart = rawString.indexOf('WEBVTT');
+  if (vttStart !== -1) {
+    const candidate = rawString.substring(vttStart);
+    if (!hasControlBytes(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function detectSubtitleFormat(bytes: Uint8Array): 'webvtt' | 'ttml' | 'mp4-timed-text' | 'unknown' {
+  console.log('[OWT-FORMAT-DETECTOR] invoked', {
+    bytes: bytes.length,
+    magic: readAsciiPrefix(bytes, 24),
+  });
+
+  const magic = readAsciiPrefix(bytes, 4096);
+  const isMp4Container =
+    magic.includes('midx') ||
+    magic.includes('moof') ||
+    magic.includes('mfhd') ||
+    magic.includes('mdat') ||
+    magic.includes('styp') ||
+    magic.includes('SUBS');
+
+  const prefix = new TextDecoder('utf-8', { fatal: false })
+    .decode(bytes.slice(0, 512))
+    .trimStart();
+
+  if (prefix.startsWith('WEBVTT')) return 'webvtt';
+  if (prefix.startsWith('<?xml') || prefix.startsWith('<tt') || prefix.includes('<tt ')) return 'ttml';
+
+  const extractedText = extractTextFromMp4Segment(bytes);
+  if (extractedText) {
+    console.log('[OWT-FORMAT-DETECTOR] Successfully extracted text segment', {
+      extractedBytes: extractedText.length,
+    });
+    return extractedText.includes('WEBVTT') ? 'webvtt' : 'ttml';
+  }
+
+  if (isMp4Container) {
+    return 'mp4-timed-text';
+  }
+
+  return 'unknown';
+}
+
 function getPlayerApi(): any {
   try {
     return (window as any).netflix?.appContext?.state?.playerApp?.getAPI?.()?.videoPlayer;
@@ -67,11 +174,34 @@ function getUrlsFromEntry(entry: any): string[] {
   return urls;
 }
 
-function extractTrackUrlUniversal(t: any): string {
-  if (!t || typeof t !== 'object') return '';
+function findUrlsInObject(obj: any, depth = 0, maxDepth = 6): string[] {
+  let urls: string[] = [];
+  if (!obj || depth > maxDepth || typeof obj !== 'object') return urls;
+  
+  for (const key of Object.keys(obj)) {
+    try {
+      const val = obj[key];
+      if (typeof val === 'string') {
+        if (
+          val.startsWith('http') && 
+          val.includes('nflxvideo.net') && 
+          !val.includes('path=video') && 
+          !val.includes('path=audio') &&
+          !val.includes('/video/') &&
+          !val.includes('/audio/')
+        ) {
+          urls.push(val);
+        }
+      } else if (val && typeof val === 'object') {
+        urls = urls.concat(findUrlsInObject(val, depth + 1, maxDepth));
+      }
+    } catch {}
+  }
+  return [...new Set(urls)];
+}
 
-  if (typeof t.url === 'string' && t.url.startsWith('http')) return t.url;
-  if (typeof t.cdnUrl === 'string' && t.cdnUrl.startsWith('http')) return t.cdnUrl;
+function extractTrackUrlUniversal(t: any): string {
+  if (!t) return '';
 
   const directUrls = getUrlsFromEntry(t);
   if (directUrls.length > 0) return directUrls[0];
@@ -110,11 +240,47 @@ function extractTrackUrlUniversal(t: any): string {
     }
   }
 
+  // Deep scan for hidden URLs in the Cadmium track object
+  const hiddenUrls = findUrlsInObject(t.rawTrack || t);
+  if (hiddenUrls.length > 0) {
+    // Prefer URLs that don't look like huge media segments if possible,
+    // though any subtitle URL is fine.
+    const textUrl = hiddenUrls.find(u => u.includes('timedtext') || u.includes('/tt/') || u.includes('.dfxp') || u.includes('.vtt'));
+    return textUrl || hiddenUrls[0];
+  }
+
   if (t.rawTrack && t.rawTrack !== t) {
     return extractTrackUrlUniversal(t.rawTrack);
   }
 
   return '';
+}
+
+function extractCandidateRepresentations(t: any): { profile: string, url: string, isText: boolean }[] {
+  if (!t || typeof t !== 'object') return [];
+  const candidates: { profile: string, url: string, isText: boolean }[] = [];
+
+  const downloadables = t.ttDownloadables || t.downloadables || t.rawTrack?.ttDownloadables || t.rawTrack?.downloadables;
+  if (downloadables && typeof downloadables === 'object') {
+    for (const [prof, entry] of Object.entries(downloadables as Record<string, any>)) {
+      if (entry) {
+        const urls = getUrlsFromEntry(entry);
+        if (urls.length > 0) {
+          const isText = !entry.isImage && !prof.includes('imsc');
+          candidates.push({ profile: prof, url: urls[0], isText });
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+     const url = extractTrackUrlUniversal(t);
+     if (url) {
+        candidates.push({ profile: 'unknown', url, isText: true });
+     }
+  }
+
+  return candidates;
 }
 
 function extractTracksFromCadmiumPlayer(): any[] {
@@ -127,6 +293,10 @@ function extractTracksFromCadmiumPlayer(): any[] {
 
   try {
     const rawList = player.getTimedTextTrackList() || [];
+    if (rawList.length > 0 && !(window as any).__OWT_LOGGED_RAW_TRACKS) {
+      (window as any).__OWT_LOGGED_RAW_TRACKS = true;
+      console.log('[OWT-DIAGNOSTIC-RAW-TRACKS]', rawList);
+    }
     return rawList.map((t: any) => {
       const url = extractTrackUrlUniversal(t);
       return {
@@ -147,12 +317,30 @@ function extractTracksFromCadmiumPlayer(): any[] {
 function extractTracksFromPerformanceEntries(): any[] {
   try {
     const entries = performance.getEntriesByType('resource');
-    const timedTextEntries = entries.filter(
-      (e) =>
-        e.name.includes('timedtext') ||
-        e.name.includes('.dfxp') ||
-        (e.name.includes('nflxvideo.net') && (e.name.includes('?o=') || e.name.includes('/tt/'))),
-    );
+    const timedTextEntries = entries.filter((e) => {
+      const name = e.name.toLowerCase();
+      if (
+        name.includes('.mp4') ||
+        name.includes('midx') ||
+        name.includes('moof') ||
+        name.includes('path=video') ||
+        name.includes('path=audio') ||
+        name.includes('/video/') ||
+        name.includes('/audio/')
+      ) {
+        return false;
+      }
+      return (
+        name.includes('.dfxp') ||
+        name.includes('.vtt') ||
+        name.includes('format=dfxp') ||
+        name.includes('format=webvtt') ||
+        name.includes('profiles=dfxp') ||
+        name.includes('profiles=webvtt') ||
+        name.includes('/tt/') ||
+        name.includes('timedtext')
+      );
+    });
     if (timedTextEntries.length === 0) return [];
 
     return timedTextEntries.map((e, idx) => ({
@@ -219,7 +407,9 @@ export default defineUnlistedScript({
       if (!tracks || tracks.length === 0) return;
 
       const normalizedTracks = tracks.map((t: any) => {
-        const url = extractTrackUrlUniversal(t);
+        const candidates = extractCandidateRepresentations(t);
+        const bestCandidate = candidates.find(c => c.isText) || candidates[0];
+        const url = bestCandidate ? bestCandidate.url : '';
         return {
           id: t.id || t.trackId || t.language,
           label: t.label || t.languageDescription || t.language,
@@ -228,6 +418,7 @@ export default defineUnlistedScript({
           isCC: Boolean(t.isCC || t.isClosedCaptions),
           rawTrack: t,
           downloadables: t.downloadables || t.ttDownloadables,
+          candidates,
         };
       });
 
@@ -255,7 +446,8 @@ export default defineUnlistedScript({
         bcp47: String(t.language),
         url: typeof t.url === 'string' ? t.url : '',
         isCC: Boolean(t.isCC),
-        profile: t.downloadables ? Object.keys(t.downloadables)[0] : 'unknown',
+        profile: t.candidates?.length > 0 ? t.candidates[0].profile : 'unknown',
+        candidates: t.candidates,
       }));
 
       const payload = {
@@ -293,6 +485,23 @@ export default defineUnlistedScript({
       }
     }
 
+    function findTimedTextTracks(obj: any, depth = 0): any[] | null {
+      if (!obj || typeof obj !== 'object' || depth > 5) return null;
+      if (Array.isArray(obj.timedtexttracks) && obj.timedtexttracks.length > 0) {
+        return obj.timedtexttracks;
+      }
+      if (Array.isArray(obj.tracks) && obj.tracks.length > 0 && obj.tracks[0]?.ttDownloadables) {
+        return obj.tracks;
+      }
+      for (const key of Object.keys(obj)) {
+        if (obj[key] && typeof obj[key] === 'object') {
+          const found = findTimedTextTracks(obj[key], depth + 1);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
     function installManifestJsonHook(): void {
       const originalParse = JSON.parse;
       JSON.parse = function (text: string, reviver?: (key: string, value: any) => any) {
@@ -300,20 +509,10 @@ export default defineUnlistedScript({
 
         try {
           if (result && typeof result === 'object') {
-            let tracks: any[] | null = null;
-
-            if (Array.isArray(result.timedtexttracks)) {
-              tracks = result.timedtexttracks;
-            } else if (result.result?.timedtexttracks && Array.isArray(result.result.timedtexttracks)) {
-              tracks = result.result.timedtexttracks;
-            } else if (result.value?.timedtexttracks && Array.isArray(result.value.timedtexttracks)) {
-              tracks = result.value.timedtexttracks;
-            } else if (result.profiles && Array.isArray(result.tracks)) {
-              tracks = result.tracks;
-            }
-
+            const tracks = findTimedTextTracks(result);
             if (tracks && tracks.length > 0) {
-              emitManifestTracks('JSON.parse intercept', tracks);
+              console.log('[OWT-MAIN] [Manifest Deep Intercept] Found tracks in JSON.parse', tracks.length);
+              emitManifestTracks('JSON.parse deep intercept', tracks);
             }
           }
         } catch {
@@ -331,7 +530,7 @@ export default defineUnlistedScript({
 
         try {
           const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-          if (urlStr.includes('/manifest') || urlStr.includes('/cadmium/') || urlStr.includes('timedtext')) {
+          if (urlStr.includes('/manifest') || urlStr.includes('/cadmium/')) {
             const clone = response.clone();
             clone.text().then((text) => {
               try {
@@ -346,32 +545,6 @@ export default defineUnlistedScript({
         } catch {}
 
         return response;
-      };
-
-      const origOpen = XMLHttpRequest.prototype.open;
-      const origSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...args: any[]) {
-        (this as any)._owtUrl = typeof url === 'string' ? url : url instanceof URL ? url.href : String(url);
-        return origOpen.apply(this, [method, url, ...args] as any);
-      };
-
-      XMLHttpRequest.prototype.send = function (body?: any) {
-        this.addEventListener('load', function () {
-          try {
-            const url = (this as any)._owtUrl || '';
-            if (url.includes('/manifest') || url.includes('/cadmium/') || url.includes('timedtext')) {
-              if (this.responseText) {
-                const data = JSON.parse(this.responseText);
-                const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
-                if (Array.isArray(tracks) && tracks.length > 0) {
-                  emitManifestTracks('XHR response manifest', tracks);
-                }
-              }
-            }
-          } catch {}
-        });
-        return origSend.apply(this, [body] as any);
       };
     }
 
@@ -472,7 +645,53 @@ export default defineUnlistedScript({
                 console.log(`[OWT-MAIN] Cadmium player.seek(${time}) executed for hydration transaction ${txId}`);
               }
             }
-            post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: true });
+
+            const explicitUrl = extractTrackUrlUniversal(match);
+            if (explicitUrl) {
+               console.log('[OWT-MAIN] Hydration found explicit URL via deep scan', explicitUrl.substring(0, 80));
+               post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: true, url: explicitUrl });
+               return;
+            }
+
+            const hydrationStartTime = performance.now();
+
+            setTimeout(() => {
+              const entries = performance.getEntriesByType('resource');
+              const recentEntry = entries
+                .reverse()
+                .find(
+                  (e) =>
+                    e.startTime >= hydrationStartTime - 100 &&
+                    e.name.includes('nflxvideo.net') &&
+                    !e.name.includes('path=video') &&
+                    !e.name.includes('path=audio') &&
+                    !e.name.includes('/video/') &&
+                    !e.name.includes('/audio/')
+                );
+
+              const capturedUrl = recentEntry ? recentEntry.name : '';
+              console.log('[OWT-MAIN] [Hydration Network Match]', {
+                txId,
+                trackId,
+                capturedUrl: capturedUrl ? capturedUrl.substring(0, 80) + '...' : 'none',
+              });
+
+              if (capturedUrl && capturedTracksStore.length > 0) {
+                const updatedTracks = capturedTracksStore.map((t) => {
+                  if (
+                    String(t.id) === String(trackId) ||
+                    String(t.rawTrack?.trackId) === String(trackId) ||
+                    String(t.language) === String(trackId)
+                  ) {
+                    return { ...t, url: capturedUrl };
+                  }
+                  return t;
+                });
+                emitManifestTracks('hydration_network_bind', updatedTracks, true);
+              }
+              
+              post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: true, url: capturedUrl });
+            }, 600);
           } else {
             post('OWT_NETFLIX_HYDRATE_RESULT', { txId, ok: false, reason: 'track-not-found' });
           }
@@ -483,18 +702,34 @@ export default defineUnlistedScript({
       }
 
       if (data.type === 'OWT_NETFLIX_FETCH_TTML') {
+        console.log('[OWT-FETCH-ROUTE] version=2026-07-23-a1');
         const requestId = data.requestId;
         const url = data.url;
         if (typeof requestId !== 'string' || typeof url !== 'string') return;
 
+        console.log('[OWT-OWN-FETCH-BEGIN]', { requestId, url: url.length > 50 ? url.substring(0, 50) + '...' : url });
+
         try {
-          let response = await fetch(url, { credentials: 'include' }).catch(() => null);
-          if (!response || !response.ok) {
-            response = await fetch(url, { mode: 'cors' }).catch(() => null);
-          }
+          const fetchPromise = fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+          }).catch((err) => {
+            console.warn('[OWT-MAIN] Fetch explicitly rejected:', err);
+            return null;
+          });
+
+          const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => {
+              console.warn('[OWT-MAIN] Fetch timed out after 10000ms');
+              resolve(null);
+            }, 10000);
+          });
+
+          let response = await Promise.race([fetchPromise, timeoutPromise]);
 
           if (!response || !response.ok) {
-            console.warn(`[OWT-MAIN] [Step 3 FAIL] TTML Fetch HTTP ${response?.status || 'Network Error'} for URL: ${url}`);
+            console.warn(`[OWT-MAIN] [Step 3 FAIL] Fetch HTTP ${response?.status || 'Network Error'} for URL: ${url}`);
             post('OWT_NETFLIX_TTML_RESULT', {
               requestId,
               ok: false,
@@ -505,13 +740,31 @@ export default defineUnlistedScript({
             return;
           }
           const contentType = response.headers.get('content-type') || '';
-          const xml = await response.text();
-          console.log(`[OWT-MAIN] [Step 3 OK] Downloaded ${xml.length} bytes TTML XML (HTTP ${response.status}, Content-Type: ${contentType})`);
+          const arrayBuffer = await response.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          const detectedFormat = detectSubtitleFormat(bytes);
+
+          let xml = '';
+          if (detectedFormat === 'ttml' || detectedFormat === 'webvtt') {
+            xml = extractTextFromMp4Segment(bytes) || new TextDecoder('utf-8').decode(bytes);
+          }
+
+          console.log('[OWT-MAIN] [Step 3 OK] Downloaded track', {
+            httpStatus: response.status,
+            contentType,
+            bodyBytes: bytes.byteLength,
+            detectedFormat,
+            magic: readAsciiPrefix(bytes, 32),
+          });
+
+          console.log('[OWT-OWN-FETCH-END]', { requestId, status: response.status, detectedFormat });
+
           post('OWT_NETFLIX_TTML_RESULT', {
             requestId,
             ok: true,
             status: response.status,
             contentType,
+            detectedFormat,
             xml,
             url,
           });

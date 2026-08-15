@@ -95,14 +95,12 @@ export default defineContentScript({
       return await executeSelectionTranslation(selection);
     });
 
-    messageRouter.registerHandler('GET_NETFLIX_STATE' as any, async () => {
+    messageRouter.registerHandler('GET_NETFLIX_STATE', async () => {
       return netflixAdapter.getStateInfo();
     });
 
-    messageRouter.registerHandler('UPDATE_NETFLIX_CONFIG' as any, async (msg: any) => {
-      if (msg?.payload) {
-        netflixAdapter.updateConfig(msg.payload);
-      }
+    messageRouter.registerHandler('UPDATE_NETFLIX_CONFIG', async (msg) => {
+      netflixAdapter.updateConfig(msg.payload);
       return true;
     });
 

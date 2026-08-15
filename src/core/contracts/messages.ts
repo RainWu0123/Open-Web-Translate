@@ -81,6 +81,10 @@ export interface NetflixStateInfo {
     primary: string;
     secondary: string;
   } | null;
+  /** Internal adapter state machine value, surfaced for diagnostics. */
+  adapterState?: string;
+  selectedTrackId?: string;
+  secondaryCuesCount?: number;
 }
 
 // ─── Messages (Content/Popup/Options → Background/Tab) ────────────

@@ -171,6 +171,11 @@ export function parseNetflixTtmlDetailed(xmlText: string): TtmlParseResult {
       .trim();
   };
 
+  if (!xmlText || /[\x00-\x08\x0b\x0c\x0e-\x1f\ufffd]/.test(xmlText) || (!xmlText.includes('<') && !xmlText.includes('>'))) {
+    diagnostics.parseError = 'Non-XML binary content';
+    return { cues: [], diagnostics };
+  }
+
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');

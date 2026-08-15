@@ -50,9 +50,10 @@ describe('NetflixSubtitleConfigCard Vue Component Unit Tests', () => {
 
     const slider = wrapper.find('[data-testid="primary-size-slider"]');
     await slider.setValue(26);
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(browser.storage.sync.set).toHaveBeenCalled();
-    expect(browser.tabs.sendMessage).toHaveBeenCalledWith(
+    expect(browser.tabs.sendMessage).toHaveBeenLastCalledWith(
       101,
       expect.objectContaining({
         type: 'UPDATE_NETFLIX_CONFIG',

@@ -80,7 +80,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { browser } from 'wxt/browser';
+import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import DisplaySettings from '@/components/DisplaySettings.vue';
 import NetflixSubtitleConfigCard from '@/components/NetflixSubtitleConfigCard.vue';
@@ -110,11 +110,13 @@ const statusMessage = ref('');
 
 onMounted(async () => {
   try {
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    const currentUrl = tabs[0]?.url || '';
-    if (currentUrl.includes('netflix.com')) {
-      isNetflixTab.value = true;
-      activeMode.value = 'netflix';
+    const tabId = await extensionBridge.queryActiveTabId();
+    if (tabId) {
+      const state = await extensionBridge.sendTabMessage<{ primaryStatus?: string }>(tabId, { type: 'GET_NETFLIX_STATE' });
+      if (state) {
+        isNetflixTab.value = true;
+        activeMode.value = 'netflix';
+      }
     }
 
     const s = await messageRouter.sendMessage({ type: 'GET_SETTINGS' });
@@ -189,11 +191,7 @@ async function restorePage() {
 }
 
 function openOptions() {
-  if (browser.runtime.openOptionsPage) {
-    browser.runtime.openOptionsPage();
-  } else {
-    window.open(browser.runtime.getURL('/options.html'));
-  }
+  extensionBridge.openOptionsPage();
 }
 </script>
 

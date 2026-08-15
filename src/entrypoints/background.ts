@@ -6,11 +6,10 @@
  * commands to content scripts via browser.tabs.sendMessage.
  */
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { translationPipeline } from '@/core/pipeline/translation-pipeline';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { MockProvider, GoogleTranslateProvider, getProvider } from '@/infrastructure/providers';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
 import { VocabularyRepository } from '@/infrastructure/storage/repositories/vocabulary-repository';
-import type { TranslationProvider } from '@/core/contracts/provider';
 import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 
@@ -19,8 +18,6 @@ const logger = createLogger('Background');
 export default defineBackground(() => {
   logger.info('Service worker starting', { id: browser.runtime.id });
 
-  const googleProvider = new GoogleTranslateProvider();
-  const mockProvider = new MockProvider();
   const cacheRepo = new CacheRepository();
 
   // Purge expired cache entries on service worker launch
@@ -28,128 +25,7 @@ export default defineBackground(() => {
 
   // ── TRANSLATE_REQUEST ──────────────────────────────────────────
   messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
-    try {
-      const settings = await SettingsStorage.getSettings();
-      const activeProviderId = msg.forceProvider || settings.activeProviderId || 'mock-provider';
-      const provider = getProvider(activeProviderId, settings);
-
-      const segmentsToTranslate: Array<{ id: string; text: string }> = [];
-      const resultsMap = new Map<string, string>();
-
-      const providerFingerprint =
-        activeProviderId === 'gemini-provider'
-          ? settings.geminiModel?.trim() || 'gemini-2.0-flash'
-          : activeProviderId === 'ollama-provider'
-          ? settings.ollamaModel?.trim() || 'llama3'
-          : activeProviderId === 'local-http-provider'
-          ? settings.localHttpModel?.trim() || 'local-model'
-          : 'default';
-
-      // 1. Check cache FIRST for each segment
-      for (const seg of msg.segments) {
-        const cached = await cacheRepo.get({
-          sourceText: seg.text,
-          sourceLanguage: msg.sourceLanguage,
-          targetLanguage: msg.targetLanguage,
-          providerId: activeProviderId,
-          providerFingerprint,
-        });
-
-        if (cached !== null) {
-          resultsMap.set(seg.id, cached);
-        } else {
-          segmentsToTranslate.push(seg);
-        }
-      }
-
-      // 2. If all segments hit cache (0 misses), return immediately (0 fetch calls)
-      if (segmentsToTranslate.length === 0) {
-        logger.info('Translation cache hit for all segments');
-        return {
-          segments: msg.segments.map((s) => ({
-            id: s.id,
-            translatedText: resultsMap.get(s.id) || '',
-          })),
-        };
-      }
-
-      // 3. For cache misses, call active provider with auto-failover (unless local provider)
-      logger.info(
-        `Cache miss for ${segmentsToTranslate.length}/${msg.segments.length} segments, calling provider ${activeProviderId}`,
-      );
-      let providerResult;
-      try {
-        providerResult = await provider.translate({
-          segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
-          sourceLanguage: msg.sourceLanguage as any,
-          targetLanguage: msg.targetLanguage as any,
-          mode: settings.defaultTranslationMode || 'fast',
-        });
-      } catch (err: any) {
-        // Enforce Strict Privacy Boundary: DO NOT auto-fallback to cloud or mock providers when active provider is local/private
-        if (provider.isLocal) {
-          logger.error(
-            `Local private provider ${activeProviderId} failed. Privacy boundary enforced (no cloud/mock fallback).`,
-            err,
-          );
-          throw err;
-        }
-
-        logger.warn(`Primary provider ${activeProviderId} failed, trying GoogleTranslateProvider fallback`, err);
-
-        // Failover fallback (GoogleTranslateProvider first, then MockProvider)
-        try {
-          if (activeProviderId !== 'google-provider' && activeProviderId !== 'google') {
-            providerResult = await googleProvider.translate({
-              segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
-              sourceLanguage: msg.sourceLanguage as any,
-              targetLanguage: msg.targetLanguage as any,
-              mode: settings.defaultTranslationMode || 'fast',
-            });
-          } else {
-            throw err;
-          }
-        } catch (fallbackErr: any) {
-          logger.warn(`Fallback provider failed, attempting final MockProvider failover`, fallbackErr);
-          providerResult = await mockProvider.translate({
-            segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
-            sourceLanguage: msg.sourceLanguage as any,
-            targetLanguage: msg.targetLanguage as any,
-            mode: settings.defaultTranslationMode || 'fast',
-          });
-        }
-      }
-
-      // 4. Save newly translated segments in cache
-      for (const resSeg of providerResult.segments) {
-        const originalSeg = segmentsToTranslate.find((s) => s.id === (resSeg.id as string));
-        if (originalSeg) {
-          resultsMap.set(originalSeg.id, resSeg.text);
-
-          if (providerResult.cacheable) {
-            await cacheRepo.set({
-              sourceText: originalSeg.text,
-              translatedText: resSeg.text,
-              sourceLanguage: msg.sourceLanguage,
-              targetLanguage: msg.targetLanguage,
-              providerId: activeProviderId,
-              providerFingerprint,
-            });
-          }
-        }
-      }
-
-      // 5. Return complete translated segments array in original order
-      return {
-        segments: msg.segments.map((s) => ({
-          id: s.id,
-          translatedText: resultsMap.get(s.id) || s.text,
-        })),
-      };
-    } catch (err: any) {
-      logger.error('Error in TRANSLATE_REQUEST', err);
-      throw err;
-    }
+    return translationPipeline.translate(msg);
   });
 
   // ── GET_SETTINGS ───────────────────────────────────────────────
@@ -160,7 +36,7 @@ export default defineBackground(() => {
   // ── UPDATE_SETTINGS ────────────────────────────────────────────
   messageRouter.registerHandler('UPDATE_SETTINGS', async (msg) => {
     await SettingsStorage.saveSettings(msg.settings);
-    return await SettingsStorage.getSettings() as any;
+    return true;
   });
 
   // ── Helper: Relay active tab commands ───────────────────────────

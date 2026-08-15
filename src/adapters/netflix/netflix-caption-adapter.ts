@@ -1,301 +1,51 @@
-import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import { parseNetflixTtmlDetailed, SubtitleCue as TtmlCue } from '@/shared/subtitles/ttml-parser';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { parseNetflixTtml, type SubtitleCue } from '@/shared/subtitles/ttml-parser';
 import { createLogger } from '@/shared/logger';
+import { SubtitleOverlayRenderer } from '@/shared/ui/subtitle-overlay-renderer';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
-import { NetflixTrackManager, DiscoveredTrack, isBitmapImsc } from './netflix-track-manager';
+import { NetflixTrackManager, type DiscoveredTrack } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
-import { NetflixOverlayRenderer } from './netflix-overlay-renderer';
-import { NetflixTranslationPipeline } from './netflix-translation-pipeline';
-import { NetflixDomObserver } from './netflix-dom-observer';
-import {
-  globalSubtitleSessionStore,
-  CapturedTrack,
-  SubtitleCue as SessionCue,
-} from '@/core/session/subtitle-session-store';
 
 const logger = createLogger('NetflixCaptionAdapter');
-const CONTENT_SOURCE = 'owt-netflix-content';
 
-export interface InternalHydrationResult {
-  ok: boolean;
-  source?: 'manifest' | 'network';
-  trackKey?: string;
-  cues?: TtmlCue[];
-  reason?: 'timeout' | 'track-not-found' | 'api-unavailable';
-}
-
+/**
+ * Netflix renders timed text inside a player-owned subtree that is frequently
+ * replaced while the player is loading or navigating. We therefore keep the
+ * native caption DOM read-only and render OWT's bilingual caption in a top-level
+ * fixed layer. This prevents Netflix from deleting the translated line during
+ * its next caption update.
+ */
 export class NetflixCaptionAdapter {
   private isActive = false;
-  private isUserDisabled = false;
-  private targetLang = 'zh-Hant';
-  private displayMode: 'bilingual' | 'target-only' | 'source-only' = 'bilingual';
-  private origSize = 20;
-  private transSize = 24;
-  private origColor = '#ffffff';
-  private transColor = '#ffde59';
-  private bottomPosition = 80;
-  private lineSpacing = 4;
-  private enableBitmapRescue = true;
-  private learningMode = true;
+  private observer: MutationObserver | null = null;
+  private controlsButton: HTMLElement | null = null;
+  private selectorMenu: HTMLElement | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastMouseMoveTime = 0;
 
+  private targetLang = 'zh-Hant';
+  private displayMode = 'bilingual';
+  private subtitleOriginalFontSize = 18;
+  private subtitleTranslatedFontSize = 22;
+  private subtitleOriginalColor = '#ffffff';
+  private subtitleTranslatedColor = '#818cf8';
+
+  private routeGeneration = 0;
+  private currentVideoId: string | null = null;
+  private discoveredTracks: DiscoveredTrack[] = [];
+  private selectedTrackId = 'ai-translate';
+  private secondaryCues: SubtitleCue[] = [];
+
+  private inlineTranslationCache = new Map<string, string>();
+  private pendingTranslationFingerprints = new Set<string>();
+  private lastProcessedText = '';
+  private hiddenNativeSubtitleStyles = new Map<HTMLElement, string>();
+  private overlayPositionListenersAttached = false;
+  
   private trackManager = new NetflixTrackManager();
   private syncEngine = new NetflixSyncEngine();
-  private overlayRenderer = new NetflixOverlayRenderer();
-  private translationPipeline = new NetflixTranslationPipeline();
-  private domObserver = new NetflixDomObserver();
-
-  private controlsButton: HTMLElement | null = null;
-  private controlsPollTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastFetchError: string | null = null;
-  private latestTracksRevision = 0;
-
-  private pendingTtmlRequests = new Map<
-    string,
-    {
-      resolve: (res: { ok: boolean; xml?: string; status?: number; contentType?: string; error?: string }) => void;
-      reject: (err: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
-
-  private pendingHydrations = new Map<
-    string,
-    { resolve: (res: { ok: boolean; reason?: string }) => void; timer: ReturnType<typeof setTimeout> }
-  >();
-
-  constructor() {}
-
-  public requestMainWorldTracks(): void {
-    if (typeof window !== 'undefined') {
-      window.postMessage(
-        {
-          source: CONTENT_SOURCE,
-          type: 'OWT_NETFLIX_REQUEST_TRACKS',
-        },
-        '*',
-      );
-    }
-  }
-
-  public init(): void {
-    if (typeof window === 'undefined' || !window.location?.hostname?.includes('netflix.com')) {
-      return;
-    }
-
-    logger.info('Initializing NetflixCaptionAdapter on netflix.com');
-    this.setupMainWorldListener();
-    this.setupSettingsListener();
-    this.setupRuntimeConfigListener();
-    this.setupHotkeyListeners();
-    this.setupStateMessageListener();
-
-    this.overlayRenderer.init();
-    this.requestMainWorldTracks();
-
-    // Attach F12 Debug Helper to window
-    if (typeof window !== 'undefined') {
-      (window as any).__OWT_DEBUG__ = () => {
-        this.requestMainWorldTracks();
-        const isMainInjected = document.documentElement?.getAttribute('data-owt-netflix-main') === '1';
-        const primary = globalSubtitleSessionStore.getPrimaryTrack();
-        const secondary = globalSubtitleSessionStore.getSecondaryTrack();
-        const video = document.querySelector('video') as HTMLVideoElement | null;
-        const nowMs = Math.round((video?.currentTime || 0) * 1000);
-        const pair = globalSubtitleSessionStore.getActivePair(nowMs);
-
-        console.group('🔍 OWT Netflix Diagnostic Evidence Breakdown (5-Step Trace)');
-        console.log('[Step 1] MAIN Script Injected:', isMainInjected ? '✅ Injected' : '❌ Failed');
-        console.log(
-          '[Step 2] Manifest Tracks Discovered:',
-          `${this.trackManager.getDiscoveredTracks().length} tracks (With URLs: ${
-            this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length
-          })`,
-        );
-        console.log('[Step 3] Fetch Status:', this.lastFetchError || 'OK');
-        console.log('[Step 4] Primary Cues:', primary ? `${primary.cues.length} cues (${primary.lang})` : '❌ Not Loaded');
-        console.log('[Step 4] Secondary Cues:', secondary ? `${secondary.cues.length} cues (${secondary.lang})` : 'AI Fallback');
-        console.log('[Step 5] Sync Time:', `${(video?.currentTime || 0).toFixed(2)}s`, 'Active Cue Pair:', pair);
-        console.groupEnd();
-
-        if (typeof (window as any).__OWT_MAIN_DEBUG__ === 'function') {
-          (window as any).__OWT_MAIN_DEBUG__();
-        }
-
-        return {
-          step1_mainInjected: isMainInjected,
-          step2_discoveredTracks: this.trackManager.getDiscoveredTracks().length,
-          step2_tracksWithUrl: this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length,
-          step3_fetchStatus: this.lastFetchError || 'OK',
-          selectedPrimary: primary
-            ? {
-                lang: primary.lang,
-                cuesCount: primary.cues.length,
-                activeCue: pair?.primary?.text || null,
-              }
-            : null,
-          selectedSecondary: secondary
-            ? {
-                lang: secondary.lang,
-                cuesCount: secondary.cues.length,
-                activeCue: pair?.secondary?.text || null,
-              }
-            : null,
-          renderer: {
-            active: this.isActive,
-            nativeHidden: true,
-          },
-        };
-      };
-    }
-
-    if (this.controlsPollTimer) clearInterval(this.controlsPollTimer);
-    this.controlsPollTimer = setInterval(() => {
-      this.injectControlsButton();
-      this.tryAutoStart();
-      if (this.isActive) {
-        this.overlayRenderer.ensureHostAttached();
-      }
-    }, 1000);
-
-    window.addEventListener('mousemove', () => {
-      this.injectControlsButton();
-      if (this.isActive) {
-        this.overlayRenderer.ensureHostAttached();
-      }
-    });
-
-    this.whenDomReady(() => {
-      this.injectControlsButton();
-      this.tryAutoStart();
-      if (this.isActive) {
-        this.overlayRenderer.ensureHostAttached();
-      }
-    });
-  }
-
-  public async start(
-    targetLang?: string,
-    displayMode?: any,
-    origSize?: number,
-    transSize?: number,
-    origColor?: string,
-    transColor?: string,
-  ): Promise<void> {
-    if (targetLang) this.targetLang = targetLang;
-    if (displayMode) this.displayMode = displayMode;
-    if (origSize) this.origSize = origSize;
-    if (transSize) this.transSize = transSize;
-    if (origColor) this.origColor = origColor;
-    if (transColor) this.transColor = transColor;
-
-    if (this.isActive) return;
-    this.isActive = true;
-    this.isUserDisabled = false;
-    logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
-
-    this.applyOverlayStyleConfig();
-    this.overlayRenderer.showOverlay();
-
-    this.requestMainWorldTracks();
-
-    // Start live sync engine & DOM Observer capture
-    this.syncEngine.start((cue, videoMs) => {
-      void this.onCueSyncTick(cue, videoMs);
-    });
-
-    this.startTier3DomFallback();
-
-    await this.refreshSelectedTrack();
-  }
-
-  public stop(): void {
-    if (!this.isActive) return;
-    this.isActive = false;
-    this.syncEngine.stop();
-    this.domObserver.stop();
-    this.applyNativeSubtitleMask(false);
-    this.overlayRenderer.showNativeSubtitles();
-    this.overlayRenderer.hideOverlay();
-    logger.info('NetflixCaptionAdapter stopped');
-  }
-
-  public updateConfig(p: Partial<NetflixConfig>): void {
-    if (p.enabled !== undefined) {
-      if (p.enabled && !this.isActive) {
-        this.isUserDisabled = false;
-        void this.start();
-      }
-      if (!p.enabled && this.isActive) {
-        this.isUserDisabled = true;
-        this.stop();
-      }
-    }
-    if (p.primarySize !== undefined) this.origSize = p.primarySize;
-    if (p.secondarySize !== undefined) this.transSize = p.secondarySize;
-    if (p.bottomPosition !== undefined) this.bottomPosition = p.bottomPosition;
-    if (p.lineSpacing !== undefined) this.lineSpacing = p.lineSpacing;
-    if (p.enableBitmapRescue !== undefined) this.enableBitmapRescue = p.enableBitmapRescue;
-    if (p.learningMode !== undefined) this.learningMode = p.learningMode;
-
-    this.applyOverlayStyleConfig();
-    this.overlayRenderer.updateStyles();
-  }
-
-  public getStateInfo(): NetflixStateInfo {
-    this.requestMainWorldTracks();
-
-    const isMainInjected = document.documentElement?.getAttribute('data-owt-netflix-main') === '1';
-    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
-    const secondaryTrack = globalSubtitleSessionStore.getSecondaryTrack();
-    const mode = globalSubtitleSessionStore.getEngineMode();
-    const discoveredCount = this.trackManager.getDiscoveredTracks().length;
-
-    let primaryStatus = `Step 2: Discovered ${discoveredCount} tracks`;
-    if (!isMainInjected) {
-      primaryStatus = '斷點 Step 1 失敗: MAIN 腳本未注入';
-    } else if (discoveredCount === 0) {
-      primaryStatus = '斷點 Step 2 失敗: 未擷取到 Manifest 軌道 (0 軌)';
-    } else if (this.lastFetchError) {
-      primaryStatus = `斷點 Step 3 失敗: TTML 下載錯誤 (${this.lastFetchError})`;
-    } else if (primaryTrack) {
-      primaryStatus = `Step 4 OK: ${primaryTrack.lang} (${primaryTrack.cues.length} Cues READY)`;
-    }
-
-    const secondaryStatus = secondaryTrack
-      ? `Step 4 OK: ${secondaryTrack.lang} (${secondaryTrack.cues.length} Cues)`
-      : '副軌：使用 AI 動態翻譯';
-
-    let modeLabel = '原生播放器模式 (Native Only)';
-    let modeClass = 'native-only';
-
-    if (mode === 'dual-native') {
-      modeLabel = '官方雙語模式 (Dual Native)';
-      modeClass = 'dual-native';
-    } else if (mode === 'primary-native-ai-secondary' || primaryTrack) {
-      modeLabel = '官方主軌 + AI 翻譯模式';
-      modeClass = 'ai-mode';
-    }
-
-    const video = document.querySelector('video') as HTMLVideoElement | null;
-    const nowMs = Math.round((video?.currentTime || 0) * 1000);
-    const activePair = globalSubtitleSessionStore.getActivePair(nowMs);
-
-    return {
-      isActive: this.isActive,
-      primaryStatus,
-      secondaryStatus,
-      modeLabel,
-      modeClass,
-      discoveredTracksCount: discoveredCount,
-      activePreview: activePair
-        ? {
-            primary: activePair.primary.text,
-            secondary: activePair.secondary?.text || '',
-          }
-        : null,
-    };
-  }
+  private overlayRenderer = new SubtitleOverlayRenderer('owt-netflix-overlay-host');
 
   public getTrackManager(): NetflixTrackManager {
     return this.trackManager;
@@ -305,637 +55,682 @@ export class NetflixCaptionAdapter {
     return this.syncEngine;
   }
 
-  public getOverlayRenderer(): NetflixOverlayRenderer {
+  public getOverlayRenderer(): SubtitleOverlayRenderer {
     return this.overlayRenderer;
   }
 
-  public getTranslationPipeline(): NetflixTranslationPipeline {
-    return this.translationPipeline;
+  public getStateInfo(): NetflixStateInfo {
+    return {
+      isActive: this.isActive,
+      primaryStatus: this.isActive ? 'active' : 'idle',
+      secondaryStatus: this.selectedTrackId === 'ai-translate' ? 'ai' : 'track',
+      modeLabel: this.displayMode,
+      modeClass: this.selectedTrackId === 'ai-translate' ? 'ai-mode' : 'dual-native',
+      adapterState: this.trackManager.getAdapterState(),
+      discoveredTracksCount: this.discoveredTracks.length,
+      selectedTrackId: this.selectedTrackId,
+      secondaryCuesCount: this.secondaryCues.length,
+    };
   }
 
-  private whenDomReady(fn: () => void): void {
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-      fn();
-    } else {
-      document.addEventListener('DOMContentLoaded', fn, { once: true });
-    }
-  }
-
-  private async fetchTtmlXml(url: string): Promise<{ ok: boolean; xml: string; status: number; contentType: string }> {
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    return new Promise<{ ok: boolean; xml: string; status: number; contentType: string }>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingTtmlRequests.delete(requestId);
-        this.lastFetchError = 'TTML Fetch Timeout (8s)';
-        reject(new Error('TTML fetch timeout (8s)'));
-      }, 8000);
-
-      this.pendingTtmlRequests.set(requestId, {
-        resolve: (res) => {
-          if (res.ok && res.xml) {
-            resolve({ ok: true, xml: res.xml, status: res.status || 200, contentType: res.contentType || '' });
-          } else {
-            reject(new Error(res.error || 'Fetch failed'));
-          }
-        },
-        reject,
-        timer,
-      });
-
-      window.postMessage(
-        {
-          source: CONTENT_SOURCE,
-          type: 'OWT_NETFLIX_FETCH_TTML',
-          requestId,
-          url,
-        },
-        '*',
-      );
-    });
-  }
-
-  private async sendHydrateRequest(trackId: string, performSeek: boolean): Promise<boolean> {
-    const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    return new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingHydrations.delete(txId);
-        resolve(false);
-      }, performSeek ? 4000 : 1200);
-
-      this.pendingHydrations.set(txId, {
-        resolve: (res) => resolve(res.ok),
-        timer,
-      });
-
-      window.postMessage(
-        {
-          source: CONTENT_SOURCE,
-          type: 'OWT_NETFLIX_HYDRATE_TRACK',
-          trackId,
-          performSeek,
-          txId,
-        },
-        '*',
-      );
-    });
-  }
-
-  public async hydrateTrack(track: DiscoveredTrack): Promise<InternalHydrationResult> {
-    let targetUrl = track.url;
-    if (!targetUrl) {
-      targetUrl = this.trackManager.findTextFallbackUrl(track) || '';
-    }
-
-    if (targetUrl) {
-      try {
-        const rawFetchRes: any = await this.fetchTtmlXml(targetUrl);
-        const xml = typeof rawFetchRes === 'string' ? rawFetchRes : rawFetchRes?.xml || '';
-        const httpStatus = typeof rawFetchRes === 'object' ? rawFetchRes?.status || 200 : 200;
-        const contentType = typeof rawFetchRes === 'object' ? rawFetchRes?.contentType || 'text/xml' : 'text/xml';
-
-        console.log('[OWT][Step3 Fetch]', {
-          lang: track.language,
-          trackId: track.id,
-          urlPresent: Boolean(targetUrl),
-          httpStatus,
-          contentType,
-          bodyBytes: xml.length,
-          preview: xml.slice(0, 120).replace(/\n/g, ' '),
-        });
-
-        const parsed = parseNetflixTtmlDetailed(xml);
-        console.log('[OWT][Step4 Parse]', {
-          lang: track.language,
-          trackId: track.id,
-          profile: track.downloadables ? Object.keys(track.downloadables)[0] : 'unknown',
-          cueCount: parsed.cues.length,
-          firstCue: parsed.cues[0]
-            ? {
-                startMs: parsed.cues[0].startMs,
-                endMs: parsed.cues[0].endMs,
-                text: parsed.cues[0].text.slice(0, 80),
-              }
-            : null,
-        });
-
-        if (parsed.cues.length > 0) {
-          this.lastFetchError = null;
-          return { ok: true, source: 'manifest', trackKey: track.id, cues: parsed.cues };
-        }
-      } catch (err: any) {
-        this.lastFetchError = err?.message || 'TTML fetch failed';
-        logger.warn(`Failed to fetch TTML XML for track ${track.id}:`, err);
-      }
-    }
-
-    const initialOk = await this.sendHydrateRequest(track.id, false);
-    if (initialOk) {
-      const updatedUrl = track.url || this.trackManager.findTextFallbackUrl(track);
-      if (updatedUrl) {
-        try {
-          const rawFetchRes: any = await this.fetchTtmlXml(updatedUrl);
-          const xml = typeof rawFetchRes === 'string' ? rawFetchRes : rawFetchRes?.xml || '';
-          const parsed = parseNetflixTtmlDetailed(xml);
-          if (parsed.cues.length > 0) {
-            this.lastFetchError = null;
-            return { ok: true, source: 'network', trackKey: track.id, cues: parsed.cues };
-          }
-        } catch {}
-      }
-    }
-
-    return { ok: false, reason: 'timeout' };
-  }
-
-  private async refreshSelectedTrack(reasonLabel: string = 'init'): Promise<void> {
-    this.trackManager.setAdapterState('loading_primary');
-    const primaryTrack = this.trackManager.findPrimaryTrack();
-    const secondaryTrack = this.trackManager.findBestMatchingTrack(this.targetLang);
-    const video = document.querySelector('video') as HTMLVideoElement | null;
-    const tracksWithUrlCount = this.trackManager.getDiscoveredTracks().filter((t) => Boolean(t.url)).length;
-
-    console.log(`[OWT][Track Selection] (${reasonLabel})`, {
-      primary: primaryTrack ? { lang: primaryTrack.language, trackId: primaryTrack.id } : null,
-      secondary: secondaryTrack ? { lang: secondaryTrack.language, trackId: secondaryTrack.id } : null,
-    });
-
-    if (this.trackManager.getDiscoveredTracks().length === 0) {
-      console.log('[OWT][Step3 Gate]', {
-        tracksWithUrlCount: 0,
-        skipReason: 'waiting-for-tracks'
-      });
-      this.overlayRenderer.renderCues(
-        '正在讀取 Netflix 字幕軌…',
-        '(請稍候)'
-      );
+  /**
+   * Apply NetflixConfig pushed from the popup options card.
+   * Maps the card's slider values onto the overlay renderer settings and
+   * re-renders the current caption so changes are visible immediately.
+   */
+  public updateConfig(config: Partial<NetflixConfig>): void {
+    if (config.primarySize !== undefined) this.subtitleOriginalFontSize = config.primarySize;
+    if (config.secondarySize !== undefined) this.subtitleTranslatedFontSize = config.secondarySize;
+    if (config.enabled === false && this.isActive) {
+      this.stop();
       return;
     }
-
-    console.log('[OWT][Step3 Gate]', {
-      enabled: this.isActive,
-      selectedPrimaryTrackId: primaryTrack?.id || null,
-      tracksWithUrlCount,
-      skipReason: !this.isActive
-        ? 'extension-disabled'
-        : !primaryTrack
-        ? 'no-usable-primary-track'
-        : 'none',
-    });
-
-    if (!this.isActive) {
-      console.warn('[OWT][Step3 Skip]', { reason: 'extension-disabled' });
-      return;
-    }
-
-    if (!primaryTrack) {
-      console.warn('[OWT][Step3 Skip]', {
-        reason: 'no-usable-primary-track',
-        discoveredTracksCount: this.trackManager.getDiscoveredTracks().length,
-      });
-      this.overlayRenderer.renderCues(
-        '⚠️ 找不到可讀取的文字字幕軌',
-        '(已開啟 Netflix 即時 DOM 擷取翻譯)'
-      );
-      this.startTier3DomFallback();
-      return;
-    }
-
-    try {
-      const primaryRes = await this.hydrateTrack(primaryTrack);
-      if (primaryRes.ok && primaryRes.cues) {
-        const sessionCues: SessionCue[] = primaryRes.cues.map((c, i) => ({
-          id: `pri_${i}_${c.startMs}`,
-          startMs: c.startMs,
-          endMs: c.endMs,
-          text: c.text,
-          lang: primaryTrack.language,
-          source: 'netflix-native' as const,
-        }));
-
-        const capturedPrimary: CapturedTrack = {
-          id: primaryTrack.id,
-          lang: primaryTrack.language,
-          source: primaryRes.source || 'manifest',
-          cues: sessionCues,
-        };
-        globalSubtitleSessionStore.setPrimaryTrack(capturedPrimary);
-        this.syncEngine.setCues(primaryRes.cues);
-      }
-
-      if (secondaryTrack) {
-        const secondaryRes = await this.hydrateTrack(secondaryTrack);
-        if (secondaryRes.ok && secondaryRes.cues) {
-          const sessionCues: SessionCue[] = secondaryRes.cues.map((c, i) => ({
-            id: `sec_${i}_${c.startMs}`,
-            startMs: c.startMs,
-            endMs: c.endMs,
-            text: c.text,
-            lang: secondaryTrack.language,
-            source: 'netflix-native' as const,
-          }));
-
-          const capturedSecondary: CapturedTrack = {
-            id: secondaryTrack.id,
-            lang: secondaryTrack.language,
-            source: secondaryRes.source || 'manifest',
-            cues: sessionCues,
-          };
-          globalSubtitleSessionStore.setSecondaryTrack(capturedSecondary);
-        }
-      }
-
-      const mode = globalSubtitleSessionStore.getEngineMode();
-      if (mode === 'dual-native' || mode === 'primary-native-ai-secondary' || globalSubtitleSessionStore.getPrimaryTrack()) {
-        this.trackManager.setAdapterState('overlay_ready');
-        this.applyNativeSubtitleMask(true);
-        this.trackManager.setAdapterState('native_hidden');
-      } else {
-        const count = this.trackManager.getDiscoveredTracks().length;
-        this.overlayRenderer.renderCues(
-          '⚠️ 尚未載入實體雙語字幕軌',
-          `(已發現 ${count} 個字幕軌，已開啟即時 DOM 擷取)`,
-        );
-        this.startTier3DomFallback();
-      }
-    } catch (err) {
-      logger.warn('Failed to load TTML track:', err);
-      this.overlayRenderer.renderCues('⚠️ 尚未擷取到 Netflix 字幕軌', '(嘗試重新連接 Netflix 播放器中...)');
-      this.startTier3DomFallback();
+    if (this.isActive) {
+      this.lastProcessedText = '';
+      this.processCaptions();
     }
   }
 
-  private startTier3DomFallback(): void {
-    logger.info('Starting Tier 3 DOM Observer live capture');
-    this.trackManager.setAdapterState('degraded_ai');
-    // Keep native subtitles unmasked during DOM fallback so user can see subtitles
-    this.applyNativeSubtitleMask(false);
-
-    this.domObserver.start((capturedText) => {
-      if (!this.isActive) return;
-      if (!capturedText) {
-        return;
-      }
-
-      void this.translationPipeline.translateText(capturedText, this.targetLang).then((translated) => {
-        this.overlayRenderer.renderCues(capturedText, translated);
-      });
-    });
-  }
-
-  private async onCueSyncTick(cue: TtmlCue | null, videoMs: number): Promise<void> {
-    if (!this.isActive) return;
-
-    const primaryTrack = globalSubtitleSessionStore.getPrimaryTrack();
-    const pair = globalSubtitleSessionStore.getActivePair(videoMs);
-
-    if (pair) {
-      console.log('[OWT][Step5 Sync]', {
-        nowMs: Math.round(videoMs),
-        lang: primaryTrack?.lang || 'none',
-        activeCue: pair.primary.text.slice(0, 80),
-      });
-      this.overlayRenderer.renderPair(pair);
-      return;
-    }
-
-    if (cue && cue.text.trim()) {
-      const origText = cue.text.trim();
-      console.log('[OWT][Step5 Sync]', {
-        nowMs: Math.round(videoMs),
-        lang: primaryTrack?.lang || 'none',
-        activeCue: origText.slice(0, 80),
-      });
-      const translatedText = await this.translationPipeline.translateText(origText, this.targetLang);
-      this.overlayRenderer.renderCues(origText, translatedText);
-      return;
-    }
-
-    if (!primaryTrack) {
-      const count = this.trackManager.getDiscoveredTracks().length;
-      this.overlayRenderer.renderCues(
-        '⚠️ 尚未擷取到 Netflix 字幕軌',
-        count > 0 ? `(已發現 ${count} 個字幕軌，請切換選單)` : '(請開啟 Netflix 音訊與字幕選單選擇字幕語言)',
-      );
-    } else {
-      // Subtitle track is loaded, but no dialogue at current timestamp
-      this.overlayRenderer.renderCues('', '');
-    }
-  }
-
-  private setupStateMessageListener(): void {
-    try {
-      browser.runtime.onMessage.addListener((message: any, sender: any, sendResponse: any) => {
-        if (message?.type === 'GET_NETFLIX_STATE') {
-          sendResponse(this.getStateInfo());
-          return true;
-        }
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  private applyNativeSubtitleMask(hide: boolean): void {
-    let styleEl = document.getElementById('owt-hide-native-netflix-subtitles');
-    if (hide) {
+  public applyNativeSubtitleMask(enable: boolean) {
+    const styleId = 'owt-hide-native-netflix-subtitles';
+    let styleEl = document.getElementById(styleId);
+    if (enable) {
       if (!styleEl) {
         styleEl = document.createElement('style');
-        styleEl.id = 'owt-hide-native-netflix-subtitles';
-        styleEl.textContent = `
-          [data-uia="player-timedtext"],
-          .player-timedtext {
-            visibility: hidden !important;
-          }
-        `;
-        (document.head || document.documentElement)?.appendChild(styleEl);
+        styleEl.id = styleId;
+        styleEl.textContent = `.player-timedtext, .player-timed-text-image-container, [data-uia="player-timedtext"], [data-uia="watch-video--timed-text"] { visibility: hidden !important; display: none !important; opacity: 0 !important; }`;
+        (document.head || document.documentElement).appendChild(styleEl);
       }
     } else {
-      if (styleEl) {
-        styleEl.remove();
-      }
-      const elements = document.querySelectorAll('[data-uia="player-timedtext"], .player-timedtext');
-      elements.forEach((el) => {
-        (el as HTMLElement).style.visibility = 'visible';
-      });
+      if (styleEl) styleEl.remove();
     }
   }
 
-  private applyOverlayStyleConfig(): void {
-    this.overlayRenderer.setConfig({
-      origSize: this.origSize,
-      transSize: this.transSize,
-      origColor: this.origColor,
-      transColor: this.transColor,
-      displayMode: this.displayMode,
-      bottomPosition: this.bottomPosition,
-      lineSpacing: this.lineSpacing,
-    });
+  public async fetchTtmlXml(url: string): Promise<string> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
   }
 
-  private handleTracksUpdated(data: any): void {
-    if (typeof data.revision !== 'number' || data.revision <= this.latestTracksRevision) return;
-    this.latestTracksRevision = data.revision;
-
-    const rawTracks = data.tracks || [];
-    const discovered: DiscoveredTrack[] = rawTracks.map((t: any) => ({
-      id: t.id || t.trackId || t.language,
-      label: t.label || t.languageDescription || t.language,
-      language: t.language || t.bcp47 || 'unknown',
-      url: t.url || '',
-      isCC: Boolean(t.isCC || t.isClosedCaptions),
-      hasUrl: Boolean(t.url),
-      rawTrack: t.rawTrack || t,
-      downloadables: t.downloadables,
-    }));
-
-    this.trackManager.setDiscoveredTracks(discovered);
-    
-    const urlsCount = discovered.filter((d) => Boolean(d.url)).length;
-    console.log(`[OWT][Step2 Receive] { revision: ${data.revision}, tracks: ${discovered.length}, tracksWithUrl: ${urlsCount} }`);
-
-    if (this.isActive) {
-      void this.refreshSelectedTrack('tracks-updated');
-    }
-  }
-
-  private setupMainWorldListener(): void {
-    document.addEventListener('owt:tracks-updated', (event: Event) => {
-      try {
-        const detailStr = (event as CustomEvent).detail;
-        if (!detailStr) return;
-        const data = JSON.parse(detailStr);
-        console.log('[OWT][Bridge Raw] (CustomEvent)', { revision: data.revision, tracks: data.tracks?.length });
-        if (data?.channel === 'owt' && data?.type === 'OWT_NETFLIX_TRACKS_UPDATED') {
-          this.handleTracksUpdated(data);
-        }
-      } catch (err: any) {
-        console.warn('[OWT][Bridge CustomEvent Error]', err?.message);
-      }
-    });
-
-    window.addEventListener('message', (event) => {
-      const data = event.data;
-      if (data?.channel === 'owt') {
-        console.log('[OWT][Bridge Raw] (MessageEvent)', {
-          origin: event.origin,
-          sourceIsWindow: event.source === window,
-          type: data.type,
-          revision: data.revision,
-          tracksIsArray: Array.isArray(data.tracks),
-          tracks: Array.isArray(data.tracks) ? data.tracks.length : null,
-        });
-      }
-
-      if (event.origin !== location.origin) {
-        if (data?.channel === 'owt') console.warn('[OWT][Step2 Reject]', { reason: 'origin-mismatch', origin: event.origin });
-        return;
-      }
-      if (data?.channel !== 'owt') return;
-      if (data.type !== 'OWT_NETFLIX_TRACKS_UPDATED') {
-        console.warn('[OWT][Step2 Reject]', { reason: 'unexpected-type', type: data.type });
-        return;
-      }
-      if (!Array.isArray(data.tracks)) {
-        console.warn('[OWT][Step2 Reject]', { reason: 'tracks-not-array' });
-        return;
-      }
-      if (typeof data.revision !== 'number') {
-        console.warn('[OWT][Step2 Reject]', { reason: 'invalid-revision', revision: data.revision });
-        return;
-      }
-      if (data.revision <= this.latestTracksRevision) {
-        console.warn('[OWT][Step2 Reject]', {
-          reason: 'stale-revision',
-          received: data.revision,
-          current: this.latestTracksRevision,
-        });
-        return;
-      }
-
-      this.handleTracksUpdated(data);
-    });
-
-    window.addEventListener('message', (event) => {
-      if (event.source !== window || event.origin !== location.origin) return;
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-      if (data.type === 'OWT_NETFLIX_HYDRATE_RESULT') {
-        const txId = data.txId;
-        const pending = this.pendingHydrations.get(txId);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.pendingHydrations.delete(txId);
-          pending.resolve({ ok: Boolean(data.ok), reason: data.reason });
-        }
-      }
-
-      if (data.type === 'OWT_NETFLIX_TTML_RESULT') {
-        const requestId = data.requestId;
-        const pending = this.pendingTtmlRequests.get(requestId);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.pendingTtmlRequests.delete(requestId);
-          if (data.ok && typeof data.xml === 'string') {
-            this.lastFetchError = null;
-            pending.resolve({
-              ok: true,
-              xml: data.xml,
-              status: Number(data.status || 200),
-              contentType: String(data.contentType || ''),
-            });
-          } else {
-            this.lastFetchError = data.error || 'Fetch TTML failed';
-            pending.resolve({
-              ok: false,
-              xml: '',
-              status: Number(data.status || 0),
-              contentType: '',
-              error: data.error || 'Fetch TTML failed',
-            });
-          }
-        }
-      }
-    });
-  }
-
-  private setupSettingsListener(): void {
+  public async hydrateTrack(track: DiscoveredTrack) {
+    if (!track?.url) return { ok: false, reason: 'track-not-found' };
     try {
-      void browser.storage.sync.get(['owt_netflix_config', 'targetLanguage', 'displayMode']).then((res: any) => {
-        if (res?.owt_netflix_config) {
-          const cfg = res.owt_netflix_config;
-          this.updateConfig(cfg);
-        }
-      });
-    } catch {
-      // ignore
+      const xml = await this.fetchTtmlXml(track.url);
+      this.secondaryCues = parseNetflixTtml(xml);
+      return { ok: true, source: 'manifest', cues: this.secondaryCues };
+    } catch (err) {
+      return { ok: false, reason: 'timeout' };
     }
   }
 
-  private setupRuntimeConfigListener(): void {
-    const handleConfigUpdate = (p: Partial<NetflixConfig>) => {
-      this.updateConfig(p);
+  public init() {
+    if (typeof window === 'undefined' || !window.location?.hostname?.includes('netflix.com')) {
+      return;
+    }
+
+    logger.info('Initializing NetflixCaptionAdapter on netflix.com');
+    this.setupNavigationListeners();
+    this.setupSettingsListener();
+    this.setupMouseMoveInjectionListener();
+    this.setupMainWorldMessageListener();
+    this.setupOverlayPositionListeners();
+
+    this.injectControlsButton();
+    if (document.readyState === 'loading') {
+      document.addEventListener(
+        'DOMContentLoaded',
+        () => this.injectControlsButton(),
+        { once: true },
+      );
+    }
+  }
+
+  private setupMainWorldMessageListener() {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      const type = event.data?.type;
+      if (
+        (type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
+         type === 'OWT_NETFLIX_TRACKS_UPDATED' ||
+         type === 'OWT_NETFLIX_MANIFEST_TRACKS') &&
+        Array.isArray(event.data.tracks)
+      ) {
+        this.discoveredTracks = event.data.tracks;
+        this.trackManager.setDiscoveredTracks(event.data.tracks);
+        this.updateSelectorMenuOptions();
+      }
+    });
+  }
+
+  private setupMouseMoveInjectionListener() {
+    document.addEventListener(
+      'mousemove',
+      () => {
+        const now = Date.now();
+        if (now - this.lastMouseMoveTime <= 1000) return;
+        this.lastMouseMoveTime = now;
+
+        if (!this.controlsButton || !document.body.contains(this.controlsButton)) {
+          this.injectControlsButton();
+        }
+      },
+      { passive: true },
+    );
+  }
+
+  private setupNavigationListeners() {
+    let lastUrl = window.location.href;
+    const handleNavigation = () => {
+      const currentUrl = window.location.href;
+      if (currentUrl === lastUrl) return;
+
+      lastUrl = currentUrl;
+      const watchMatch = window.location.pathname.match(/\/watch\/(\d+)/);
+      const newVideoId = watchMatch ? watchMatch[1] : currentUrl;
+      if (newVideoId !== this.currentVideoId) {
+        this.currentVideoId = newVideoId;
+        this.routeGeneration += 1;
+        this.lastProcessedText = '';
+        this.discoveredTracks = [];
+        this.secondaryCues = [];
+        this.inlineTranslationCache.clear();
+        this.pendingTranslationFingerprints.clear();
+        this.clearOverlay();
+      }
+      this.injectControlsButton();
     };
 
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('hashchange', handleNavigation);
+    window.addEventListener('owt-netflix-url-change', handleNavigation);
+
+    const win = window as typeof window & { __owtNetflixHistoryPatched?: boolean };
+    if (!win.__owtNetflixHistoryPatched) {
+      win.__owtNetflixHistoryPatched = true;
+      for (const method of ['pushState', 'replaceState'] as const) {
+        const original = window.history[method];
+        window.history[method] = function (this: History, ...args) {
+          const result = original.apply(this, args);
+          window.dispatchEvent(new Event('owt-netflix-url-change'));
+          return result;
+        } as typeof original;
+      }
+    }
+  }
+
+  private async handleToggleClick() {
+    if (this.isActive) {
+      this.stop();
+      return;
+    }
+
     try {
-      browser.runtime.onMessage.addListener((message: any) => {
-        if (message?.type === 'UPDATE_NETFLIX_CONFIG' && message.payload) {
-          handleConfigUpdate(message.payload);
+      const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+      await this.start(
+        settings?.targetLanguage || 'zh-Hant',
+        settings?.displayMode || 'bilingual',
+        settings?.subtitleOriginalFontSize || 18,
+        settings?.subtitleTranslatedFontSize || 22,
+        settings?.subtitleOriginalColor || '#ffffff',
+        settings?.subtitleTranslatedColor || '#818cf8',
+      );
+    } catch {
+      await this.start('zh-Hant', 'bilingual', 18, 22, '#ffffff', '#818cf8');
+    }
+  }
+
+  async start(
+    targetLang?: string,
+    displayMode?: string,
+    origSize = 18,
+    transSize = 22,
+    origColor = '#ffffff',
+    transColor = '#818cf8',
+  ) {
+    if (targetLang) this.targetLang = targetLang;
+    if (displayMode) this.displayMode = displayMode;
+    this.subtitleOriginalFontSize = origSize;
+    this.subtitleTranslatedFontSize = transSize;
+    this.subtitleOriginalColor = origColor;
+    this.subtitleTranslatedColor = transColor;
+
+    const watchMatch = window.location.pathname.match(/\/watch\/(\d+)/);
+    const videoId = watchMatch ? watchMatch[1] : window.location.href;
+    if (videoId !== this.currentVideoId) {
+      this.currentVideoId = videoId;
+      this.routeGeneration += 1;
+      this.lastProcessedText = '';
+      this.inlineTranslationCache.clear();
+    }
+
+    this.isActive = true;
+    document.body?.classList.add('owt-netflix-active');
+    this.applyNativeSubtitleMask(true);
+    
+    const host = this.getOverlayHost();
+    this.overlayRenderer.mount(host);
+
+    this.updateControlsButtonState();
+    this.injectControlsButton();
+    this.startObserver();
+    logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
+  }
+
+  stop() {
+    this.isActive = false;
+
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+
+    this.inlineTranslationCache.clear();
+    this.pendingTranslationFingerprints.clear();
+    this.lastProcessedText = '';
+    this.applyNativeSubtitleMask(false);
+    this.clearOverlay();
+    this.hideSelectorMenu();
+    document.body?.classList.remove('owt-netflix-active');
+    this.updateControlsButtonState();
+    logger.info('NetflixCaptionAdapter stopped');
+  }
+
+  private getOverlayHost(): HTMLElement {
+    const fullscreenElement = document.fullscreenElement as HTMLElement | null;
+    if (fullscreenElement && fullscreenElement.tagName !== 'VIDEO') {
+      return fullscreenElement;
+    }
+    return (
+      (document.querySelector('[data-uia="watch-video"]') as HTMLElement) ||
+      (document.querySelector('.watch-video') as HTMLElement) ||
+      document.body ||
+      document.documentElement
+    );
+  }
+
+  private setupOverlayPositionListeners() {
+    if (this.overlayPositionListenersAttached || typeof window === 'undefined') return;
+    this.overlayPositionListenersAttached = true;
+
+    const reposition = () => {
+      if (this.isActive) {
+        const host = this.getOverlayHost();
+        this.overlayRenderer.mount(host);
+      }
+    };
+
+    window.addEventListener('resize', reposition, { passive: true });
+    window.addEventListener('scroll', reposition, { passive: true });
+    document.addEventListener('fullscreenchange', reposition);
+    window.addEventListener('fullscreenchange', reposition);
+    window.addEventListener('webkitfullscreenchange', reposition);
+  }
+
+  private getNativeSubtitleElements(): HTMLElement[] {
+    const selectors = [
+      '.player-timedtext',
+      '[data-uia="player-timedtext"]',
+      '[data-uia="watch-video--timed-text"]',
+      '.player-timedtext-text-container',
+      '[class*="timedtext"]',
+    ];
+
+    return Array.from(document.querySelectorAll<HTMLElement>(selectors.join(', '))).filter((element) => {
+      if (element.id === 'owt-netflix-overlay-host' || element.closest('#owt-netflix-overlay-host')) return false;
+      if (element.id === 'owt-netflix-selector-menu' || element.closest('#owt-netflix-selector-menu')) return false;
+      if (element.closest('.player-controls, .right-controls')) return false;
+      return true;
+    });
+  }
+
+  private clearOverlay() {
+    this.overlayRenderer.clear();
+    this.restoreNativeSubtitles();
+  }
+
+  private restoreNativeSubtitles() {
+    this.applyNativeSubtitleMask(false);
+  }
+
+  private startObserver() {
+    this.observer?.disconnect();
+
+    const targetNode =
+      document.querySelector('.watch-video') ||
+      document.querySelector('[data-uia="watch-video"]') ||
+      document.body ||
+      document.documentElement;
+
+    if (!targetNode) return;
+
+    this.observer = new MutationObserver(() => {
+      if (this.isActive) this.processCaptions();
+    });
+    this.observer.observe(targetNode, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    this.processCaptions();
+  }
+
+  private getNativeSubtitleTextFromDOM(): string {
+    const lines: string[] = [];
+
+    for (const element of this.getNativeSubtitleElements()) {
+      const rawText = (element.innerText || element.textContent || '').trim();
+      if (!rawText) continue;
+
+      for (const line of rawText.split(/\r?\n/)) {
+        const text = line.replace(/[ \t]+/g, ' ').trim();
+        if (text && !lines.includes(text)) {
+          lines.push(text);
         }
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  private processCaptions() {
+    if (!this.isActive) return;
+
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+
+    const currentNativeText = this.getNativeSubtitleTextFromDOM();
+    if (!currentNativeText) {
+      if (this.lastProcessedText !== '') {
+        this.lastProcessedText = '';
+        this.clearOverlay();
+      }
+      return;
+    }
+
+    this.onNewSubtitleText(currentNativeText);
+  }
+
+  private onNewSubtitleText(text: string) {
+    const cleanText = text
+      .replace(/<[^>]*>/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n')
+      .trim();
+    if (!cleanText) {
+      this.clearOverlay();
+      this.lastProcessedText = '';
+      return;
+    }
+    if (this.lastProcessedText === cleanText) return;
+
+    this.lastProcessedText = cleanText;
+    this.clearOverlay();
+
+    if (this.selectedTrackId !== 'ai-translate' && this.secondaryCues.length > 0) {
+      this.renderSecondaryCueForTime(cleanText);
+    } else {
+      void this.fetchAndRenderOverlay(cleanText, this.routeGeneration);
+    }
+  }
+
+  private renderSecondaryCueForTime(primaryText: string) {
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const currentMs = video ? Math.round(video.currentTime * 1000) : 0;
+    const activeCue = this.secondaryCues.find(
+      (cue) => currentMs >= cue.startMs && currentMs <= cue.endMs,
+    );
+    if (!activeCue?.text) return;
+    this.renderOverlay(primaryText, activeCue.text);
+  }
+
+  private async fetchAndRenderOverlay(text: string, generation: number) {
+    const fingerprint = [
+      this.currentVideoId,
+      text,
+      this.targetLang,
+      this.displayMode,
+      this.subtitleOriginalFontSize,
+      this.subtitleTranslatedFontSize,
+      this.subtitleOriginalColor,
+      this.subtitleTranslatedColor,
+    ].join('|');
+
+    const cached = this.inlineTranslationCache.get(fingerprint);
+    if (cached) {
+      this.renderOverlay(text, cached);
+      return;
+    }
+    if (this.pendingTranslationFingerprints.has(fingerprint)) return;
+    this.pendingTranslationFingerprints.add(fingerprint);
+
+    try {
+      const response = await messageRouter.sendMessage({
+        type: 'TRANSLATE_REQUEST',
+        segments: [{ id: 'nf-overlay', text }],
+        sourceLanguage: 'auto',
+        targetLanguage: this.targetLang,
       });
 
-      browser.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && changes.owt_netflix_config?.newValue) {
-          handleConfigUpdate(changes.owt_netflix_config.newValue);
+      if (!this.isActive || this.routeGeneration !== generation || this.lastProcessedText !== text) return;
+
+      const translatedText = response?.segments?.[0]?.translatedText;
+      if (!translatedText) {
+        this.renderOverlay(text, '⚠️ 翻譯失敗: 無法取得翻譯結果');
+        return;
+      }
+
+      this.inlineTranslationCache.set(fingerprint, translatedText);
+      this.renderOverlay(text, translatedText);
+    } catch (error: any) {
+      logger.error('Overlay translation failed', error);
+      if (this.isActive && this.routeGeneration === generation) {
+        this.renderOverlay(text, `⚠️ 翻譯失敗: ${error?.message || 'API 請求失敗'}`);
+      }
+    } finally {
+      this.pendingTranslationFingerprints.delete(fingerprint);
+    }
+  }
+
+  private renderOverlay(originalText: string, translatedText: string, isError = false) {
+    const host = this.getOverlayHost();
+    this.overlayRenderer.mount(host);
+    this.overlayRenderer.updateSettings({
+      subtitleOriginalFontSize: this.subtitleOriginalFontSize,
+      subtitleTranslatedFontSize: this.subtitleTranslatedFontSize,
+      subtitleOriginalColor: this.subtitleOriginalColor,
+      subtitleTranslatedColor: this.subtitleTranslatedColor,
+      displayMode: this.displayMode as any,
+    });
+
+    if (isError) {
+      this.overlayRenderer.render(originalText, translatedText, { isError: true });
+    } else {
+      this.overlayRenderer.render(originalText, translatedText);
+      this.applyNativeSubtitleMask(true);
+    }
+  }
+
+  public injectControlsButton() {
+    let button = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
+    if (button && document.body.contains(button)) {
+      this.controlsButton = button;
+      this.updateControlsButtonState();
+      return;
+    }
+
+    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
+    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
+    const controlsStandard = document.querySelector('[data-uia="controls-standard"]');
+
+    const rightGroup =
+      audioSubWrapper?.parentElement ||
+      controlsStandard ||
+      document.querySelector('.player-controls .right-controls') ||
+      document.querySelector('.player-controls') ||
+      document.body;
+
+    button = document.createElement('button');
+    button.className = 'owt-netflix-toggle-btn';
+    button.setAttribute('aria-label', 'OWT 雙語字幕');
+    button.setAttribute('title', 'OWT 雙語字幕與語言學習 Overlay');
+    button.style.background = 'transparent';
+    button.style.border = 'none';
+    button.style.color = 'white';
+    button.style.cursor = 'pointer';
+    button.style.width = '44px';
+    button.style.height = '44px';
+    button.style.padding = '0';
+    button.style.margin = '0 6px 0 0';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.opacity = '0.85';
+    button.style.transition = 'all 0.2s ease';
+    button.style.zIndex = '9999';
+    button.style.position = 'relative';
+    button.innerHTML = `
+      <span class="owt-btn-text" style="font-weight:700;font-size:12px;">OWT</span>
+    `;
+
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.handleToggleClick();
+    });
+
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleSelectorMenu();
+    });
+
+    if (audioSubWrapper && audioSubWrapper.parentNode) {
+      audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
+    } else if (rightGroup) {
+      rightGroup.prepend(button);
+    }
+
+    this.controlsButton = button;
+    this.updateControlsButtonState();
+  }
+
+  private toggleSelectorMenu() {
+    if (this.selectorMenu?.style.display === 'block') {
+      this.hideSelectorMenu();
+    } else {
+      this.showSelectorMenu();
+    }
+  }
+
+  private showSelectorMenu() {
+    let menu = document.getElementById('owt-netflix-selector-menu');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'owt-netflix-selector-menu';
+      menu.style.position = 'absolute';
+      menu.style.bottom = '70px';
+      menu.style.right = '10px';
+      menu.style.backgroundColor = 'rgba(20, 20, 20, 0.95)';
+      menu.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+      menu.style.borderRadius = '8px';
+      menu.style.padding = '12px 16px';
+      menu.style.color = 'white';
+      menu.style.fontSize = '14px';
+      menu.style.zIndex = '2147483647';
+      menu.style.minWidth = '220px';
+      menu.style.boxShadow = '0 8px 24px rgba(0,0,0,0.8)';
+      menu.style.backdropFilter = 'blur(8px)';
+      (document.querySelector('.player-controls') || document.body).appendChild(menu);
+    }
+
+    this.selectorMenu = menu;
+    this.updateSelectorMenuOptions();
+    menu.style.display = 'block';
+  }
+
+  private hideSelectorMenu() {
+    if (this.selectorMenu) this.selectorMenu.style.display = 'none';
+  }
+
+  private updateSelectorMenuOptions() {
+    if (!this.selectorMenu) return;
+
+    this.selectorMenu.innerHTML = '';
+    const heading = document.createElement('div');
+    heading.style.fontWeight = '700';
+    heading.style.marginBottom = '8px';
+    heading.style.color = '#c084fc';
+    heading.textContent = `🌐 OWT 副字幕選單 (${this.discoveredTracks.length} 軌可用)`;
+    this.selectorMenu.appendChild(heading);
+
+    const list = document.createElement('div');
+    list.id = 'owt-track-list';
+    list.style.maxHeight = '250px';
+    list.style.overflowY = 'auto';
+    this.selectorMenu.appendChild(list);
+
+    const appendItem = (label: string, selected: boolean, onClick: () => void) => {
+      const item = document.createElement('div');
+      item.style.padding = '8px 10px';
+      item.style.margin = '4px 0';
+      item.style.borderRadius = '4px';
+      item.style.cursor = 'pointer';
+      item.style.backgroundColor = selected ? 'rgba(168, 85, 247, 0.3)' : 'transparent';
+      item.style.color = selected ? '#c084fc' : 'white';
+      item.textContent = label;
+      item.addEventListener('click', onClick);
+      list.appendChild(item);
+    };
+
+    appendItem('✨ 自動 AI / 機器翻譯 (Google / DeepL / Gemini)', this.selectedTrackId === 'ai-translate', () => {
+      this.selectedTrackId = 'ai-translate';
+      this.secondaryCues = [];
+      this.lastProcessedText = '';
+      this.updateSelectorMenuOptions();
+      this.processCaptions();
+    });
+
+    if (this.discoveredTracks.length === 0) return;
+    const divider = document.createElement('div');
+    divider.style.height = '1px';
+    divider.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+    divider.style.margin = '6px 0';
+    list.appendChild(divider);
+
+    for (const track of this.discoveredTracks) {
+      appendItem(
+        `🎬 原生副字幕：${track.label} ${track.isCC ? '(CC)' : ''}`,
+        this.selectedTrackId === track.id,
+        () => {
+          this.selectedTrackId = track.id;
+          void this.loadSecondaryTrack(track);
+        },
+      );
+    }
+  }
+
+  private async loadSecondaryTrack(track: DiscoveredTrack) {
+    try {
+      const response = await fetch(track.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      this.secondaryCues = parseNetflixTtml(await response.text());
+      logger.info('Parsed secondary Netflix TTML cues', this.secondaryCues.length);
+    } catch (error) {
+      this.secondaryCues = [];
+      logger.error('Failed to fetch secondary track TTML', error);
+    }
+    this.lastProcessedText = '';
+    this.updateSelectorMenuOptions();
+    this.processCaptions();
+  }
+
+  private updateControlsButtonState() {
+    if (!this.controlsButton) return;
+    this.controlsButton.style.color = this.isActive ? '#c084fc' : 'white';
+    this.controlsButton.style.opacity = this.isActive ? '1' : '0.8';
+    this.controlsButton.style.textShadow = this.isActive
+      ? '0 0 8px rgba(168, 85, 247, 0.6)'
+      : 'none';
+  }
+
+  private setupSettingsListener() {
+    Promise.resolve(messageRouter.sendMessage({ type: 'GET_SETTINGS' }))
+      .then((settings) => {
+        if (settings?.targetLanguage) this.targetLang = settings.targetLanguage;
+        if (settings?.displayMode) this.displayMode = settings.displayMode;
+        if (settings?.subtitleOriginalFontSize) {
+          this.subtitleOriginalFontSize = settings.subtitleOriginalFontSize;
+        }
+        if (settings?.subtitleTranslatedFontSize) {
+          this.subtitleTranslatedFontSize = settings.subtitleTranslatedFontSize;
+        }
+        if (settings?.subtitleOriginalColor) this.subtitleOriginalColor = settings.subtitleOriginalColor;
+        if (settings?.subtitleTranslatedColor) this.subtitleTranslatedColor = settings.subtitleTranslatedColor;
+      })
+      .catch(() => {});
+
+    try {
+      SettingsStorage.onChange((newSettings) => {
+        if (newSettings) {
+          this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
+          this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
+          this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
+          this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
+          this.targetLang = newSettings.targetLanguage || 'zh-Hant';
+          this.displayMode = newSettings.displayMode || 'bilingual';
+          if (this.isActive) {
+            this.lastProcessedText = '';
+            this.processCaptions();
+          }
         }
       });
     } catch {
-      // ignore
+      // Ignore if storage listener unavailable
     }
-  }
-
-  private setupHotkeyListeners(): void {
-    window.addEventListener('keydown', (e) => {
-      if (!this.isActive) return;
-      if (!e.altKey) return;
-
-      const key = e.key.toLowerCase();
-      if (['q', 'e', 'a', 'd', 's', 'z', 'c'].includes(key)) {
-        e.stopPropagation();
-
-        const video = document.querySelector('video') as HTMLVideoElement | null;
-        if (key === 'q' && video) {
-          video.playbackRate = Math.max(0.5, video.playbackRate - 0.1);
-        } else if (key === 'e' && video) {
-          video.playbackRate = Math.min(2.0, video.playbackRate + 0.1);
-        } else if (key === 'z') {
-          this.displayMode = this.displayMode === 'target-only' ? 'bilingual' : 'target-only';
-          this.applyOverlayStyleConfig();
-          this.overlayRenderer.updateStyles();
-        } else if (key === 'c') {
-          this.displayMode = this.displayMode === 'source-only' ? 'bilingual' : 'source-only';
-          this.applyOverlayStyleConfig();
-          this.overlayRenderer.updateStyles();
-        }
-      }
-    });
-  }
-
-  private tryAutoStart(): void {
-    const isWatch = window.location.pathname.includes('/watch/');
-    if (isWatch && !this.isActive && !this.isUserDisabled) {
-      void this.start();
-    }
-  }
-
-  public injectControlsButton(): void {
-    const existingBtns = document.querySelectorAll('.owt-netflix-toggle-btn');
-    if (existingBtns.length > 0) {
-      for (let i = 1; i < existingBtns.length; i++) {
-        existingBtns[i].remove();
-      }
-      this.controlsButton = existingBtns[0] as HTMLElement;
-      if (document.contains(this.controlsButton)) return;
-    }
-
-    const audioSubBtn =
-      document.querySelector('[data-uia="control-audio-subtitle"]') ||
-      document.querySelector('[data-uia="control-speed"]') ||
-      document.querySelector('[data-uia="control-fullscreen"]') ||
-      document.querySelector('[data-uia="control-episodes"]');
-
-    const parentContainer =
-      audioSubBtn?.parentElement ||
-      document.querySelector('[data-uia="controls-standard"]') ||
-      document.querySelector('[data-uia="player-controls-bottom"]') ||
-      document.querySelector('.AkiraPlayerControls--bottom-controls') ||
-      document.querySelector('.player-controls-wrapper');
-
-    if (!parentContainer) return;
-
-    const btn = document.createElement('button');
-    btn.className = 'owt-netflix-toggle-btn';
-    btn.type = 'button';
-    btn.title = 'OWT 雙語字幕與語言學習 Overlay';
-    btn.style.cssText = [
-      'background: rgba(0, 0, 0, 0.4)',
-      'border: 1px solid rgba(255, 255, 255, 0.25)',
-      'border-radius: 4px',
-      'color: #ffffff',
-      'font-size: 13px',
-      'font-weight: bold',
-      'cursor: pointer',
-      'padding: 4px 8px',
-      'margin: 0 6px',
-      'display: inline-flex',
-      'align-items: center',
-      'justify-content: center',
-      'height: 28px',
-      'flex-shrink: 0',
-      'align-self: center',
-      'white-space: nowrap',
-      'vertical-align: middle',
-      'z-index: 2147483647',
-    ].join(';');
-    btn.innerHTML = '🌐 OWT';
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.isActive) {
-        this.isUserDisabled = true;
-        this.stop();
-        btn.style.opacity = '0.5';
-      } else {
-        this.isUserDisabled = false;
-        void this.start();
-        btn.style.opacity = '1.0';
-      }
-    });
-
-    if (audioSubBtn && audioSubBtn.parentElement === parentContainer) {
-      parentContainer.insertBefore(btn, audioSubBtn);
-    } else {
-      parentContainer.appendChild(btn);
-    }
-    this.controlsButton = btn;
   }
 }

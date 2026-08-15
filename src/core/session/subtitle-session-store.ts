@@ -1,4 +1,7 @@
-import { browser } from 'wxt/browser';
+import { ref, onMounted, onUnmounted } from 'vue';
+import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
+import { messageRouter } from '@/infrastructure/messaging/message-router';
+import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('SubtitleSessionStore');
@@ -93,7 +96,6 @@ export function tokenizeText(cueId: string, text: string, lang: string): Subtitl
     // Regex matching CJK words, kanji clusters, katakana words, or individual characters
     const regex = /([\u4e00-\u9faf\u3040-\u309f]+|[\u30a0-\u30ff]+|[a-zA-Z0-9]+|[^\s])/g;
     let match: RegExpExecArray | null;
-    let tokenIndex = 0;
 
     while ((match = regex.exec(text)) !== null) {
       const surface = match[0];
@@ -108,7 +110,6 @@ export function tokenizeText(cueId: string, text: string, lang: string): Subtitl
         start,
         end,
       });
-      tokenIndex++;
     }
   } else {
     // Western languages: split by whitespace & punctuation
@@ -236,12 +237,10 @@ export class SubtitleSessionStore {
 
   private async loadSavedVocabulary(): Promise<void> {
     try {
-      if (typeof browser !== 'undefined' && browser.storage?.sync) {
-        const res = await browser.storage.sync.get('owt_saved_vocabulary');
-        if (res?.owt_saved_vocabulary && Array.isArray(res.owt_saved_vocabulary)) {
-          for (const card of res.owt_saved_vocabulary) {
-            this.vocabulary.set(card.id, card);
-          }
+      const list = await extensionBridge.getSyncStorage<VocabularyCard[]>('owt_saved_vocabulary');
+      if (list && Array.isArray(list)) {
+        for (const card of list) {
+          this.vocabulary.set(card.id, card);
         }
       }
     } catch {
@@ -251,10 +250,8 @@ export class SubtitleSessionStore {
 
   private async persistVocabulary(): Promise<void> {
     try {
-      if (typeof browser !== 'undefined' && browser.storage?.sync) {
-        const list = Array.from(this.vocabulary.values());
-        await browser.storage.sync.set({ owt_saved_vocabulary: list });
-      }
+      const list = Array.from(this.vocabulary.values());
+      await extensionBridge.setSyncStorage('owt_saved_vocabulary', list);
     } catch {
       // fallback
     }
@@ -262,3 +259,91 @@ export class SubtitleSessionStore {
 }
 
 export const globalSubtitleSessionStore = new SubtitleSessionStore();
+
+/**
+ * Vue composable providing reactive Netflix session config and diagnostic HUD info
+ * without direct Extension API dependencies in UI components.
+ */
+export function useNetflixSession() {
+  const config = ref<NetflixConfig>({
+    enabled: true,
+    primarySize: 18,
+    secondarySize: 22,
+    bottomPosition: 80,
+    lineSpacing: 4,
+    enableBitmapRescue: true,
+    learningMode: true,
+  });
+
+  const hudInfo = ref<NetflixStateInfo>({
+    isActive: false,
+    primaryStatus: '未載入 (No Track)',
+    secondaryStatus: '未載入 (No Track)',
+    modeLabel: '原生播放器模式 (Native Only)',
+    modeClass: 'native-only',
+    discoveredTracksCount: 0,
+    activePreview: null,
+  });
+
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function syncState() {
+    try {
+      const tabId = await extensionBridge.queryActiveTabId();
+      if (tabId) {
+        let state = await extensionBridge.sendTabMessage<NetflixStateInfo>(tabId, { type: 'GET_NETFLIX_STATE' });
+
+        if (!state) {
+          try {
+            state = (await messageRouter.sendMessage({ type: 'GET_NETFLIX_STATE' } as any)) as unknown as NetflixStateInfo;
+          } catch {}
+        }
+
+        if (state && typeof state === 'object' && state.primaryStatus) {
+          hudInfo.value = state;
+        }
+      }
+    } catch {
+      // tab not ready
+    }
+  }
+
+  async function loadConfig() {
+    const saved = await extensionBridge.getSyncStorage<NetflixConfig>('owt_netflix_config');
+    if (saved) {
+      config.value = { ...config.value, ...saved };
+    }
+  }
+
+  async function updateConfig(newConfig: NetflixConfig) {
+    config.value = { ...newConfig };
+    await extensionBridge.setSyncStorage('owt_netflix_config', config.value);
+
+    const tabId = await extensionBridge.queryActiveTabId();
+    if (tabId) {
+      await extensionBridge.sendTabMessage(tabId, {
+        type: 'UPDATE_NETFLIX_CONFIG',
+        payload: config.value,
+      });
+    }
+  }
+
+  onMounted(async () => {
+    await loadConfig();
+    await syncState();
+    pollTimer = setInterval(syncState, 1000);
+  });
+
+  onUnmounted(() => {
+    if (pollTimer) clearInterval(pollTimer);
+  });
+
+  return {
+    config,
+    hudInfo,
+    syncState,
+    loadConfig,
+    updateConfig,
+  };
+}
+

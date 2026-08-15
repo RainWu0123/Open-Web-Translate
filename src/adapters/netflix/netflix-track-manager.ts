@@ -27,6 +27,7 @@ export interface HydrationResult {
   trackKey?: string;
   cues?: SubtitleCue[];
   reason?: 'timeout' | 'track-not-found' | 'api-unavailable';
+  detectedFormat?: string;
 }
 
 export interface DiscoveredTrack {
@@ -38,6 +39,7 @@ export interface DiscoveredTrack {
   hasUrl: boolean;
   rawTrack?: Record<string, unknown>;
   downloadables?: Record<string, { isImage: boolean; downloadUrls: string[]; urls: string[] }>;
+  candidates?: { profile: string; url: string; isText: boolean }[];
 }
 
 export function isBitmapImsc(xml: string): boolean {
@@ -90,12 +92,29 @@ export function trackMatchesTargetLanguage(
   return false;
 }
 
-export class NetflixTrackManager {
+export interface INetflixTrackManager {
+  getAdapterState(): AdapterState;
+  setAdapterState(state: AdapterState): void;
+  setDiscoveredTracks(tracks: DiscoveredTrack[]): void;
+  getDiscoveredTracks(): DiscoveredTrack[];
+  subscribeTracks(listener: (tracks: DiscoveredTrack[]) => void): () => void;
+  findPrimaryTrack(currentNativeTrackId?: string, preferredLanguage?: string): DiscoveredTrack | undefined;
+  findBestMatchingTrack(targetLang?: string): DiscoveredTrack | undefined;
+  findTextFallbackUrl(track: DiscoveredTrack): string | null;
+  startPerformanceObserver(): void;
+  stopPerformanceObserver(): void;
+}
+
+export class NetflixTrackManager implements INetflixTrackManager {
   private adapterState: AdapterState = 'idle';
   private discoveredTracks: DiscoveredTrack[] = [];
   private targetLang: string = 'zh-Hant';
+  private listeners: Set<(tracks: DiscoveredTrack[]) => void> = new Set();
+  private observer: PerformanceObserver | null = null;
 
-  constructor() {}
+  constructor() {
+    this.startPerformanceObserver();
+  }
 
   public getAdapterState(): AdapterState {
     return this.adapterState;
@@ -108,10 +127,31 @@ export class NetflixTrackManager {
 
   public setDiscoveredTracks(tracks: DiscoveredTrack[]): void {
     this.discoveredTracks = tracks;
+    this.notifyListeners();
   }
 
   public getDiscoveredTracks(): DiscoveredTrack[] {
     return this.discoveredTracks;
+  }
+
+  public subscribeTracks(listener: (tracks: DiscoveredTrack[]) => void): () => void {
+    this.listeners.add(listener);
+    if (this.discoveredTracks.length > 0) {
+      listener(this.discoveredTracks);
+    }
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyListeners(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(this.discoveredTracks);
+      } catch (err) {
+        logger.error('Error in track listener', err);
+      }
+    }
   }
 
   public setTargetLanguage(lang: string): void {
@@ -119,16 +159,20 @@ export class NetflixTrackManager {
   }
 
   public findPrimaryTrack(currentNativeTrackId?: string, preferredLanguage?: string): DiscoveredTrack | undefined {
+    const isNoneTrack = (id?: string) => !id || id.includes('NONE') || id === 'off';
+
+    if (currentNativeTrackId && !isNoneTrack(currentNativeTrackId)) {
+      const match = this.discoveredTracks.find((t) => t.id === currentNativeTrackId);
+      if (match) return match;
+    }
+
+    const targetMatch = this.discoveredTracks.find((t) =>
+      trackMatchesTargetLanguage(t, preferredLanguage || this.targetLang),
+    );
+    if (targetMatch) return targetMatch;
+
     return (
-      this.discoveredTracks.find((t) => t.id === currentNativeTrackId) ??
-      this.discoveredTracks.find((t) => trackMatchesTargetLanguage(t, preferredLanguage || '')) ??
-      this.discoveredTracks.find((t) => {
-        if (!t.downloadables) return false;
-        const keys = Object.keys(t.downloadables);
-        return keys.some(
-          (k) => k.includes('webvtt') || k.includes('dfxp') || k.includes('simplesdh'),
-        );
-      }) ??
+      this.discoveredTracks.find((t) => !isNoneTrack(t.id)) ??
       this.discoveredTracks[0]
     );
   }
@@ -141,6 +185,11 @@ export class NetflixTrackManager {
    * Rescue IMSC1 bitmap track by finding text-based profile in manifest downloadables.
    */
   public findTextFallbackUrl(track: DiscoveredTrack): string | null {
+    if (track.candidates && track.candidates.length > 0) {
+      const textCandidate = track.candidates.find(c => c.isText);
+      if (textCandidate) return textCandidate.url;
+    }
+
     if (!track.downloadables) return null;
 
     const PREFERRED_PROFILES = [
@@ -167,5 +216,76 @@ export class NetflixTrackManager {
     }
 
     return null;
+  }
+
+  /**
+   * Non-invasive PerformanceObserver to capture loaded subtitle resource URLs
+   * without overriding global XMLHttpRequest or fetch APIs.
+   */
+  public startPerformanceObserver(): void {
+    if (typeof PerformanceObserver === 'undefined') return;
+    if (this.observer) return;
+
+    try {
+      this.observer = new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        const newTrackUrls: string[] = [];
+
+        for (const entry of entries) {
+          const name = entry.name.toLowerCase();
+          if (
+            (name.includes('.dfxp') ||
+              name.includes('.vtt') ||
+              name.includes('timedtext') ||
+              name.includes('format=dfxp') ||
+              name.includes('format=webvtt')) &&
+            !name.includes('path=video') &&
+            !name.includes('path=audio')
+          ) {
+            newTrackUrls.push(entry.name);
+          }
+        }
+
+        if (newTrackUrls.length > 0) {
+          logger.info(`PerformanceObserver captured ${newTrackUrls.length} subtitle URLs`);
+          this.hydratePerformanceTracks(newTrackUrls);
+        }
+      });
+
+      this.observer.observe({ entryTypes: ['resource'] });
+    } catch {
+      // Ignore if resource observation not allowed
+    }
+  }
+
+  public stopPerformanceObserver(): void {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+  }
+
+  private hydratePerformanceTracks(urls: string[]): void {
+    let updated = false;
+    const currentTracks = [...this.discoveredTracks];
+
+    for (const url of urls) {
+      const existing = currentTracks.find((t) => t.url === url);
+      if (!existing) {
+        currentTracks.push({
+          id: `perf_${currentTracks.length + 1}`,
+          label: `Captured Track ${currentTracks.length + 1}`,
+          language: 'auto',
+          url,
+          isCC: false,
+          hasUrl: true,
+        });
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      this.setDiscoveredTracks(currentTracks);
+    }
   }
 }

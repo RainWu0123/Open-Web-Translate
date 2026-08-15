@@ -1,4 +1,5 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('YouTubeCaptionAdapter');
@@ -77,19 +78,16 @@ export class YouTubeCaptionAdapter {
 
   private setupSettingsListener() {
     try {
-      browser.storage.onChanged.addListener((changes) => {
-        if (changes['owt_settings']) {
-          const newSettings = changes['owt_settings'].newValue as any;
-          if (newSettings) {
-            this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
-            this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
-            this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
-            this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
-            this.targetLang = newSettings.targetLanguage || 'zh-Hant';
-            this.displayMode = newSettings.displayMode || 'bilingual';
-            if (this.isActive) {
-              this.processCaptions();
-            }
+      SettingsStorage.onChange((newSettings) => {
+        if (newSettings) {
+          this.subtitleOriginalFontSize = newSettings.subtitleOriginalFontSize || 18;
+          this.subtitleTranslatedFontSize = newSettings.subtitleTranslatedFontSize || 22;
+          this.subtitleOriginalColor = newSettings.subtitleOriginalColor || '#ffffff';
+          this.subtitleTranslatedColor = newSettings.subtitleTranslatedColor || '#818cf8';
+          this.targetLang = newSettings.targetLanguage || 'zh-Hant';
+          this.displayMode = newSettings.displayMode || 'bilingual';
+          if (this.isActive) {
+            this.processCaptions();
           }
         }
       });
@@ -392,10 +390,18 @@ export class YouTubeCaptionAdapter {
         return;
       }
 
-      const translatedText = response?.segments?.[0]?.translatedText;
+      const translatedText = response?.segments?.[0]?.translatedText || '';
       if (!translatedText) {
         const targets = this.getElementsWithFingerprint(fingerprint);
-        targets.forEach((t) => (t.style.opacity = '1'));
+        if (targets.length > 0) {
+          targets.forEach((t) => {
+            t.style.opacity = '1';
+            this.renderInlineSegment(t, originalText, '⚠️ 翻譯失敗: 無法取得翻譯結果');
+          });
+        } else if (document.body.contains(seg)) {
+          seg.style.opacity = '1';
+          this.renderInlineSegment(seg, originalText, '⚠️ 翻譯失敗: 無法取得翻譯結果');
+        }
         return;
       }
 
@@ -411,10 +417,19 @@ export class YouTubeCaptionAdapter {
         seg.style.opacity = '1';
         this.renderInlineSegment(seg, originalText, translatedText);
       }
-    } catch (err) {
+    } catch (err: any) {
       if (this.routeGeneration !== generation || abortController.signal.aborted) return;
+      
       const targets = this.getElementsWithFingerprint(fingerprint);
-      targets.forEach((t) => (t.style.opacity = '1'));
+      if (targets.length > 0) {
+        targets.forEach((t) => {
+          t.style.opacity = '1';
+          this.renderInlineSegment(t, originalText, `⚠️ 翻譯失敗: ${err?.message || 'API 請求失敗'}`);
+        });
+      } else if (document.body.contains(seg)) {
+        seg.style.opacity = '1';
+        this.renderInlineSegment(seg, originalText, `⚠️ 翻譯失敗: ${err?.message || 'API 請求失敗'}`);
+      }
       logger.error('Subtitle inline translation failed', err);
     } finally {
       this.pendingRequests.delete(fingerprint);
