@@ -4,25 +4,15 @@ import { createLogger } from '@/shared/logger';
 import { SubtitleOverlayRenderer } from '@/shared/ui/subtitle-overlay-renderer';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
-import { SentenceController } from '@/adapters/sentence-controller';
-import { DictionaryPopover } from '@/shared/ui/dictionary-popover';
-import {
-  alignCueTracks,
-  findPairingAt,
-  type CuePairing,
-} from '@/shared/subtitles/cue-aligner';
-import {
-  tokenizeText,
-  globalSubtitleSessionStore,
-} from '@/core/session/subtitle-session-store';
+import { DomCueTimelineBuilder } from '@/adapters/dom-cue-timeline';
+import { tokenizeText } from '@/core/session/subtitle-session-store';
 import { BRIDGE, onBridgeMessage, bridgeRequest } from './netflix-bridge';
+import { NetflixLearningMode } from './netflix-learning-mode';
+import { NetflixDualTrackController } from './netflix-dual-track';
 import { NetflixTrackManager, trackMatchesTargetLanguage, type DiscoveredTrack } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 
 const logger = createLogger('NetflixCaptionAdapter');
-
-/** Parser cue enriched with identity/language for dual-track pairing. */
-type DualCue = SubtitleCue & { id: string; lang: string };
 
 /**
  * Netflix renders timed text inside a player-owned subtree that is frequently
@@ -50,16 +40,9 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private pendingTranslationFingerprints = new Set<string>();
 
   // ── Learning mode (Language Reactor core) ──────────────────────────
-  private learningModeEnabled = true;
-  private sentenceController: SentenceController | null = null;
-  private dictionaryPopover: DictionaryPopover | null = null;
+  private domCueTimeline = new DomCueTimelineBuilder();
   private lastRenderedSentence: { original: string; translated: string } | null = null;
 
-  // ── Dual native track mode ─────────────────────────────────────────
-  private dualMode = false;
-  private primaryCues: DualCue[] = [];
-  private cuePairings: CuePairing<DualCue, DualCue>[] = [];
-  private pairingByPrimary = new Map<DualCue, CuePairing<DualCue, DualCue>>();
   private lastProcessedText = '';
   private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly clearGraceMs = 2000;
@@ -68,6 +51,36 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private trackManager = new NetflixTrackManager();
   private syncEngine = new NetflixSyncEngine();
   private overlayRenderer = new SubtitleOverlayRenderer('owt-netflix-overlay-host');
+  private learningMode = new NetflixLearningMode({
+    isActive: () => this.isActive,
+    targetLang: () => this.targetLang,
+    currentVideoId: () => this.currentVideoId || '',
+    primaryTrackLang: () => (this.dualTrack.isActive() ? this.dualTrack.getPrimaryLang() : 'auto'),
+    getTimeline: () => this.getSentenceTimeline(),
+    setLineVisibility: (visible) => this.overlayRenderer.setLineVisibility(visible),
+    currentSentence: () => this.lastRenderedSentence,
+  });
+  private dualTrack = new NetflixDualTrackController(
+    {
+      fetchTtml: (url) => this.fetchTtmlXml(url),
+      parseTtml: (xml) => parseNetflixTtml(xml),
+      isActive: () => this.isActive,
+      routeGeneration: () => this.routeGeneration,
+      renderCueLine: (primaryText, secondaryText) => this.renderOverlay(primaryText, secondaryText),
+      machineTranslateCue: (text, generation) => this.fetchAndRenderOverlay(text, generation),
+      clearLine: () => this.clearOverlay(),
+      setCueText: (text) => { this.lastProcessedText = text; },
+      getCueText: () => this.lastProcessedText,
+      setSecondaryCues: (cues) => { this.secondaryCues = cues; },
+      onDualLoaded: () => {
+        this.updateSelectorMenuOptions();
+        if (this.isActive) this.processCaptions();
+      },
+      fallbackToSingle: (secondary) => this.loadSecondaryTrack(secondary, { manual: false }),
+    },
+    this.syncEngine,
+    () => this.learningMode.notifyTimelineChanged(),
+  );
 
   public getTrackManager(): NetflixTrackManager {
     return this.trackManager;
@@ -93,8 +106,8 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       selectedTrackId: this.selectedTrackId,
       selectionMode: this.selectionMode,
       secondaryCuesCount: this.secondaryCues.length,
-      learningMode: this.learningModeEnabled,
-      dualTrack: this.dualMode,
+      learningMode: this.learningMode.isEnabled(),
+      dualTrack: this.dualTrack.isActive(),
     };
   }
 
@@ -124,8 +137,8 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   public updateConfig(config: Partial<NetflixConfig>): void {
     if (config.primarySize !== undefined) this.subtitleOriginalFontSize = config.primarySize;
     if (config.secondarySize !== undefined) this.subtitleTranslatedFontSize = config.secondarySize;
-    if (config.learningMode !== undefined && config.learningMode !== this.learningModeEnabled) {
-      this.setLearningMode(config.learningMode);
+    if (config.learningMode !== undefined && config.learningMode !== this.learningMode.isEnabled()) {
+      this.learningMode.setEnabled(config.learningMode);
     }
     if (config.enabled === false && this.isActive) {
       this.stop();
@@ -249,12 +262,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
   protected onVideoChanged(): void {
     this.lastProcessedText = '';
+    this.domCueTimeline.reset();
     this.discoveredTracks = [];
     this.secondaryCues = [];
-    this.dualMode = false;
-    this.primaryCues = [];
-    this.cuePairings = [];
-    this.pairingByPrimary.clear();
+    this.dualTrack.reset();
     this.inlineTranslationCache.clear();
     this.pendingTranslationFingerprints.clear();
     this.clearOverlay();
@@ -331,16 +342,15 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     this.updateControlsButtonState();
     this.injectControlsButton();
     this.startObserver();
-    this.ensureLearningMode();
+    this.learningMode.attach();
     this.reconcileTrackSelection();
     logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode, selectionMode: this.selectionMode });
   }
 
   stop() {
     this.isActive = false;
-    this.teardownLearningMode();
-    this.syncEngine.stop();
-    this.dualMode = false;
+    this.learningMode.detach();
+    this.dualTrack.reset();
 
     if (this.observer) {
       this.observer.disconnect();
@@ -364,6 +374,11 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     document.body?.classList.remove('owt-netflix-active');
     this.updateControlsButtonState();
     logger.info('NetflixCaptionAdapter stopped');
+  }
+
+  private currentVideoMs(): number {
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    return video ? Math.round(video.currentTime * 1000) : 0;
   }
 
   private getOverlayHost(): HTMLElement {
@@ -465,7 +480,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (!this.isActive) return;
     // Dual native mode is driven by the sync engine + video.currentTime,
     // not by DOM scraping.
-    if (this.dualMode) return;
+    if (this.dualTrack.isActive()) return;
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -481,6 +496,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         this.clearGraceTimer = setTimeout(() => {
           this.clearGraceTimer = null;
           this.lastProcessedText = '';
+          this.domCueTimeline.closeAll(this.currentVideoMs());
           this.clearOverlay();
         }, this.clearGraceMs);
       }
@@ -496,7 +512,8 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   private onNewSubtitleText(text: string) {
-    if (this.dualMode) return;
+    if (this.dualTrack.isActive()) return;
+    this.domCueTimeline.open(text, this.currentVideoMs());
     const cleanText = text
       .replace(/<[^>]*>/g, '')
       .replace(/[ \t]+/g, ' ')
@@ -592,7 +609,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       this.overlayRenderer.render(originalText, translatedText, { isError: true });
     } else {
       this.lastRenderedSentence = { original: originalText, translated: translatedText };
-      const tokens = this.learningModeEnabled
+      const tokens = this.learningMode.isEnabled()
         ? tokenizeText(`cue-${this.routeGeneration}-${originalText.length}`, originalText, this.targetLang)
         : undefined;
       this.overlayRenderer.render(originalText, translatedText, { tokens });
@@ -833,11 +850,9 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         // Learning mode core: when a second native track (the video's
         // original language) exists, download BOTH tracks and pair cues by
         // maximum time overlap — the LR dual-subtitle layout.
-        const original = this.discoveredTracks.find(
-          (t) => t.url && t.id !== native.id && !trackMatchesTargetLanguage(t, this.targetLang),
-        );
-        if (original && this.learningModeEnabled) {
-          await this.loadDualTracks(original, native);
+        const original = await this.dualTrack.selectPrimary(this.discoveredTracks, native, this.targetLang);
+        if (original && this.learningMode.isEnabled()) {
+          await this.dualTrack.load(original, native);
         } else {
           await this.loadSecondaryTrack(native, { manual: false });
         }
@@ -921,165 +936,27 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   /**
-   * Loads BOTH native tracks and pairs cues by maximum time overlap:
-   * primary = the video's original language (learning language, tokenized,
-   * timeline source), secondary = the target language. Rendering is then
-   * driven by video.currentTime via the sync engine instead of DOM
-   * scraping, which is what keeps the two lines correctly paired.
+   * Picks the learning-language (primary) track for dual mode. Prefers the
+   * track the player is CURRENTLY displaying — asking the MAIN world beats
+   * heuristics when several non-target tracks exist (e.g. EN + FR audio
+   * subs) — and falls back to the first non-target track with a URL.
    */
-  private async loadDualTracks(primaryTrack: DiscoveredTrack, secondaryTrack: DiscoveredTrack): Promise<void> {
-    this.selectionMode = 'auto';
-    this.selectedTrackId = secondaryTrack.id;
-    try {
-      const [primaryXml, secondaryXml] = await Promise.all([
-        this.fetchTtmlXml(primaryTrack.url),
-        this.fetchTtmlXml(secondaryTrack.url),
-      ]);
-      const primaryCues = parseNetflixTtml(primaryXml).map((c, i) => ({ ...c, lang: primaryTrack.language, id: `p${i}` }));
-      const secondaryCues = parseNetflixTtml(secondaryXml).map((c, i) => ({ ...c, lang: secondaryTrack.language, id: `s${i}` }));
-      if (primaryCues.length === 0 || secondaryCues.length === 0) {
-        throw new Error('empty track');
-      }
-
-      this.primaryCues = primaryCues;
-      this.secondaryCues = secondaryCues;
-      this.cuePairings = alignCueTracks(primaryCues, secondaryCues);
-      this.pairingByPrimary = new Map(this.cuePairings.map((p) => [p.primary, p]));
-      this.dualMode = true;
-      this.lastProcessedText = '';
-
-      logger.info('Dual native track mode active', {
-        primary: primaryTrack.language,
-        secondary: secondaryTrack.language,
-        pairs: this.cuePairings.length,
-        overlapped: this.cuePairings.filter((p) => p.secondary).length,
-      });
-
-      this.updateSelectorMenuOptions();
-      this.startDualSyncEngine();
-    } catch (error) {
-      this.dualMode = false;
-      logger.warn('Dual track load failed, falling back to single native track', error);
-      await this.loadSecondaryTrack(secondaryTrack, { manual: false });
-      return;
+  /** Sentence-control timeline: dual primary cues → secondary cues → DOM-observed fallback. */
+  private getSentenceTimeline(): Array<{ startMs: number; endMs: number }> {
+    if (this.dualTrack.isActive()) {
+      return this.dualTrack.timeline();
     }
-    if (this.isActive) this.processCaptions();
-  }
-
-  private startDualSyncEngine(): void {
-    const byIdentity = new Map<SubtitleCue, DualCue>(
-      this.primaryCues.map((c) => [c as SubtitleCue, c]),
-    );
-    this.syncEngine.setCues(this.primaryCues);
-    this.syncEngine.start((rawCue) => {
-      const cue = rawCue ? byIdentity.get(rawCue) ?? (rawCue as DualCue) : null;
-      if (!this.isActive || !this.dualMode) return;
-      if (!cue) {
-        if (this.lastProcessedText !== '') {
-          this.lastProcessedText = '';
-          this.clearOverlay();
-        }
-        return;
-      }
-      const pairing = this.pairingByPrimary.get(cue);
-      const secondaryText = pairing?.secondary?.text ?? '';
-      if (cue.text === this.lastProcessedText) return;
-      this.lastProcessedText = cue.text;
-      if (!cue.text && !secondaryText) return;
-      if (secondaryText) {
-        this.renderOverlay(cue.text, secondaryText);
-      } else {
-        // No paired native line: machine-translate this cue.
-        void this.fetchAndRenderOverlay(cue.text, this.routeGeneration);
-      }
-    });
-    if (this.sentenceController) this.sentenceController.setTimeline();
-  }
-
-  /** Learning-mode bootstrap: controller, popover, token clicks. */
-  private ensureLearningMode(): void {
-    if (!this.learningModeEnabled || !this.isActive) return;
-
-    if (!this.sentenceController) {
-      this.sentenceController = new SentenceController({
-        getTimeline: () =>
-          this.dualMode
-            ? this.primaryCues.map((c) => ({ startMs: c.startMs, endMs: c.endMs }))
-            : this.secondaryCues.map((c) => ({ startMs: c.startMs, endMs: c.endMs })),
-        setLineVisibility: (visible) => this.overlayRenderer.setLineVisibility(visible),
-        isAutoPauseEnabled: () => this.learningModeEnabled,
-      });
+    if (this.secondaryCues.length > 0) {
+      return this.secondaryCues.map((c) => ({ startMs: c.startMs, endMs: c.endMs }));
     }
-    this.sentenceController.attach();
-
-    if (!this.dictionaryPopover) {
-      this.dictionaryPopover = new DictionaryPopover({
-        onLookup: async (surface) => {
-          const response = await messageRouter.sendMessage({
-            type: 'TRANSLATE_REQUEST',
-            segments: [{ id: 'dict-gloss', text: surface }],
-            sourceLanguage: 'auto',
-            targetLanguage: this.targetLang,
-          });
-          return response?.segments?.[0]?.translatedText || '';
-        },
-        onSave: async (entry) => {
-          await globalSubtitleSessionStore.saveVocabularyCard({
-            language: this.dualMode ? this.primaryCues[0]?.lang ?? 'auto' : 'auto',
-            lemma: entry.surface,
-            surface: entry.surface,
-            example: {
-              text: entry.sentence,
-              translation: entry.sentenceTranslation,
-              episodeId: this.currentVideoId || '',
-              cueStartMs: 0,
-            },
-          });
-        },
-      });
-      document.addEventListener('owt-token-clicked', this.onTokenClicked);
-    }
-  }
-
-  private teardownLearningMode(): void {
-    this.sentenceController?.detach();
-    this.dictionaryPopover?.hide();
-    document.removeEventListener('owt-token-clicked', this.onTokenClicked);
-  }
-
-  private onTokenClicked = (event: Event): void => {
-    const detail = (event as CustomEvent).detail as {
-      tokenId: string;
-      surface: string;
-      clientX: number;
-      clientY: number;
-    };
-    if (!detail?.surface) return;
-    this.dictionaryPopover?.show({
-      surface: detail.surface,
-      sentence: this.lastRenderedSentence?.original ?? '',
-      sentenceTranslation: this.lastRenderedSentence?.translated ?? undefined,
-      clientX: detail.clientX,
-      clientY: detail.clientY,
-    });
-  };
-
-  public setLearningMode(enabled: boolean): void {
-    this.learningModeEnabled = enabled;
-    if (enabled) {
-      this.ensureLearningMode();
-    } else {
-      this.teardownLearningMode();
-    }
+    // Pure AI mode: synthetic boundaries observed from the DOM line.
+    return this.domCueTimeline.timeline();
   }
 
   private async loadSecondaryTrack(track: DiscoveredTrack, opts: { manual?: boolean } = {}) {
     if (opts.manual !== false) this.selectionMode = 'manual';
     this.selectedTrackId = track.id;
-    this.dualMode = false;
-    this.primaryCues = [];
-    this.cuePairings = [];
-    this.pairingByPrimary.clear();
+    this.dualTrack.reset();
     try {
       const xml = await this.fetchTtmlXml(track.url);
       this.secondaryCues = parseNetflixTtml(xml);

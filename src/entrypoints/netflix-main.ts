@@ -24,6 +24,7 @@ import {
   extractTextFromMp4Segment,
   readAsciiPrefix,
 } from '@/adapters/netflix/netflix-subtitle-format';
+import { pickActiveTrackId } from '@/adapters/netflix/active-track';
 import { looksLikeTrackUrl } from '@/adapters/netflix/netflix-track-constants';
 
 const logger = createLogger('NetflixMain');
@@ -69,6 +70,24 @@ export default defineUnlistedScript({
       const data = event.data;
       if (!data || typeof data !== 'object') return;
       if (data.source !== BRIDGE.CONTENT_SOURCE) return;
+
+      if (data.type === BRIDGE.messageType.GET_ACTIVE_TRACK) {
+        const requestId = data.requestId as string | undefined;
+        if (typeof requestId !== 'string') return;
+        let trackId: string | number | null = null;
+        try {
+          const list = getMainVideoPlayer()?.player?.getTimedTextTrackList?.() ?? [];
+          trackId = pickActiveTrackId(list);
+        } catch {
+          trackId = null;
+        }
+        replyToContent(BRIDGE.messageType.ACTIVE_TRACK_RESULT, {
+          requestId,
+          ok: true,
+          trackId: trackId === null ? '' : String(trackId),
+        });
+        return;
+      }
 
       if (data.type === BRIDGE.messageType.REQUEST_TRACKS) {
         // Navigation may have invalidated previous captures: re-arm hooks

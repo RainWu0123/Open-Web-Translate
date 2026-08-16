@@ -16,14 +16,6 @@ export interface SubtitleCue {
   trackId?: string;
 }
 
-export interface SubtitlePair {
-  id: string;
-  episodeId: string;
-  primary: SubtitleCue;
-  secondary?: SubtitleCue;
-  alignment: 'official-timed' | 'overlap' | 'ai-derived';
-}
-
 export interface SubtitleToken {
   id: string; // e.g. "cue-88:4-7"
   surface: string; // e.g. "白鼠"
@@ -50,36 +42,6 @@ export interface VocabularyCard {
   };
   createdAt: number;
   reviewState: 'new' | 'learning' | 'known';
-}
-
-export interface CapturedTrack {
-  id: string;
-  lang: string;
-  source: 'manifest' | 'network' | 'cadmium' | 'dom';
-  profile?: string;
-  url?: string;
-  httpStatus?: number;
-  isBitmap?: boolean;
-  cues: SubtitleCue[];
-}
-
-export type SubtitleEngineMode = 'dual-native' | 'primary-native-ai-secondary' | 'native-player-only';
-
-export function isUsableTextTrack(track?: CapturedTrack): boolean {
-  if (!track) return false;
-  if (track.isBitmap) return false;
-  if (track.cues.length < 2) return false;
-  return track.cues.some((cue) => cue.text && cue.text.trim().length > 0);
-}
-
-export function decideSubtitleMode(primary?: CapturedTrack, secondary?: CapturedTrack): SubtitleEngineMode {
-  if (isUsableTextTrack(primary) && isUsableTextTrack(secondary)) {
-    return 'dual-native';
-  }
-  if (isUsableTextTrack(primary)) {
-    return 'primary-native-ai-secondary';
-  }
-  return 'native-player-only';
 }
 
 /**
@@ -136,78 +98,10 @@ export function tokenizeText(cueId: string, text: string, lang: string): Subtitl
 }
 
 export class SubtitleSessionStore {
-  private episodeId = '';
-  private primaryTrack?: CapturedTrack;
-  private secondaryTrack?: CapturedTrack;
   private vocabulary: Map<string, VocabularyCard> = new Map();
-  private tokenCache: Map<string, SubtitleToken[]> = new Map();
 
   constructor() {
     this.loadSavedVocabulary();
-  }
-
-  public setEpisodeId(id: string): void {
-    this.episodeId = id;
-  }
-
-  public setPrimaryTrack(track: CapturedTrack): void {
-    this.primaryTrack = track;
-    this.tokenCache.clear();
-    logger.info(`Primary track set: ${track.lang} (${track.cues.length} cues)`);
-  }
-
-  public setSecondaryTrack(track: CapturedTrack): void {
-    this.secondaryTrack = track;
-    logger.info(`Secondary track set: ${track.lang} (${track.cues.length} cues)`);
-  }
-
-  public getPrimaryTrack(): CapturedTrack | undefined {
-    return this.primaryTrack;
-  }
-
-  public getSecondaryTrack(): CapturedTrack | undefined {
-    return this.secondaryTrack;
-  }
-
-  public getEngineMode(): SubtitleEngineMode {
-    return decideSubtitleMode(this.primaryTrack, this.secondaryTrack);
-  }
-
-  public getActivePair(nowMs: number): SubtitlePair | null {
-    if (!this.primaryTrack || this.primaryTrack.cues.length === 0) return null;
-
-    const primaryCue = this.primaryTrack.cues.find((c) => c.startMs <= nowMs && nowMs < c.endMs);
-    if (!primaryCue) return null;
-
-    let secondaryCue: SubtitleCue | undefined;
-    if (this.secondaryTrack && this.secondaryTrack.cues.length > 0) {
-      secondaryCue = this.secondaryTrack.cues.find((c) => c.startMs <= nowMs && nowMs < c.endMs);
-    }
-
-    return {
-      id: `pair_${primaryCue.id}`,
-      episodeId: this.episodeId,
-      primary: primaryCue,
-      secondary: secondaryCue,
-      alignment: secondaryCue ? 'official-timed' : 'ai-derived',
-    };
-  }
-
-  public getTokensForCue(cue: SubtitleCue): SubtitleToken[] {
-    if (this.tokenCache.has(cue.id)) {
-      return this.tokenCache.get(cue.id)!;
-    }
-    const tokens = tokenizeText(cue.id, cue.text, cue.lang);
-    this.tokenCache.set(cue.id, tokens);
-    return tokens;
-  }
-
-  public getTokenById(tokenId: string): SubtitleToken | null {
-    for (const tokens of this.tokenCache.values()) {
-      const match = tokens.find((t) => t.id === tokenId);
-      if (match) return match;
-    }
-    return null;
   }
 
   // --- Vocabulary Storage ---
