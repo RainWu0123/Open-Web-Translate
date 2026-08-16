@@ -151,30 +151,51 @@ export default defineBackground(() => {
   messageRouter.listen();
 
   // ── Context Menu Registration (idempotent) ─────────────────────
+  async function registerContextMenus(): Promise<void> {
+    try {
+      // removeAll first to ensure idempotent re-registration on update,
+      // restart, and service-worker revival.
+      await browser.contextMenus.removeAll();
+      browser.contextMenus.create({
+        id: 'owt-translate-page',
+        title: '用 OWT 翻譯這個分頁',
+        contexts: ['page'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*'],
+      });
+      browser.contextMenus.create({
+        id: 'owt-translate-selection',
+        title: '翻譯選取的文字',
+        contexts: ['selection'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*'],
+      });
+    } catch (err) {
+      logger.warn('Failed to register context menus', err);
+    }
+  }
+
   browser.runtime.onInstalled.addListener(async (details) => {
     logger.info('Extension installed/updated', { reason: details.reason });
-
-    // removeAll first to ensure idempotent re-registration on update/restart
-    await browser.contextMenus.removeAll();
-    browser.contextMenus.create({
-      id: 'owt-translate-page',
-      title: '翻譯整頁內容',
-      contexts: ['page'],
-      documentUrlPatterns: ['http://*/*', 'https://*/*'],
-    });
+    await registerContextMenus();
   });
+
+  // Service workers can be revived without onInstalled firing; make sure
+  // the menus exist in every session.
+  void registerContextMenus();
 
   // ── Context Menu Click Handler ─────────────────────────────────
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId !== 'owt-translate-page') return;
+    if (info.menuItemId !== 'owt-translate-page' && info.menuItemId !== 'owt-translate-selection') return;
     if (!tab?.id) {
       logger.warn('Context menu clicked but no tab.id available');
       return;
     }
 
+    const messageType =
+      info.menuItemId === 'owt-translate-page' ? 'EXECUTE_PAGE_TRANSLATION' : 'EXECUTE_SELECTION_TRANSLATION';
+
     try {
       // Use callback tab.id — NOT active tab query
-      await browser.tabs.sendMessage(tab.id, { type: 'EXECUTE_PAGE_TRANSLATION' });
+      await browser.tabs.sendMessage(tab.id, { type: messageType });
     } catch (err: any) {
       logger.warn('Content script unavailable for context menu translation', {
         tabId: tab.id,

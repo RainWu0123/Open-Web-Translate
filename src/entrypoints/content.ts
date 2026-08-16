@@ -9,6 +9,7 @@
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
 import { MessageErrorCode, ErrorPayload } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '@/adapters/youtube/youtube-caption-adapter';
@@ -109,6 +110,9 @@ export default defineContentScript({
 
     // 2. Setup SPA navigation listener to clear old translations on route change
     setupSpaNavigationListener();
+
+    // 2b. Selection translate (劃詞翻譯) pill
+    setupSelectionTranslate();
 
     // 3. Listen for settings changes to dynamically show/hide badge
     setupSettingsListener();
@@ -218,35 +222,43 @@ function addFloatingBadge(): void {
     const style = document.createElement('style');
     style.textContent = `
       .owt-badge {
-        width: 44px;
-        height: 44px;
+        width: 46px;
+        height: 46px;
         border-radius: 50%;
-        background: #1e293b;
+        background: linear-gradient(135deg, #4f46e5, #8b5cf6);
         color: #ffffff;
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        box-shadow: 0 6px 18px rgba(79, 70, 229, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
-        cursor: pointer;
-        font-size: 20px;
-        transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+        cursor: grab;
+        font-size: 18px;
+        font-weight: 700;
+        font-family: system-ui, -apple-system, sans-serif;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
         user-select: none;
+        touch-action: none;
       }
 
       .owt-badge:hover {
-        transform: scale(1.1);
-        border-color: #38bdf8;
+        transform: scale(1.08);
+        box-shadow: 0 8px 22px rgba(79, 70, 229, 0.6);
+      }
+
+      .owt-badge.dragging {
+        cursor: grabbing;
+        transform: scale(1.02);
+        filter: brightness(1.1);
       }
 
       .owt-badge-translating {
-        background: #0f172a;
-        border-color: #f59e0b;
+        background: linear-gradient(135deg, #b45309, #f59e0b);
+        border-color: rgba(255, 255, 255, 0.5);
       }
 
       .owt-badge-translated {
-        background: #065f46;
-        border-color: #10b981;
+        background: linear-gradient(135deg, #047857, #10b981);
       }
 
       .owt-spinner {
@@ -265,7 +277,10 @@ function addFloatingBadge(): void {
     badgeButton.type = 'button';
     updateBadgeUI(badgeState);
 
+    makeBadgeDraggable(badgeHost, badgeButton);
+
     badgeButton.addEventListener('click', async (e) => {
+      if (badgeDragMoved) return; // a drag just ended — not a click
       e.stopPropagation();
       if (badgeState === 'idle') {
         updateBadgeUI('translating');
@@ -285,10 +300,201 @@ function addFloatingBadge(): void {
     shadowRoot.appendChild(badgeButton);
 
     (document.body || document.documentElement).appendChild(badgeHost);
+    void restoreBadgePosition();
     logger.info('Interactive floating badge attached to DOM');
   } catch (err) {
     logger.warn('Failed to add floating badge:', err);
   }
+}
+
+let badgeDragMoved = false;
+
+const BADGE_POS_KEY = 'owt_badge_pos';
+
+function clampBadgeToViewport(): void {
+  if (!badgeHost) return;
+  const size = 46;
+  const x = Math.min(Math.max(0, badgeHost.offsetLeft), window.innerWidth - size);
+  const y = Math.min(Math.max(0, badgeHost.offsetTop), window.innerHeight - size);
+  badgeHost.style.left = `${x}px`;
+  badgeHost.style.top = `${y}px`;
+  badgeHost.style.right = 'auto';
+  badgeHost.style.bottom = 'auto';
+}
+
+async function restoreBadgePosition(): Promise<void> {
+  try {
+    const saved = await extensionBridge.getLocalStorage<{ x: number; y: number }>(BADGE_POS_KEY);
+    if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+      badgeHost!.style.left = `${saved.x}px`;
+      badgeHost!.style.top = `${saved.y}px`;
+      clampBadgeToViewport();
+    }
+  } catch {
+    // default position stands
+  }
+}
+
+/**
+ * Drag with click-vs-drag discrimination: a press that moves < 5px is a
+ * click (translate toggle); beyond that it drags, and the drop position is
+ * remembered in storage.local.
+ */
+function makeBadgeDraggable(host: HTMLElement, button: HTMLButtonElement): void {
+  let startX = 0;
+  let startY = 0;
+  let dragging = false;
+
+  button.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    badgeDragMoved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    button.setPointerCapture(e.pointerId);
+  });
+
+  button.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!badgeDragMoved && Math.hypot(dx, dy) < 5) return;
+    if (!badgeDragMoved) {
+      badgeDragMoved = true;
+      button.classList.add('dragging');
+      host.style.right = 'auto';
+      host.style.bottom = 'auto';
+    }
+    const size = 46;
+    const x = Math.min(Math.max(0, host.offsetLeft + dx), window.innerWidth - size);
+    const y = Math.min(Math.max(0, host.offsetTop + dy), window.innerHeight - size);
+    host.style.left = `${x}px`;
+    host.style.top = `${y}px`;
+    startX = e.clientX;
+    startY = e.clientY;
+  });
+
+  const endDrag = (e: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    button.classList.remove('dragging');
+    button.releasePointerCapture?.(e.pointerId);
+    if (badgeDragMoved) {
+      void extensionBridge.setLocalStorage(BADGE_POS_KEY, { x: host.offsetLeft, y: host.offsetTop });
+      // Allow the next press to be a clean click again.
+      setTimeout(() => { badgeDragMoved = false; }, 0);
+    }
+  };
+
+  button.addEventListener('pointerup', endDrag);
+  button.addEventListener('pointercancel', endDrag);
+
+  window.addEventListener('resize', () => {
+    if (badgeDragMoved === false && badgeHost) {
+      // Re-clamp only when the user has repositioned it (has left/top set).
+      if (badgeHost.style.left) clampBadgeToViewport();
+    }
+  });
+}
+
+// ── Selection translate (劃詞翻譯) ───────────────────────────────────
+
+let selectionPill: HTMLElement | null = null;
+let selectionHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function isInsideOwnUi(node: Node | null): boolean {
+  if (!node) return false;
+  const el = node instanceof HTMLElement ? node : node.parentElement;
+  if (!el) return false;
+  return Boolean(
+    el.closest?.('#owt-floating-badge-host, #owt-netflix-overlay-host, #owt-dictionary-popover, #owt-netflix-selector-menu, #owt-selection-pill'),
+  );
+}
+
+function hideSelectionPill(): void {
+  selectionPill?.remove();
+  selectionPill = null;
+}
+
+function showSelectionPill(rect: DOMRect): void {
+  hideSelectionPill();
+
+  const pill = document.createElement('button');
+  pill.id = 'owt-selection-pill';
+  pill.type = 'button';
+  pill.title = '劃詞翻譯';
+  pill.textContent = '譯';
+  pill.style.cssText = `
+    position: fixed;
+    z-index: 2147483600;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    background: linear-gradient(135deg, #4f46e5, #8b5cf6);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: system-ui, sans-serif;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.5);
+    padding: 0;
+    line-height: 1;
+  `;
+
+  const x = Math.min(Math.max(8, rect.left + rect.width / 2 - 15), window.innerWidth - 38);
+  const y = rect.top > 40 ? rect.top - 36 : rect.bottom + 6;
+  pill.style.left = `${x}px`;
+  pill.style.top = `${y}px`;
+
+  pill.addEventListener('pointerdown', (e) => e.stopPropagation());
+  pill.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const selection = window.getSelection();
+    hideSelectionPill();
+    if (!selection || selection.isCollapsed) return;
+    await executeSelectionTranslation(selection);
+  });
+
+  document.body.appendChild(pill);
+  selectionPill = pill;
+}
+
+function setupSelectionTranslate(): void {
+  document.addEventListener('pointerup', () => {
+    if (selectionHideTimer) clearTimeout(selectionHideTimer);
+    selectionHideTimer = setTimeout(() => {
+      const selection = window.getSelection();
+      if (
+        !selection ||
+        selection.isCollapsed ||
+        isInsideOwnUi(selection.anchorNode) ||
+        isInsideOwnUi(selection.focusNode)
+      ) {
+        hideSelectionPill();
+        return;
+      }
+      const text = selection.toString().trim();
+      if (text.length < 2 || text.length > 5000) {
+        hideSelectionPill();
+        return;
+      }
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+      showSelectionPill(rect);
+    }, 250);
+  });
+
+  document.addEventListener('pointerdown', (e) => {
+    if (!isInsideOwnUi(e.target as Node)) hideSelectionPill();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideSelectionPill();
+  });
+
+  document.addEventListener('scroll', () => hideSelectionPill(), { passive: true, capture: true });
 }
 
 function removeFloatingBadge(): void {

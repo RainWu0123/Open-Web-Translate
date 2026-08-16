@@ -23,31 +23,17 @@
         </label>
       </div>
 
-      <!-- Netflix context summary -->
-      <div v-if="isNetflixTab" class="netflix-summary" data-testid="netflix-summary">
-        <div class="netflix-summary-head">🎬 Netflix 雙語字幕</div>
-        <div class="netflix-summary-row">
-          <span>狀態</span>
-          <span :class="netflixHud.isActive ? 'ok' : 'muted'">
-            {{ netflixHud.isActive ? '執行中' : '未啟用（點播放器上的 OWT 按鈕）' }}
+      <!-- Subtitle panel (Netflix / YouTube tabs) — one compact card -->
+      <div v-if="isSubtitleTab" class="subtitle-quick-settings" data-testid="subtitle-quick-settings">
+        <div class="sq-head">
+          🎬 {{ isNetflixTab ? 'Netflix 字幕' : 'YouTube 字幕' }}
+          <span v-if="isNetflixTab" :class="['sq-status', netflixHud.isActive ? 'ok' : 'muted']" data-testid="netflix-summary">
+            {{ netflixHud.isActive ? (netflixHud.dualTrack ? '雙軌已對齊' : '執行中') : '未啟用' }}
           </span>
         </div>
-        <div class="netflix-summary-row">
-          <span>偵測軌道</span>
-          <span>{{ netflixHud.discoveredTracksCount }}</span>
-        </div>
-        <div class="netflix-summary-row">
-          <span>運作模式</span>
-          <span>{{ netflixHud.modeLabel }}</span>
-        </div>
-        <div class="netflix-summary-row">
-          <span>雙原生軌</span>
-          <span :class="netflixHud.dualTrack ? 'ok' : 'muted'">
-            {{ netflixHud.dualTrack ? '已對齊' : '單軌 / AI' }}
-          </span>
-        </div>
-        <div class="netflix-summary-row netflix-learning-toggle">
-          <span>學習模式（逐句暫停・點詞查詢）</span>
+
+        <div v-if="isNetflixTab" class="sq-row">
+          <span class="sq-label">學習模式（逐句暫停・點詞查詢）</span>
           <label class="toggle">
             <input
               type="checkbox"
@@ -58,14 +44,6 @@
             <span class="slider"></span>
           </label>
         </div>
-        <button class="link-btn" @click="openOptions" data-testid="netflix-open-subtitle-settings">
-          ⚙ 前往字幕設定
-        </button>
-      </div>
-
-      <!-- Subtitle quick settings (Netflix / YouTube tabs) -->
-      <div v-if="isSubtitleTab" class="subtitle-quick-settings" data-testid="subtitle-quick-settings">
-        <div class="sq-head">🎬 字幕設定</div>
 
         <div class="sq-row">
           <span class="sq-label">雙語字幕語言</span>
@@ -126,7 +104,11 @@
         <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
       </div>
 
-      <div class="action-buttons">
+      <div v-if="!isSubtitleTab" class="selection-hint" data-testid="selection-hint">
+        💡 反白選取文字即可劃詞翻譯；右鍵選單也有「翻譯這個分頁／選取文字」
+      </div>
+
+      <div v-if="!isNetflixTab" class="action-buttons">
         <button
           class="btn btn-primary"
           :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
@@ -363,6 +345,7 @@ function openOptions() {
 </script>
 
 <style scoped>
+/* Compact by design: the popup must fit without scrolling at ~600px.*/
 /* All colors come from src/assets/styles/tokens.css (--bg-*, --text-*,
    --primary-accent...) so light/dark themes stay consistent with the
    options page. */
@@ -381,7 +364,7 @@ function openOptions() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px 10px;
+  padding: 10px 12px 6px;
   background: var(--bg-primary);
 }
 
@@ -410,8 +393,8 @@ function openOptions() {
 .popup-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 4px 16px 14px;
+  gap: 8px;
+  padding: 2px 12px 10px;
 }
 
 /* ── Quick toggle ─────────────────────────────────────────────── */
@@ -419,11 +402,10 @@ function openOptions() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
+  padding: 9px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: var(--card-shadow);
 }
 
 .quick-toggle-label {
@@ -480,25 +462,41 @@ function openOptions() {
 .subtitle-quick-settings {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 7px;
+  padding: 10px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: var(--card-shadow);
 }
 
 .sq-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 13px;
   font-weight: 700;
   color: var(--primary-accent);
+}
+
+.sq-head .sq-status {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sq-head .sq-status.ok {
+  color: var(--accent-badge-text);
+}
+
+.sq-head .sq-status.muted {
+  color: var(--text-muted);
 }
 
 .sq-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  min-height: 26px;
 }
 
 .sq-label {
@@ -542,47 +540,6 @@ function openOptions() {
   accent-color: var(--primary-accent);
 }
 
-/* ── Netflix summary ──────────────────────────────────────────── */
-.netflix-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: var(--card-shadow);
-}
-
-.netflix-summary-head {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--primary-accent);
-  margin-bottom: 2px;
-}
-
-.netflix-summary-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.netflix-summary-row .ok {
-  color: var(--accent-badge-text);
-  font-weight: 600;
-}
-
-.netflix-summary-row .muted {
-  color: var(--text-muted);
-}
-
-.netflix-learning-toggle {
-  padding-top: 4px;
-  border-top: 1px dashed var(--border-color);
-  margin-top: 2px;
-}
-
 /* ── Banners & links ──────────────────────────────────────────── */
 .link-btn {
   background: none;
@@ -606,9 +563,19 @@ function openOptions() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 10px;
   font-size: 12px;
+  line-height: 1.35;
+}
+
+.selection-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  padding: 7px 10px;
   line-height: 1.4;
 }
 
@@ -635,7 +602,7 @@ function openOptions() {
 
 .btn {
   flex: 1;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 13px;
@@ -687,14 +654,14 @@ function openOptions() {
 
 /* ── Footer ───────────────────────────────────────────────────── */
 .popup-footer {
-  padding: 12px 16px;
+  padding: 8px 12px;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
 }
 
 .popup-footer .open-settings-btn {
   width: 100%;
-  padding: 10px 0;
+  padding: 8px 0;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 10px;
