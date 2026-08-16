@@ -13,6 +13,11 @@ const logger = createLogger('ExtensionBridge');
 export interface ExtensionBridge {
   queryActiveTabId(): Promise<number | null>;
   sendTabMessage<T = any>(tabId: number, message: any): Promise<T | null>;
+  sendTabCommand<T = any>(
+    tabId: number,
+    message: any,
+    opts?: { injectIfNeeded?: boolean },
+  ): Promise<T | null>;
   getSyncStorage<T = any>(key: string): Promise<T | null>;
   setSyncStorage<T = any>(key: string, value: T): Promise<void>;
   getLocalStorage<T = any>(key: string): Promise<T | null>;
@@ -41,6 +46,53 @@ class ExtensionBridgeImpl implements ExtensionBridge {
       logger.debug(`Failed to send tab message to tab ${tabId}`, err);
       return null;
     }
+  }
+
+  /**
+   * Send a command to a tab's content script with optional on-the-fly
+   * injection + retry — the single tab-command transport. Replaces the
+   * blind 150ms sleep: a failed send either injects and retries, or
+   * reports failure.
+   */
+  async sendTabCommand<T = any>(
+    tabId: number,
+    message: any,
+    opts: { injectIfNeeded?: boolean } = {},
+  ): Promise<T | null> {
+    const send = () => this.sendTabMessage<T>(tabId, message);
+
+    let firstError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await send();
+        if (res !== null) return res;
+        return res; // content script answered (possibly undefined payload)
+      } catch (err) {
+        firstError = firstError ?? err;
+        if (attempt === 0 && opts.injectIfNeeded) {
+          try {
+            if (browser.scripting) {
+              await browser.scripting.executeScript({
+                target: { tabId },
+                files: ['/content-scripts/content.js'],
+              });
+            } else if ((browser.tabs as any).executeScript) {
+              await (browser.tabs as any).executeScript(tabId, {
+                file: 'content-scripts/content.js',
+              });
+            } else {
+              break;
+            }
+            continue; // retry right after injection
+          } catch (injectErr) {
+            logger.debug(`Tab command injection failed for tab ${tabId}`, injectErr);
+            throw firstError;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
+    throw firstError ?? new Error('content script unavailable');
   }
 
   async getSyncStorage<T = any>(key: string): Promise<T | null> {

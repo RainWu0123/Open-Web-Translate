@@ -6,6 +6,7 @@
  * commands to content scripts via browser.tabs.sendMessage.
  */
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { translationPipeline } from '@/core/pipeline/translation-pipeline';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
@@ -62,25 +63,10 @@ export default defineBackground(() => {
 
       let res: any;
       try {
-        res = await browser.tabs.sendMessage(activeTab.id, { type: commandType });
+        res = await extensionBridge.sendTabCommand(activeTab.id, { type: commandType }, { injectIfNeeded: true });
       } catch (initialErr) {
-        logger.info('Content script missing or detached, injecting on the fly into tab', activeTab.id);
-        try {
-          if (browser.scripting) {
-            await browser.scripting.executeScript({
-              target: { tabId: activeTab.id },
-              files: ['/content-scripts/content.js'],
-            });
-          } else if ((browser.tabs as any).executeScript) {
-            await (browser.tabs as any).executeScript(activeTab.id, {
-              file: 'content-scripts/content.js',
-            });
-          }
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          res = await browser.tabs.sendMessage(activeTab.id, { type: commandType });
-        } catch (injectErr) {
-          throw initialErr;
-        }
+        logger.info('Content script missing or detached in tab', activeTab.id);
+        throw initialErr;
       }
 
       if (res && res.ok) {

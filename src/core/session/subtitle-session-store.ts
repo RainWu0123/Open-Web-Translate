@@ -1,6 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
-import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
@@ -294,14 +293,7 @@ export function useNetflixSession() {
     try {
       const tabId = await extensionBridge.queryActiveTabId();
       if (tabId) {
-        let state = await extensionBridge.sendTabMessage<NetflixStateInfo>(tabId, { type: 'GET_NETFLIX_STATE' });
-
-        if (!state) {
-          try {
-            state = (await messageRouter.sendMessage({ type: 'GET_NETFLIX_STATE' } as any)) as unknown as NetflixStateInfo;
-          } catch {}
-        }
-
+        const state = await extensionBridge.sendTabMessage<NetflixStateInfo>(tabId, { type: 'GET_NETFLIX_STATE' });
         if (state && typeof state === 'object' && state.primaryStatus) {
           hudInfo.value = state;
         }
