@@ -151,7 +151,7 @@ async function onConfigChange() {
   flex-direction: column;
   gap: 12px;
   padding: 12px;
-  background: var(--owt-bg-secondary, #1e293b);
+  background: var(--bg-card, #1e293b);
   border-radius: 10px;
   color: #e2e8f0;
   font-family: system-ui, -apple-system, sans-serif;

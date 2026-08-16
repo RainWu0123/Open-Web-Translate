@@ -556,40 +556,20 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     let button = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
     if (button && document.body.contains(button)) {
       this.controlsButton = button;
+      // The controls bar appears lazily; promote a floating fallback button
+      // into the bar as soon as it exists.
+      if (button.classList.contains('owt-netflix-floating')) {
+        this.placeButtonIntoControls(button);
+      }
       this.updateControlsButtonState();
       return;
     }
-
-    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
-    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
-    const controlsStandard = document.querySelector('[data-uia="controls-standard"]');
-
-    const rightGroup =
-      audioSubWrapper?.parentElement ||
-      controlsStandard ||
-      document.querySelector('.player-controls .right-controls') ||
-      document.querySelector('.player-controls') ||
-      document.body;
 
     button = document.createElement('button');
     button.className = 'owt-netflix-toggle-btn';
     button.setAttribute('aria-label', 'OWT 雙語字幕');
     button.setAttribute('title', 'OWT 雙語字幕與語言學習 Overlay');
-    button.style.background = 'transparent';
-    button.style.border = 'none';
-    button.style.color = 'white';
-    button.style.cursor = 'pointer';
-    button.style.width = '44px';
-    button.style.height = '44px';
-    button.style.padding = '0';
-    button.style.margin = '0 6px 0 0';
-    button.style.display = 'flex';
-    button.style.alignItems = 'center';
-    button.style.justifyContent = 'center';
-    button.style.opacity = '0.85';
-    button.style.transition = 'all 0.2s ease';
-    button.style.zIndex = '9999';
-    button.style.position = 'relative';
+    this.applyControlsBarStyle(button);
     button.innerHTML = `
       <span class="owt-btn-text" style="font-weight:700;font-size:12px;">OWT</span>
     `;
@@ -605,14 +585,79 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       this.toggleSelectorMenu();
     });
 
-    if (audioSubWrapper && audioSubWrapper.parentNode) {
-      audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
-    } else if (rightGroup) {
-      rightGroup.prepend(button);
-    }
-
+    this.placeButtonIntoControls(button);
     this.controlsButton = button;
     this.updateControlsButtonState();
+  }
+
+  /**
+   * Places the toggle button inside the player controls bar when it exists.
+   * Before the bar mounts (Netflix lazy-renders it), docks the button as a
+   * floating ball at the bottom-right of the viewport instead — prepending
+   * to document.body strands it at the page's top-left corner.
+   */
+  private placeButtonIntoControls(button: HTMLButtonElement): void {
+    const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
+    const audioSubWrapper = audioSubBtn?.closest('div') || audioSubBtn;
+    const controlsBar =
+      document.querySelector('[data-uia="controls-standard"]') ||
+      document.querySelector('.player-controls .right-controls') ||
+      document.querySelector('.player-controls');
+
+    if (audioSubWrapper && audioSubWrapper.parentNode) {
+      button.classList.remove('owt-netflix-floating');
+      this.applyControlsBarStyle(button);
+      audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
+      return;
+    }
+
+    if (controlsBar) {
+      button.classList.remove('owt-netflix-floating');
+      this.applyControlsBarStyle(button);
+      controlsBar.prepend(button);
+      return;
+    }
+
+    button.classList.add('owt-netflix-floating');
+    this.applyFloatingStyle(button);
+    document.body.appendChild(button);
+  }
+
+  private applyControlsBarStyle(button: HTMLButtonElement): void {
+    button.style.background = 'transparent';
+    button.style.border = 'none';
+    button.style.color = 'white';
+    button.style.cursor = 'pointer';
+    button.style.width = '44px';
+    button.style.height = '44px';
+    button.style.padding = '0';
+    button.style.margin = '0 6px 0 0';
+    button.style.display = 'flex';
+    button.style.alignItems = 'center';
+    button.style.justifyContent = 'center';
+    button.style.opacity = '0.85';
+    button.style.transition = 'all 0.2s ease';
+    button.style.zIndex = '9999';
+    button.style.position = 'relative';
+    button.style.borderRadius = '0';
+    button.style.boxShadow = 'none';
+    button.style.backdropFilter = '';
+  }
+
+  private applyFloatingStyle(button: HTMLButtonElement): void {
+    button.style.position = 'fixed';
+    button.style.bottom = '96px';
+    button.style.right = '24px';
+    button.style.width = '48px';
+    button.style.height = '48px';
+    button.style.margin = '0';
+    button.style.borderRadius = '50%';
+    button.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+    button.style.background = 'rgba(15, 15, 20, 0.85)';
+    button.style.backdropFilter = 'blur(8px)';
+    button.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.5)';
+    button.style.opacity = '0.9';
+    button.style.zIndex = '2147483000';
   }
 
   private toggleSelectorMenu() {

@@ -210,23 +210,26 @@ function openOptions() {
 </script>
 
 <style scoped>
+/* All colors come from src/assets/styles/tokens.css (--bg-*, --text-*,
+   --primary-accent...) so light/dark themes stay consistent with the
+   options page. */
+
 .popup {
   width: 360px;
-  background: var(--owt-bg-primary, #0f172a);
-  color: var(--owt-text-primary, #f8fafc);
-  font-family: system-ui, -apple-system, sans-serif;
-  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--card-shadow);
 }
 
 .popup-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: var(--owt-bg-secondary, #1e293b);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 14px 16px 10px;
+  background: var(--bg-primary);
 }
 
 .header-left {
@@ -236,12 +239,13 @@ function openOptions() {
 }
 
 .logo {
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  background: linear-gradient(135deg, var(--primary-accent), #8b5cf6);
   color: white;
   font-weight: 800;
   font-size: 11px;
-  padding: 3px 6px;
-  border-radius: 6px;
+  padding: 4px 7px;
+  border-radius: 7px;
+  letter-spacing: 0.5px;
 }
 
 .popup-header h1 {
@@ -250,20 +254,29 @@ function openOptions() {
   font-weight: 700;
 }
 
+.popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 16px 14px;
+}
+
+/* ── Quick toggle ─────────────────────────────────────────────── */
 .quick-toggle {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 14px;
-  background: var(--owt-bg-card, #fff);
-  border: 1px solid #e5e7eb;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
+  box-shadow: var(--card-shadow);
 }
 
 .quick-toggle-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .toggle {
@@ -283,7 +296,7 @@ function openOptions() {
 .toggle .slider {
   position: absolute;
   inset: 0;
-  background: #d1d5db;
+  background: var(--border-color);
   border-radius: 999px;
   transition: background 0.2s ease;
   cursor: pointer;
@@ -303,27 +316,29 @@ function openOptions() {
 }
 
 .toggle input:checked + .slider {
-  background: #4f46e5;
+  background: var(--primary-accent);
 }
 
 .toggle input:checked + .slider::before {
   transform: translateX(20px);
 }
 
+/* ── Netflix summary ──────────────────────────────────────────── */
 .netflix-summary {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  background: rgba(99, 102, 241, 0.06);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
+  box-shadow: var(--card-shadow);
 }
 
 .netflix-summary-head {
   font-size: 13px;
   font-weight: 700;
-  color: #4f46e5;
+  color: var(--primary-accent);
   margin-bottom: 2px;
 }
 
@@ -331,54 +346,63 @@ function openOptions() {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .netflix-summary-row .ok {
-  color: #059669;
+  color: var(--accent-badge-text);
   font-weight: 600;
 }
 
 .netflix-summary-row .muted {
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
-.tab-bar {
-  display: flex;
-  background: #1e293b;
-  padding: 4px 12px;
-  gap: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.tab-bar button {
-  flex: 1;
-  background: transparent;
+/* ── Banners & links ──────────────────────────────────────────── */
+.link-btn {
+  background: none;
   border: none;
-  color: #94a3b8;
-  padding: 6px 0;
+  color: var(--primary-accent);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  padding: 4px 0 0;
+  text-align: left;
 }
 
-.tab-bar button.active {
-  color: #38bdf8;
-  border-bottom-color: #38bdf8;
+.link-btn:hover {
+  text-decoration: underline;
 }
 
-.popup-body {
+.warning-banner,
+.error-banner,
+.status-banner {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
+.warning-banner {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.error-banner {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.status-banner {
+  background: var(--accent-badge-bg);
+  color: var(--accent-badge-text);
+}
+
+/* ── Action buttons ───────────────────────────────────────────── */
 .action-buttons {
   display: flex;
   gap: 8px;
@@ -386,8 +410,8 @@ function openOptions() {
 
 .btn {
   flex: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
   font-weight: 600;
   font-size: 13px;
   cursor: pointer;
@@ -396,40 +420,69 @@ function openOptions() {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-primary {
-  background: #3b82f6;
-  color: white;
+  background: var(--primary-accent);
+  color: #fff;
+}
+
+.btn-primary:not(:disabled):hover {
+  background: var(--primary-hover);
 }
 
 .btn-secondary {
-  background: #334155;
-  color: #e2e8f0;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
+.btn-secondary:not(:disabled):hover {
+  background: var(--bg-input);
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
 .popup-footer {
-  padding: 10px 16px;
-  background: #1e293b;
-  display: flex;
-  justify-content: flex-end;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
 }
 
 .popup-footer .open-settings-btn {
   width: 100%;
   padding: 10px 0;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  color: #374151;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .popup-footer .open-settings-btn:hover {
-  background: #e5e7eb;
+  background: var(--bg-input);
+  border-color: var(--primary-accent);
+  color: var(--primary-accent);
 }
 </style>

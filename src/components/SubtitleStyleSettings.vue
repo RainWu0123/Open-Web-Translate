@@ -147,9 +147,10 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
   flex-direction: column;
   gap: 18px;
   padding: 20px;
-  background: var(--owt-bg-card, #fff);
-  border: 1px solid var(--owt-border, #e5e7eb);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 14px;
+  box-shadow: var(--card-shadow);
 }
 
 .card-header {
@@ -157,7 +158,7 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
   align-items: center;
   gap: 10px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--owt-border, #e5e7eb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 .card-icon {
@@ -168,13 +169,13 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
   display: block;
   font-size: 15px;
   font-weight: 600;
-  color: var(--owt-text, #111827);
+  color: var(--text-primary, #111827);
 }
 
 .card-desc {
   display: block;
   font-size: 12px;
-  color: var(--owt-text-secondary, #6b7280);
+  color: var(--text-secondary, #6b7280);
   margin-top: 2px;
 }
 
@@ -195,12 +196,12 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 .title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--owt-text, #111827);
+  color: var(--text-primary, #111827);
 }
 
 .desc {
   font-size: 12px;
-  color: var(--owt-text-secondary, #6b7280);
+  color: var(--text-secondary, #6b7280);
   line-height: 1.4;
 }
 
@@ -214,14 +215,14 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 
 .range-control input[type='range'] {
   width: 140px;
-  accent-color: #4f46e5;
+  accent-color: var(--primary-accent, #3b82f6);
 }
 
 .range-val,
 .color-val {
   font-size: 12px;
   font-family: monospace;
-  color: #4f46e5;
+  color: var(--primary-accent, #3b82f6);
   min-width: 46px;
   text-align: right;
 }

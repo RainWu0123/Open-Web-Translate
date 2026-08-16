@@ -86,8 +86,16 @@ class ExtensionBridgeImpl implements ExtensionBridge {
   async openOptionsPage(): Promise<void> {
     try {
       if (typeof browser === 'undefined' || !browser?.runtime) return;
-      if (browser.runtime.openOptionsPage) {
-        await browser.runtime.openOptionsPage();
+      // Open the options page as a full browser tab directly. Firefox embeds
+      // options_ui inside about:addons when reached via openOptionsPage in
+      // some flows; a direct tabs.create always yields the full page.
+      const url = browser.runtime.getURL('/options.html');
+      if (browser.tabs?.create) {
+        await browser.tabs.create({ url });
+      } else if ((browser.runtime as any).openOptionsPage) {
+        await (browser.runtime as any).openOptionsPage();
+      } else {
+        window.open(url);
       }
     } catch (err) {
       logger.debug('Failed to open options page', err);

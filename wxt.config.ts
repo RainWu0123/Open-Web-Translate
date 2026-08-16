@@ -27,9 +27,6 @@ export default defineConfig({
         strict_min_version: '109.0',
       },
     },
-    options_ui: {
-      open_in_tab: true,
-    },
     web_accessible_resources: [
       {
         resources: ['netflix-main.js'],
