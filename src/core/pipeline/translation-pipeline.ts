@@ -148,7 +148,7 @@ export class TranslationPipeline {
     const sourceById = new Map(segmentsToTranslate.map((s) => [s.id as string, s]));
     if (providerResult.cacheable) {
       await Promise.all(
-        providerResult.segments.map((resSeg) => {
+        providerResult.segments.map((resSeg: { id: unknown; text: string }) => {
           const originalSeg = sourceById.get(resSeg.id as string);
           if (!originalSeg) return Promise.resolve();
           return this.cacheRepo.set({

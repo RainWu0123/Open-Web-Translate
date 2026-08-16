@@ -13,6 +13,7 @@ import {
   ProviderError,
   NetworkError,
 } from '@/core/domain/errors/translation-errors';
+import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('LocalHttpProvider');
@@ -63,9 +64,6 @@ export class LocalHttpProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
 
     if (!this.isLocal) {
       throw new ProviderError(this.id, 'Privacy violation: Local HTTP provider must have isLocal set to true');
@@ -103,42 +101,22 @@ export class LocalHttpProvider implements TranslationProvider {
       }
     }
 
-    const timeoutSignal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15000) : undefined;
-    const signal = request.signal ?? timeoutSignal;
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: 'local-model',
-          messages: [
-            {
-              role: 'user',
-              content: `Translate to ${request.targetLanguage}${glossaryPrompt}: ${JSON.stringify(request.segments.map((s) => s.text))}`,
-            },
-          ],
-        }),
-        signal,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err || 'Connection refused');
-      logger.error('Local HTTP connection error', err);
-      throw new NetworkError(`Local HTTP connection failed: ${msg}`);
-    }
-
-    if (!response.ok) {
-      throw new NetworkError(`Local HTTP server returned HTTP ${response.status}`);
-    }
-
-    let data: Record<string, any>;
-    try {
-      data = await response.json();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new ProviderError(this.id, `Malformed JSON response from Local HTTP server: ${msg}`);
-    }
+    const data = await httpTranslationFetch(this.id, {
+      url,
+      headers,
+      body: {
+        model: 'local-model',
+        messages: [
+          {
+            role: 'user',
+            content: `Translate to ${request.targetLanguage}${glossaryPrompt}: ${JSON.stringify(request.segments.map((s) => s.text))}`,
+          },
+        ],
+      },
+      signal: request.signal,
+      timeoutMs: 15000,
+      interpretStatus: (status) => new NetworkError(`Local HTTP server returned HTTP ${status}`),
+    }).then((r) => r.json as Record<string, any>);
 
     let outputText = data.choices?.[0]?.message?.content || data.translatedText || '';
 

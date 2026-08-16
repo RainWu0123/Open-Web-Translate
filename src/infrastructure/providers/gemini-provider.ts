@@ -27,6 +27,7 @@ import {
   findModelEntry,
   DEFAULT_MODEL_ID,
 } from './gemini/model-registry';
+import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
 
 const logger = createLogger('GeminiProvider');
@@ -103,10 +104,6 @@ export class GeminiProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
-
     const settings = await SettingsStorage.get();
     const apiKey = settings.geminiApiKey?.trim();
     const rawModel = settings.geminiModel?.trim() || DEFAULT_MODEL_ID;
@@ -164,67 +161,37 @@ Example: [{"id": "seg-1", "translatedText": "..."}]`;
       },
     };
 
-    let response: Response;
-    try {
-      response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify(requestBody),
-        signal: request.signal,
-      });
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('Translation request aborted');
-      }
-      const sanitized = this.sanitize(err?.message || 'Network request failed', apiKey);
-      logger.error('Gemini fetch network error', sanitized);
-      throw new NetworkError(`Gemini network error: ${sanitized}`);
-    }
+    const responseData = await httpTranslationFetch(this.id, {
+      url: apiUrl,
+      body: requestBody,
+      headers: { 'x-goog-api-key': apiKey },
+      signal: request.signal,
+      sanitize: (message) => this.sanitize(message, apiKey),
+      interpretStatus: (status, bodyText) => {
+        const sanitizedErr = this.sanitize(bodyText, apiKey);
 
-    if (!response.ok) {
-      const status = response.status;
-      let errText = '';
-      try {
-        errText = await response.text();
-      } catch {
-        // ignore
-      }
-      const sanitizedErr = this.sanitize(errText, apiKey);
-
-      // HTTP 404 / Model Not Found -> Session Block model
-      if (status === 404 || sanitizedErr.toLowerCase().includes('model not found') || sanitizedErr.toLowerCase().includes('unsupported model')) {
-        GeminiProvider.sessionBlockedModels.add(modelId);
-        logger.error(`Gemini model HTTP 404 / unsupported -> session blocked (${modelId})`, sanitizedErr);
-        throw new ConfigurationError(`Gemini model "${modelId}" returned HTTP 404 (Not Found or Unsupported). Model has been session-blocked. Please select an active model in Options.`);
-      }
-
-      if (status === 401 || status === 403) {
-        logger.error(`Gemini config error (${status})`, sanitizedErr);
-        throw new ConfigurationError(`Gemini API key invalid or unauthorized (HTTP ${status})`);
-      }
-      if (status === 429) {
-        logger.error(`Gemini quota exceeded (${status})`, sanitizedErr);
-        throw new QuotaExceededError('Gemini API rate limit or quota exceeded');
-      }
-      if (status >= 500) {
-        logger.error(`Gemini server error (${status})`, sanitizedErr);
-        throw new NetworkError(`Gemini service error (HTTP ${status})`);
-      }
-      logger.error(`Gemini API error (${status})`, sanitizedErr);
-      throw new ProviderError(this.id, `Gemini API returned error status HTTP ${status}`);
-    }
-
-    let responseData: any;
-    try {
-      responseData = await response.json();
-    } catch (err: any) {
-      const sanitized = this.sanitize(err?.message || 'Invalid JSON response', apiKey);
-      logger.error('Failed to parse Gemini API JSON response', sanitized);
-      throw new ProviderError(this.id, 'Failed to parse Gemini API response');
-    }
+        // HTTP 404 / Model Not Found -> Session Block model
+        if (status === 404 || sanitizedErr.toLowerCase().includes('model not found') || sanitizedErr.toLowerCase().includes('unsupported model')) {
+          GeminiProvider.sessionBlockedModels.add(modelId);
+          logger.error(`Gemini model HTTP 404 / unsupported -> session blocked (${modelId})`, sanitizedErr);
+          return new ConfigurationError(`Gemini model "${modelId}" returned HTTP 404 (Not Found or Unsupported). Model has been session-blocked. Please select an active model in Options.`);
+        }
+        if (status === 401 || status === 403) {
+          logger.error(`Gemini config error (${status})`, sanitizedErr);
+          return new ConfigurationError(`Gemini API key invalid or unauthorized (HTTP ${status})`);
+        }
+        if (status === 429) {
+          logger.error(`Gemini quota exceeded (${status})`, sanitizedErr);
+          return new QuotaExceededError('Gemini API rate limit or quota exceeded');
+        }
+        if (status >= 500) {
+          logger.error(`Gemini server error (${status})`, sanitizedErr);
+          return new NetworkError(`Gemini service error (HTTP ${status})`);
+        }
+        logger.error(`Gemini API error (${status})`, sanitizedErr);
+        return new ProviderError(this.id, `Gemini API returned error status HTTP ${status}`);
+      },
+    }).then((r) => r.json as Record<string, any>);
 
     const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof rawText !== 'string' || !rawText.trim()) {

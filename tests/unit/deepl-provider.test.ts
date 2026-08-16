@@ -67,7 +67,7 @@ describe('DeepLProvider Unit Tests', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         translations: [{ detected_source_language: 'EN', text: '你好' }],
       }),
     });

@@ -70,7 +70,7 @@ describe('GeminiProvider Unit Tests', () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({
+        text: async () => JSON.stringify({
           candidates: [
             {
               content: {
@@ -115,7 +115,7 @@ describe('GeminiProvider Unit Tests', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         candidates: [{ content: { parts: [{ text: 'This is not valid JSON string' }] } }],
       }),
     });
@@ -135,7 +135,7 @@ describe('GeminiProvider Unit Tests', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         candidates: [{ content: { parts: [{ text: JSON.stringify([{ id: 's1' }]) }] } }],
       }),
     });

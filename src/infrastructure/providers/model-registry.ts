@@ -24,7 +24,6 @@ export * from './gemini/model-registry';
 
 export interface ProviderRegistration {
   providerId: string;
-  providerClass: new (...args: any[]) => TranslationProvider;
   displayName: string;
   isLocal: boolean;
   supportedModels: string[];
@@ -33,49 +32,42 @@ export interface ProviderRegistration {
 export const REGISTERED_PROVIDERS: Record<string, ProviderRegistration> = {
   'ollama-provider': {
     providerId: 'ollama-provider',
-    providerClass: OllamaProvider as any,
     displayName: 'Ollama Local AI',
     isLocal: true,
     supportedModels: ['llama3', 'llama3.1', 'mistral', 'qwen2.5', 'gemma2'],
   },
   'chrome-builtin-ai-provider': {
     providerId: 'chrome-builtin-ai-provider',
-    providerClass: ChromeBuiltInAIProvider as any,
     displayName: 'Chrome Built-in AI',
     isLocal: true,
     supportedModels: ['chrome-ai-translator'],
   },
   'gemini-provider': {
     providerId: 'gemini-provider',
-    providerClass: GeminiProvider as any,
     displayName: 'Google Gemini AI',
     isLocal: false,
     supportedModels: VERIFIED_MODEL_REGISTRY.map((m) => m.id),
   },
   'google-provider': {
     providerId: 'google-provider',
-    providerClass: GoogleTranslateProvider as any,
     displayName: 'Google Translate',
     isLocal: false,
     supportedModels: ['default'],
   },
   'deepl-provider': {
     providerId: 'deepl-provider',
-    providerClass: DeepLProvider as any,
     displayName: 'DeepL API',
     isLocal: false,
     supportedModels: ['default'],
   },
   'local-http-provider': {
     providerId: 'local-http-provider',
-    providerClass: LocalHttpProvider as any,
     displayName: 'Local HTTP Provider',
     isLocal: true,
     supportedModels: ['default'],
   },
   'mock-provider': {
     providerId: 'mock-provider',
-    providerClass: MockProvider as any,
     displayName: 'Mock Provider',
     isLocal: true,
     supportedModels: ['mock'],

@@ -19,6 +19,7 @@ import {
   NetworkError,
   QuotaExceededError,
 } from '../../core/domain/errors/translation-errors';
+import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
 
 const logger = createLogger('GoogleTranslateProvider');
@@ -49,30 +50,21 @@ export class GoogleTranslateProvider implements TranslationProvider {
   private async translateSingle(text: string, targetLang: string, signal?: AbortSignal): Promise<string> {
     const url = `${GOOGLE_TRANSLATE_ORIGIN}/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
 
-    const response = await fetch(url, {
-      method: 'GET',
+    const { json } = await httpTranslationFetch(this.id, {
+      url,
       signal,
+      retries: 1,
+      interpretStatus: (status) =>
+        status === 429 ? new QuotaExceededError('Google Translate rate limit reached') : null,
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw new QuotaExceededError('Google Translate rate limit reached');
-      }
-      throw new NetworkError(`Google Translate returned status ${response.status}`);
-    }
-
-    const data = await response.json();
-    if (Array.isArray(data) && Array.isArray(data[0])) {
-      return data[0].map((item: any) => item[0]).join('');
+    if (Array.isArray(json) && Array.isArray((json as unknown[])[0])) {
+      return ((json as unknown[])[0] as unknown[]).map((item: any) => item[0]).join('');
     }
     throw new ProviderError(this.id, 'Unexpected Google Translate response format');
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
-
     const targetLang = this.mapTargetLanguage(request.targetLanguage);
 
     const translatedSegments: TranslatedSegment[] = [];

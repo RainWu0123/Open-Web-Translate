@@ -22,6 +22,7 @@ import {
   QuotaExceededError,
 } from '../../core/domain/errors/translation-errors';
 import { SettingsStorage } from '../storage/extension-storage/settings-storage';
+import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
 
 const logger = createLogger('DeepLProvider');
@@ -67,10 +68,6 @@ export class DeepLProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
-
     const settings = await SettingsStorage.get();
     const apiKey = settings.deeplApiKey?.trim();
     const isPro = Boolean(settings.deeplApiIsPro);
@@ -79,8 +76,8 @@ export class DeepLProvider implements TranslationProvider {
       throw new ConfigurationError('DeepL API key is not configured. Please set your API key in Options.');
     }
 
-    const origin = isPro || apiKey.endsWith(':fx') === false && isPro ? DEEPL_PRO_ORIGIN : (apiKey.endsWith(':fx') ? DEEPL_FREE_ORIGIN : DEEPL_FREE_ORIGIN);
-    const apiUrl = `${origin}/v1/translate` ? `${origin}/v2/translate` : `${origin}/v2/translate`;
+    const origin = isPro ? DEEPL_PRO_ORIGIN : DEEPL_FREE_ORIGIN;
+    const apiUrl = `${origin}/v2/translate`;
 
     const targetLang = this.mapTargetLanguage(request.targetLanguage);
     const texts = request.segments.map((s) => s.text);
@@ -90,60 +87,30 @@ export class DeepLProvider implements TranslationProvider {
       target_lang: targetLang,
     };
 
-    let response: Response;
-    try {
-      response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `DeepL-Auth-Key ${apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: request.signal,
-      });
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('Translation request aborted');
-      }
-      const sanitized = this.sanitize(err?.message || 'Network request failed', apiKey);
-      logger.error('DeepL fetch network error', sanitized);
-      throw new NetworkError(`DeepL network error: ${sanitized}`);
-    }
-
-    if (!response.ok) {
-      const status = response.status;
-      let errText = '';
-      try {
-        errText = await response.text();
-      } catch {
-        // ignore
-      }
-      const sanitizedErr = this.sanitize(errText, apiKey);
-
-      if (status === 403) {
-        logger.error(`DeepL authorization error (${status})`, sanitizedErr);
-        throw new ConfigurationError('DeepL API key invalid or unauthorized (HTTP 403)');
-      }
-      if (status === 456) {
-        logger.error(`DeepL quota exceeded (${status})`, sanitizedErr);
-        throw new QuotaExceededError('DeepL character limit / quota exceeded (HTTP 456)');
-      }
-      if (status >= 500) {
-        logger.error(`DeepL server error (${status})`, sanitizedErr);
-        throw new NetworkError(`DeepL service error (HTTP ${status})`);
-      }
-      logger.error(`DeepL API error (${status})`, sanitizedErr);
-      throw new ProviderError(this.id, `DeepL API returned error status HTTP ${status}`);
-    }
-
-    let responseData: any;
-    try {
-      responseData = await response.json();
-    } catch (err: any) {
-      const sanitized = this.sanitize(err?.message || 'Invalid JSON response', apiKey);
-      logger.error('Failed to parse DeepL API JSON response', sanitized);
-      throw new ProviderError(this.id, 'Failed to parse DeepL API response');
-    }
+    const responseData = await httpTranslationFetch(this.id, {
+      url: apiUrl,
+      body: requestBody,
+      headers: { Authorization: `DeepL-Auth-Key ${apiKey}` },
+      signal: request.signal,
+      sanitize: (message) => this.sanitize(message, apiKey),
+      interpretStatus: (status, bodyText) => {
+        const sanitizedErr = this.sanitize(bodyText, apiKey);
+        if (status === 403) {
+          logger.error(`DeepL authorization error (${status})`, sanitizedErr);
+          return new ConfigurationError('DeepL API key invalid or unauthorized (HTTP 403)');
+        }
+        if (status === 456) {
+          logger.error(`DeepL quota exceeded (${status})`, sanitizedErr);
+          return new QuotaExceededError('DeepL character limit / quota exceeded (HTTP 456)');
+        }
+        if (status >= 500) {
+          logger.error(`DeepL server error (${status})`, sanitizedErr);
+          return new NetworkError(`DeepL service error (HTTP ${status})`);
+        }
+        logger.error(`DeepL API error (${status})`, sanitizedErr);
+        return new ProviderError(this.id, `DeepL API returned error status HTTP ${status}`);
+      },
+    }).then((r) => r.json as Record<string, any>);
 
     const translations = responseData?.translations;
     if (!Array.isArray(translations) || translations.length !== request.segments.length) {

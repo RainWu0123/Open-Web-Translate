@@ -17,7 +17,7 @@ describe('GoogleTranslateProvider Unit Tests', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => [[['你好', 'Hello', null, null, 1]]],
+      text: async () => JSON.stringify([[['你好', 'Hello', null, null, 1]]]),
     });
     vi.stubGlobal('fetch', mockFetch);
 

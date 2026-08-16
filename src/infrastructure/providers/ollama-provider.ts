@@ -13,6 +13,7 @@ import {
   ProviderError,
   NetworkError,
 } from '@/core/domain/errors/translation-errors';
+import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('OllamaProvider');
@@ -87,10 +88,6 @@ export class OllamaProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
-
     // Privacy boundary check
     if (!this.isLocal) {
       throw new ProviderError(this.id, 'Privacy violation: Local AI provider must have isLocal set to true');
@@ -110,38 +107,14 @@ export class OllamaProvider implements TranslationProvider {
 
     logger.debug('Sending Ollama generate request', { endpoint: url, model: this.model, segmentCount: request.segments.length });
 
-    const timeoutSignal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15000) : undefined;
-    const signal = request.signal ?? timeoutSignal;
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          prompt,
-          stream: false,
-        }),
-        signal,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err || 'Connection refused / Offline');
-      logger.error('Ollama network connection failed', err);
-      throw new NetworkError(`Ollama connection failed: ${msg}`);
-    }
-
-    if (!response.ok) {
-      throw new NetworkError(`Ollama server error HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    let data: Record<string, any>;
-    try {
-      data = await response.json();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new ProviderError(this.id, `Malformed JSON response from Ollama: ${msg}`);
-    }
+    const data = await httpTranslationFetch(this.id, {
+      url,
+      body: { model: this.model, prompt, stream: false },
+      signal: request.signal,
+      timeoutMs: 15000,
+      interpretStatus: (status, bodyText) =>
+        new NetworkError(`Ollama server error HTTP ${status}: ${bodyText.slice(0, 120)}`),
+    }).then((r) => r.json as Record<string, any>);
 
     const generatedText = data.response || '';
     const lines = generatedText.split('\n').filter((l: string) => l.trim().length > 0);
