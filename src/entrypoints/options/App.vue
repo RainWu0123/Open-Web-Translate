@@ -26,6 +26,13 @@
           <span class="icon">🧩</span> {{ t('providers') }}
         </button>
         <button
+          :class="['nav-item', { active: activeTab === 'subtitles' }]"
+          @click="activeTab = 'subtitles'"
+          data-testid="tab-subtitles"
+        >
+          <span class="icon">🎬</span> {{ t('subtitles') }}
+        </button>
+        <button
           :class="['nav-item', { active: activeTab === 'vocabulary' }]"
           @click="activeTab = 'vocabulary'"
           data-testid="tab-vocabulary"
@@ -75,6 +82,24 @@
         />
       </section>
 
+      <!-- Subtitles Panel -->
+      <section v-if="activeTab === 'subtitles'" class="panel-section" data-testid="panel-subtitles">
+        <h1 class="panel-title">{{ t('subtitleSettings') }}</h1>
+
+        <NetflixSubtitleConfigCard />
+
+        <SubtitleStyleSettings
+          :settings="settings"
+          :t="t"
+          @update:settings="onSettingsPartialUpdate"
+          @change="save"
+        />
+
+        <div class="panel-note" data-testid="subtitle-netflix-note">
+          {{ t('subtitleNetflixNote') }}
+        </div>
+      </section>
+
       <!-- Vocabulary Workbench Panel -->
       <section v-if="activeTab === 'vocabulary'" class="panel-section" data-testid="panel-vocabulary">
         <GlossaryManager
@@ -102,15 +127,20 @@ import ThemeToggle, { type ThemeMode } from '@/components/ThemeToggle.vue';
 import DisplaySettings from '@/components/DisplaySettings.vue';
 import ProviderConfigCard from '@/components/ProviderConfigCard.vue';
 import GlossaryManager from '@/components/GlossaryManager.vue';
+import NetflixSubtitleConfigCard from '@/components/NetflixSubtitleConfigCard.vue';
+import SubtitleStyleSettings from '@/components/SubtitleStyleSettings.vue';
 
 // i18n Dictionaries
 const translations = {
   en: {
     general: 'General',
     providers: 'Providers',
+    subtitles: 'Subtitles',
     vocabulary: 'Vocabulary Workbench',
     generalSettings: 'General Settings',
     translationProviders: 'Translation Providers',
+    subtitleSettings: 'Subtitle Settings',
+    subtitleNetflixNote: 'Netflix track discovery runs automatically while playing. Toggle the OWT button in the Netflix player controls to enable bilingual subtitles.',
     enableTranslation: 'Enable Translation',
     enableTranslationDesc: 'Toggle translation on all pages',
     targetLanguage: 'Target Language',
@@ -153,9 +183,12 @@ const translations = {
   'zh-Hant': {
     general: '一般設定',
     providers: '翻譯引擎設定',
+    subtitles: '字幕設定',
     vocabulary: '生字庫工作站',
     generalSettings: '一般設定 (General)',
     translationProviders: '翻譯引擎供應商',
+    subtitleSettings: '字幕設定 (Subtitles)',
+    subtitleNetflixNote: 'Netflix 字幕軌道會在播放時自動擷取。點擊 Netflix 播放器控制列上的 OWT 按鈕即可開啟雙語字幕。',
     enableTranslation: '啟用網頁翻譯功能',
     enableTranslationDesc: '開啟或關閉所有網頁的雙語翻譯服務',
     targetLanguage: '目標翻譯語言',
@@ -198,8 +231,11 @@ const translations = {
   ja: {
     general: '一般設定',
     providers: '翻訳プロバイダー',
+    subtitles: '字幕設定',
     vocabulary: '単語帳ワークベンチ',
     generalSettings: '一般設定',
+    subtitleSettings: '字幕設定 (Subtitles)',
+    subtitleNetflixNote: 'Netflix の字幕トラックは再生中に自動検出されます。Netflix プレイヤーのコントロールバーにある OWT ボタンを押すと二重言語字幕が有効になります。',
     translationProviders: '翻訳プロバイダー設定',
     enableTranslation: '翻訳機能を有効化',
     enableTranslationDesc: 'すべてのページで翻訳機能を有効/無効にします',
@@ -559,5 +595,15 @@ async function clearDeeplKey() {
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary, #f8fafc);
+}
+
+.panel-note {
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary, #94a3b8);
+  background: var(--bg-secondary, rgba(148, 163, 184, 0.08));
+  border: 1px dashed var(--border-color, rgba(148, 163, 184, 0.25));
+  border-radius: 12px;
 }
 </style>

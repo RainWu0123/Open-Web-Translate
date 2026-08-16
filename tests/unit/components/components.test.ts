@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import ProviderConfigCard, { maskApiKey } from '@/components/ProviderConfigCard.vue';
 import DisplaySettings from '@/components/DisplaySettings.vue';
+import SubtitleStyleSettings from '@/components/SubtitleStyleSettings.vue';
 import GlossaryManager from '@/components/GlossaryManager.vue';
 
 describe('Decomposed UI Components Unit Tests', () => {
@@ -105,7 +106,7 @@ describe('Decomposed UI Components Unit Tests', () => {
       expect(wrapper.emitted('update:settings')?.[0]).toEqual([{ targetLanguage: 'ja' }]);
     });
 
-    it('renders full mode with range sliders and color pickers for Options page', () => {
+    it('renders full mode with general controls (subtitle styles moved to SubtitleStyleSettings)', () => {
       const wrapper = mount(DisplaySettings, {
         props: {
           compact: false,
@@ -113,15 +114,28 @@ describe('Decomposed UI Components Unit Tests', () => {
             enabled: true,
             targetLanguage: 'en',
             displayMode: 'bilingual',
+          },
+        },
+      });
+
+      expect(wrapper.find('[data-testid="display-mode-select"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="range-orig-font-size"]').exists()).toBe(false);
+    });
+
+    it('SubtitleStyleSettings renders subtitle range sliders and color pickers', () => {
+      const wrapper = mount(SubtitleStyleSettings, {
+        props: {
+          settings: {
             subtitleOriginalFontSize: 18,
             subtitleTranslatedFontSize: 22,
           },
         },
       });
 
-      expect(wrapper.find('[data-testid="display-mode-select"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="range-orig-font-size"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="range-trans-font-size"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="color-orig-color"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="color-trans-color"]').exists()).toBe(true);
     });
   });
 

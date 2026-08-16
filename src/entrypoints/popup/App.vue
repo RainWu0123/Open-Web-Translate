@@ -8,72 +8,83 @@
       <ThemeToggle compact v-model="theme" />
     </header>
 
-    <div v-if="isNetflixTab" class="tab-bar">
-      <button :class="{ active: activeMode === 'netflix' }" @click="activeMode = 'netflix'">
-        🎬 Netflix 雙語字幕
-      </button>
-      <button :class="{ active: activeMode === 'general' }" @click="activeMode = 'general'">
-        🌐 一般網頁翻譯
-      </button>
-    </div>
-
     <div class="popup-body">
-      <template v-if="isNetflixTab && activeMode === 'netflix'">
-        <NetflixSubtitleConfigCard />
-      </template>
+      <!-- Quick enable toggle (settings live in the full options page) -->
+      <div class="quick-toggle">
+        <span class="quick-toggle-label">🌐 {{ settings.enabled ? '翻譯已啟用' : '翻譯已暫停' }}</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            :checked="settings.enabled"
+            @change="onToggleEnabled"
+            data-testid="popup-toggle-enabled"
+          />
+          <span class="slider"></span>
+        </label>
+      </div>
 
-      <template v-else>
-        <DisplaySettings
-          compact
-          :settings="settings"
-          @update:settings="onSettingsPartialUpdate"
-          @change="save"
-        />
-
-        <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
-          <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
-          <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
+      <!-- Netflix context summary -->
+      <div v-if="isNetflixTab" class="netflix-summary" data-testid="netflix-summary">
+        <div class="netflix-summary-head">🎬 Netflix 雙語字幕</div>
+        <div class="netflix-summary-row">
+          <span>狀態</span>
+          <span :class="netflixHud.isActive ? 'ok' : 'muted'">
+            {{ netflixHud.isActive ? '執行中' : '未啟用（點播放器上的 OWT 按鈕）' }}
+          </span>
         </div>
-
-        <div class="action-buttons">
-          <button
-            class="btn btn-primary"
-            :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
-            @click="translateCurrentPage"
-            data-testid="translate-page-btn"
-          >
-            <span v-if="isTranslating" class="spinner"></span>
-            {{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}
-          </button>
-
-          <button
-            class="btn btn-secondary"
-            :disabled="isLoading || !settings.enabled"
-            @click="restorePage"
-            data-testid="restore-page-btn"
-          >
-            <span v-if="isRestoring" class="spinner"></span>
-            {{ isRestoring ? '還原中...' : '還原頁面' }}
-          </button>
+        <div class="netflix-summary-row">
+          <span>偵測軌道</span>
+          <span>{{ netflixHud.discoveredTracksCount }}</span>
         </div>
-
-        <div v-if="errorMessage" class="error-banner" data-testid="error-banner">
-          <span>⚠️ {{ errorMessage }}</span>
+        <div class="netflix-summary-row">
+          <span>運作模式</span>
+          <span>{{ netflixHud.modeLabel }}</span>
         </div>
+        <button class="link-btn" @click="openOptions" data-testid="netflix-open-subtitle-settings">
+          ⚙ 前往字幕設定
+        </button>
+      </div>
 
-        <div v-if="statusMessage" class="status-banner" data-testid="status-banner">
-          <span>ℹ️ {{ statusMessage }}</span>
-        </div>
+      <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
+        <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
+        <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
+      </div>
 
-        <div class="status">
-          <span :class="settings.enabled ? 'dot active' : 'dot'"></span>
-          {{ settings.enabled ? 'Active' : 'Paused' }}
-        </div>
-      </template>
+      <div class="action-buttons">
+        <button
+          class="btn btn-primary"
+          :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
+          @click="translateCurrentPage"
+          data-testid="translate-page-btn"
+        >
+          <span v-if="isTranslating" class="spinner"></span>
+          {{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}
+        </button>
+
+        <button
+          class="btn btn-secondary"
+          :disabled="isLoading || !settings.enabled"
+          @click="restorePage"
+          data-testid="restore-page-btn"
+        >
+          <span v-if="isRestoring" class="spinner"></span>
+          {{ isRestoring ? '還原中...' : '還原頁面' }}
+        </button>
+      </div>
+
+      <div v-if="errorMessage" class="error-banner" data-testid="error-banner">
+        <span>⚠️ {{ errorMessage }}</span>
+      </div>
+
+      <div v-if="statusMessage" class="status-banner" data-testid="status-banner">
+        <span>ℹ️ {{ statusMessage }}</span>
+      </div>
     </div>
 
     <footer class="popup-footer">
-      <button @click="openOptions" data-testid="options-link-btn">⚙ Settings</button>
+      <button class="open-settings-btn" @click="openOptions" data-testid="options-link-btn">
+        ⚙ 開啟完整設定
+      </button>
     </footer>
   </div>
 </template>
@@ -82,9 +93,8 @@
 import { ref, onMounted, computed } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
-import DisplaySettings from '@/components/DisplaySettings.vue';
-import NetflixSubtitleConfigCard from '@/components/NetflixSubtitleConfigCard.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
+import { useNetflixSession } from '@/core/session/subtitle-session-store';
 
 const settings = ref({
   enabled: true,
@@ -99,7 +109,12 @@ const isRestoring = ref(false);
 const isLoading = computed(() => isTranslating.value || isRestoring.value);
 
 const isNetflixTab = ref(false);
-const activeMode = ref<'netflix' | 'general'>('netflix');
+const { hudInfo: netflixHud } = useNetflixSession();
+
+function onToggleEnabled(e: Event) {
+  settings.value.enabled = (e.target as HTMLInputElement).checked;
+  save();
+}
 
 const isGeminiUnconfigured = computed(() => {
   return settings.value.activeProviderId === 'gemini-provider' && !settings.value.hasGeminiApiKey;
@@ -115,7 +130,6 @@ onMounted(async () => {
       const state = await extensionBridge.sendTabMessage<{ primaryStatus?: string }>(tabId, { type: 'GET_NETFLIX_STATE' });
       if (state) {
         isNetflixTab.value = true;
-        activeMode.value = 'netflix';
       }
     }
 
@@ -236,6 +250,99 @@ function openOptions() {
   font-weight: 700;
 }
 
+.quick-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--owt-bg-card, #fff);
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+
+.quick-toggle-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle .slider {
+  position: absolute;
+  inset: 0;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+  cursor: pointer;
+}
+
+.toggle .slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.toggle input:checked + .slider {
+  background: #4f46e5;
+}
+
+.toggle input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
+.netflix-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 12px;
+}
+
+.netflix-summary-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4f46e5;
+  margin-bottom: 2px;
+}
+
+.netflix-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.netflix-summary-row .ok {
+  color: #059669;
+  font-weight: 600;
+}
+
+.netflix-summary-row .muted {
+  color: #9ca3af;
+}
+
 .tab-bar {
   display: flex;
   background: #1e293b;
@@ -262,6 +369,10 @@ function openOptions() {
 }
 
 .popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
@@ -305,11 +416,20 @@ function openOptions() {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.popup-footer button {
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  font-size: 12px;
+.popup-footer .open-settings-btn {
+  width: 100%;
+  padding: 10px 0;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.popup-footer .open-settings-btn:hover {
+  background: #e5e7eb;
 }
 </style>
