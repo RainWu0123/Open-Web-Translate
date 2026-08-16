@@ -18,15 +18,21 @@ const logger = createLogger('NetflixCaptionAdapter');
  */
 export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private observer: MutationObserver | null = null;
-  private controlsButton: HTMLElement | null = null;
+  private controlsButton: HTMLButtonElement | null = null;
   private selectorMenu: HTMLElement | null = null;
+  private buttonDockedOnce = false;
 
   private discoveredTracks: DiscoveredTrack[] = [];
   private selectedTrackId = 'ai-translate';
+  /** 'auto' = prefer a native track matching targetLang, else AI; 'manual' = user's explicit pick. */
+  private selectionMode: 'auto' | 'manual' = 'auto';
+  private autoSelectionRunning = false;
   private secondaryCues: SubtitleCue[] = [];
 
   private pendingTranslationFingerprints = new Set<string>();
   private lastProcessedText = '';
+  private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly clearGraceMs = 2000;
   private overlayPositionListenersAttached = false;
 
   private trackManager = new NetflixTrackManager();
@@ -139,6 +145,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         this.discoveredTracks = data.tracks as DiscoveredTrack[];
         this.trackManager.setDiscoveredTracks(this.discoveredTracks);
         this.updateSelectorMenuOptions();
+        this.reconcileTrackSelection();
       }
     };
 
@@ -309,7 +316,8 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     this.updateControlsButtonState();
     this.injectControlsButton();
     this.startObserver();
-    logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode });
+    this.reconcileTrackSelection();
+    logger.info('NetflixCaptionAdapter started', { targetLang: this.targetLang, displayMode: this.displayMode, selectionMode: this.selectionMode });
   }
 
   stop() {
@@ -327,6 +335,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     this.inlineTranslationCache.clear();
     this.pendingTranslationFingerprints.clear();
     this.lastProcessedText = '';
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
+    }
     this.applyNativeSubtitleMask(false);
     this.clearOverlay();
     this.hideSelectorMenu();
@@ -442,11 +454,22 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
     const currentNativeText = this.getNativeSubtitleTextFromDOM();
     if (!currentNativeText) {
-      if (this.lastProcessedText !== '') {
-        this.lastProcessedText = '';
-        this.clearOverlay();
+      // Netflix blanks its caption node between cues; clearing immediately
+      // makes the bilingual overlay strobe on every cue boundary. Hold the
+      // last line for a grace period and cancel if the next cue arrives.
+      if (this.lastProcessedText !== '' && this.clearGraceTimer === null) {
+        this.clearGraceTimer = setTimeout(() => {
+          this.clearGraceTimer = null;
+          this.lastProcessedText = '';
+          this.clearOverlay();
+        }, this.clearGraceMs);
       }
       return;
+    }
+
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
     }
 
     this.onNewSubtitleText(currentNativeText);
@@ -554,13 +577,20 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
   public injectControlsButton() {
     let button = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
+    if (!button && this.controlsButton) {
+      // Button was destroyed together with a re-rendered controls bar —
+      // reuse the same element instead of creating a duplicate.
+      button = this.controlsButton;
+    }
     if (button && document.body.contains(button)) {
       this.controlsButton = button;
-      // The controls bar appears lazily; promote a floating fallback button
-      // into the bar as soon as it exists.
-      if (button.classList.contains('owt-netflix-floating')) {
-        this.placeButtonIntoControls(button);
-      }
+      this.updateControlsButtonState();
+      return;
+    }
+    if (button) {
+      // Disconnected (its bar was torn down): try to re-place it; placement
+      // hysteresis keeps it from bouncing between docked and floating.
+      this.placeButtonIntoControls(button);
       this.updateControlsButtonState();
       return;
     }
@@ -593,8 +623,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   /**
    * Places the toggle button inside the player controls bar when it exists.
    * Before the bar mounts (Netflix lazy-renders it), docks the button as a
-   * floating ball at the bottom-right of the viewport instead — prepending
-   * to document.body strands it at the page's top-left corner.
+   * floating ball at the bottom-right of the viewport. Hysteresis: once the
+   * button has docked into a bar, it never goes back to floating — when
+   * Netflix tears the bar down the button waits disconnected until a new
+   * bar appears, instead of teleporting between two spots every tick.
    */
   private placeButtonIntoControls(button: HTMLButtonElement): void {
     const audioSubBtn = document.querySelector('[data-uia="control-audio-subtitle"]');
@@ -605,22 +637,35 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       document.querySelector('.player-controls');
 
     if (audioSubWrapper && audioSubWrapper.parentNode) {
-      button.classList.remove('owt-netflix-floating');
-      this.applyControlsBarStyle(button);
+      this.dockButton(button, 'controls');
       audioSubWrapper.parentNode.insertBefore(button, audioSubWrapper);
       return;
     }
 
     if (controlsBar) {
-      button.classList.remove('owt-netflix-floating');
-      this.applyControlsBarStyle(button);
+      this.dockButton(button, 'controls');
       controlsBar.prepend(button);
       return;
     }
 
-    button.classList.add('owt-netflix-floating');
-    this.applyFloatingStyle(button);
+    if (this.buttonDockedOnce) {
+      // Parked: keep the element, just not in the DOM, until a bar returns.
+      return;
+    }
+
+    this.dockButton(button, 'floating');
     document.body.appendChild(button);
+  }
+
+  private dockButton(button: HTMLButtonElement, mode: 'controls' | 'floating'): void {
+    if (mode === 'controls') {
+      button.classList.remove('owt-netflix-floating');
+      this.applyControlsBarStyle(button);
+      this.buttonDockedOnce = true;
+    } else {
+      button.classList.add('owt-netflix-floating');
+      this.applyFloatingStyle(button);
+    }
   }
 
   private applyControlsBarStyle(button: HTMLButtonElement): void {
@@ -698,6 +743,43 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (this.selectorMenu) this.selectorMenu.style.display = 'none';
   }
 
+  /**
+   * Keeps the active secondary source aligned with the selection policy:
+   * auto mode prefers a native track in the target language and falls back
+   * to AI translation only when none exists; manual mode honours the pick
+   * but falls back to auto when the chosen track disappears on navigation.
+   */
+  private reconcileTrackSelection(): void {
+    if (this.selectionMode === 'manual') {
+      const stillThere = this.selectedTrackId === 'ai-translate' ||
+        this.discoveredTracks.some((t) => t.id === this.selectedTrackId);
+      if (stillThere) return;
+      this.selectionMode = 'auto';
+    }
+    void this.runAutoSelection();
+  }
+
+  private async runAutoSelection(): Promise<void> {
+    if (this.autoSelectionRunning) return;
+    const native = this.trackManager.findBestMatchingTrack(this.targetLang);
+    if (native?.url) {
+      // Already showing this exact track: skip the re-download.
+      if (this.selectedTrackId === native.id && this.secondaryCues.length > 0) return;
+      this.autoSelectionRunning = true;
+      try {
+        await this.loadSecondaryTrack(native, { manual: false });
+      } finally {
+        this.autoSelectionRunning = false;
+      }
+      return;
+    }
+    // No native track in the target language — machine translation it is.
+    this.selectedTrackId = 'ai-translate';
+    this.secondaryCues = [];
+    this.updateSelectorMenuOptions();
+    if (this.isActive) this.processCaptions();
+  }
+
   private updateSelectorMenuOptions() {
     if (!this.selectorMenu) return;
 
@@ -728,7 +810,16 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       list.appendChild(item);
     };
 
-    appendItem('✨ 自動 AI / 機器翻譯 (Google / DeepL / Gemini)', this.selectedTrackId === 'ai-translate', () => {
+    const autoLabel = this.selectionMode === 'auto'
+      ? '✨ 自動（優先原生字幕軌，無則 AI / 機器翻譯）— 目前使用中'
+      : '✨ 自動（優先原生字幕軌，無則 AI / 機器翻譯）';
+    appendItem(autoLabel, this.selectionMode === 'auto', () => {
+      this.selectionMode = 'auto';
+      void this.runAutoSelection();
+    });
+
+    appendItem('🤖 僅 AI / 機器翻譯 (Google / DeepL / Gemini)', this.selectionMode === 'manual' && this.selectedTrackId === 'ai-translate', () => {
+      this.selectionMode = 'manual';
       this.selectedTrackId = 'ai-translate';
       this.secondaryCues = [];
       this.lastProcessedText = '';
@@ -748,6 +839,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         `🎬 原生副字幕：${track.label} ${track.isCC ? '(CC)' : ''}`,
         this.selectedTrackId === track.id,
         () => {
+          this.selectionMode = 'manual';
           this.selectedTrackId = track.id;
           void this.loadSecondaryTrack(track);
         },
@@ -755,7 +847,9 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     }
   }
 
-  private async loadSecondaryTrack(track: DiscoveredTrack) {
+  private async loadSecondaryTrack(track: DiscoveredTrack, opts: { manual?: boolean } = {}) {
+    if (opts.manual !== false) this.selectionMode = 'manual';
+    this.selectedTrackId = track.id;
     try {
       const xml = await this.fetchTtmlXml(track.url);
       this.secondaryCues = parseNetflixTtml(xml);
