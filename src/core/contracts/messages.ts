@@ -86,6 +86,8 @@ export interface NetflixStateInfo {
   /** Internal adapter state machine value, surfaced for diagnostics. */
   adapterState?: string;
   selectedTrackId?: string;
+  /** 'auto' prefers a native track matching the target language; 'manual' is a user pick (incl. AI-only). */
+  selectionMode?: 'auto' | 'manual';
   secondaryCuesCount?: number;
 }
 
@@ -149,6 +151,11 @@ export interface GetNetflixStateMessage {
   type: 'GET_NETFLIX_STATE';
 }
 
+export interface SetNetflixSelectionMessage {
+  type: 'SET_NETFLIX_SELECTION';
+  source: 'auto' | 'ai';
+}
+
 /** All messages that can be sent in the messaging system */
 export type BackgroundMessage =
   | TranslateRequestMessage
@@ -162,7 +169,8 @@ export type BackgroundMessage =
   | GetVocabItemsMessage
   | DeleteVocabItemMessage
   | ClearVocabItemsMessage
-  | GetNetflixStateMessage;
+  | GetNetflixStateMessage
+  | SetNetflixSelectionMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -208,6 +216,7 @@ export type ResponseMap = {
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
   GET_NETFLIX_STATE: NetflixStateInfo;
+  SET_NETFLIX_SELECTION: boolean;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────

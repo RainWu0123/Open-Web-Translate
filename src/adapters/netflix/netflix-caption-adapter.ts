@@ -21,12 +21,15 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private observer: MutationObserver | null = null;
   private controlsButton: HTMLButtonElement | null = null;
   private selectorMenu: HTMLElement | null = null;
+  private menuOutsideClickListener: ((event: MouseEvent) => void) | null = null;
+  private menuEscapeListener: ((event: KeyboardEvent) => void) | null = null;
   private buttonDockedOnce = false;
 
   private discoveredTracks: DiscoveredTrack[] = [];
   private selectedTrackId = 'ai-translate';
   /** 'auto' = prefer a native track matching targetLang, else AI; 'manual' = user's explicit pick. */
   private selectionMode: 'auto' | 'manual' = 'auto';
+  private lastReconciledTargetLang: string | null = null;
   private autoSelectionRunning = false;
   private secondaryCues: SubtitleCue[] = [];
 
@@ -62,8 +65,27 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       adapterState: this.trackManager.getAdapterState(),
       discoveredTracksCount: this.discoveredTracks.length,
       selectedTrackId: this.selectedTrackId,
+      selectionMode: this.selectionMode,
       secondaryCuesCount: this.secondaryCues.length,
     };
+  }
+
+  /**
+   * Popup entry point for the subtitle-source choice: 'auto' prefers a
+   * native track in the target language, 'ai' forces machine translation.
+   */
+  public setSubtitleSource(source: 'auto' | 'ai'): void {
+    if (source === 'ai') {
+      this.selectionMode = 'manual';
+      this.selectedTrackId = 'ai-translate';
+      this.secondaryCues = [];
+    } else {
+      this.selectionMode = 'auto';
+    }
+    this.lastProcessedText = '';
+    this.updateSelectorMenuOptions();
+    this.reconcileTrackSelection();
+    if (this.isActive) this.processCaptions();
   }
 
   /**
@@ -209,6 +231,13 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (settings.netflix) {
       this.updateConfig(settings.netflix);
     }
+    // A target-language change re-runs the auto selection with the new
+    // language (native track preference).
+    if (settings.targetLanguage && settings.targetLanguage !== this.lastReconciledTargetLang) {
+      this.trackManager.setTargetLanguage(settings.targetLanguage);
+      this.lastReconciledTargetLang = settings.targetLanguage;
+      this.reconcileTrackSelection();
+    }
     // Force re-render so style changes (size/colors) apply to the visible line.
     this.lastProcessedText = '';
   }
@@ -347,12 +376,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   private clearOverlay() {
+    // Clear our layer only. Restoring the native-subtitle mask here made
+    // Netflix's own line flash visible between cues before the bilingual
+    // overlay re-rendered; the mask is only lifted in stop().
     this.overlayRenderer.clear();
-    this.restoreNativeSubtitles();
-  }
-
-  private restoreNativeSubtitles() {
-    this.applyNativeSubtitleMask(false);
   }
 
   private startObserver() {
@@ -688,9 +715,47 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     this.selectorMenu = menu;
     this.updateSelectorMenuOptions();
     menu.style.display = 'block';
+    this.armMenuDismissal();
+  }
+
+  /**
+   * Close-on-dismiss affordances: click outside the menu and the Escape
+   * key both hide it. Listeners are removed when the menu hides.
+   */
+  private armMenuDismissal(): void {
+    this.disarmMenuDismissal();
+
+    const menu = this.selectorMenu;
+    if (!menu) return;
+
+    this.menuOutsideClickListener = (event: MouseEvent) => {
+      if (menu.contains(event.target as Node)) return;
+      if (this.controlsButton?.contains(event.target as Node)) return; // right-click toggles
+      this.hideSelectorMenu();
+    };
+    this.menuEscapeListener = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') this.hideSelectorMenu();
+    };
+
+    document.addEventListener('click', this.menuOutsideClickListener, true);
+    document.addEventListener('contextmenu', this.menuOutsideClickListener, true);
+    document.addEventListener('keydown', this.menuEscapeListener, true);
+  }
+
+  private disarmMenuDismissal(): void {
+    if (this.menuOutsideClickListener) {
+      document.removeEventListener('click', this.menuOutsideClickListener, true);
+      document.removeEventListener('contextmenu', this.menuOutsideClickListener, true);
+      this.menuOutsideClickListener = null;
+    }
+    if (this.menuEscapeListener) {
+      document.removeEventListener('keydown', this.menuEscapeListener, true);
+      this.menuEscapeListener = null;
+    }
   }
 
   private hideSelectorMenu() {
+    this.disarmMenuDismissal();
     if (this.selectorMenu) this.selectorMenu.style.display = 'none';
   }
 

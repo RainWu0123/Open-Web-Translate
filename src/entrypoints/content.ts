@@ -100,6 +100,11 @@ export default defineContentScript({
       return netflixAdapter.getStateInfo();
     });
 
+    messageRouter.registerHandler('SET_NETFLIX_SELECTION', async (msg) => {
+      netflixAdapter.setSubtitleSource(msg.source);
+      return true;
+    });
+
     messageRouter.listen();
 
     // 2. Setup SPA navigation listener to clear old translations on route change

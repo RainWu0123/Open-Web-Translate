@@ -45,6 +45,64 @@
         </button>
       </div>
 
+      <!-- Subtitle quick settings (Netflix / YouTube tabs) -->
+      <div v-if="isSubtitleTab" class="subtitle-quick-settings" data-testid="subtitle-quick-settings">
+        <div class="sq-head">🎬 字幕設定</div>
+
+        <div class="sq-row">
+          <span class="sq-label">雙語字幕語言</span>
+          <select
+            class="sq-select"
+            :value="settings.targetLanguage"
+            @change="onTargetLanguageChange"
+            data-testid="subtitle-language-select"
+          >
+            <option value="zh-Hant">繁體中文</option>
+            <option value="zh-Hans">简体中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="es">Español</option>
+          </select>
+        </div>
+
+        <div v-if="isNetflixTab" class="sq-row">
+          <span class="sq-label">字幕來源</span>
+          <div class="sq-segment" data-testid="subtitle-source-segment">
+            <button
+              :class="['sq-seg-btn', { active: netflixSource !== 'ai' }]"
+              @click="setSubtitleSource('auto')"
+              data-testid="subtitle-source-auto"
+            >自動（優先原生）</button>
+            <button
+              :class="['sq-seg-btn', { active: netflixSource === 'ai' }]"
+              @click="setSubtitleSource('ai')"
+              data-testid="subtitle-source-ai"
+            >僅 AI / 機翻</button>
+          </div>
+        </div>
+
+        <div class="sq-row">
+          <span class="sq-label">原文字幕 {{ settings.subtitleOriginalFontSize }}px</span>
+          <input
+            type="range" min="12" max="32" step="1"
+            :value="settings.subtitleOriginalFontSize"
+            @input="onSubtitleSizeChange('subtitleOriginalFontSize', $event)"
+            data-testid="popup-orig-size-slider"
+          />
+        </div>
+
+        <div class="sq-row">
+          <span class="sq-label">譯文字幕 {{ settings.subtitleTranslatedFontSize }}px</span>
+          <input
+            type="range" min="14" max="40" step="1"
+            :value="settings.subtitleTranslatedFontSize"
+            @input="onSubtitleSizeChange('subtitleTranslatedFontSize', $event)"
+            data-testid="popup-trans-size-slider"
+          />
+        </div>
+      </div>
+
       <div v-if="isGeminiUnconfigured" class="warning-banner" data-testid="gemini-unconfigured-banner">
         <span>⚠️ Gemini API Key 未設定，請至設定頁面設定 API Key。</span>
         <button class="link-btn" @click="openOptions">⚙ 前往設定</button>
@@ -102,6 +160,8 @@ const settings = ref({
   targetLanguage: 'zh-Hant',
   activeProviderId: 'mock-provider',
   hasGeminiApiKey: false,
+  subtitleOriginalFontSize: 18,
+  subtitleTranslatedFontSize: 22,
 });
 
 const theme = ref<'light' | 'dark' | 'system'>('system');
@@ -110,7 +170,52 @@ const isRestoring = ref(false);
 const isLoading = computed(() => isTranslating.value || isRestoring.value);
 
 const isNetflixTab = ref(false);
+const isYouTubeTab = ref(false);
+const isSubtitleTab = computed(() => isNetflixTab.value || isYouTubeTab.value);
 const { hudInfo: netflixHud } = useNetflixSession();
+
+const netflixSource = computed<'auto' | 'ai'>(() =>
+  netflixHud.value.selectionMode === 'manual' && netflixHud.value.selectedTrackId === 'ai-translate'
+    ? 'ai'
+    : 'auto',
+);
+
+function onTargetLanguageChange(e: Event) {
+  settings.value.targetLanguage = (e.target as HTMLSelectElement).value;
+  save();
+}
+
+function onSubtitleSizeChange(key: 'subtitleOriginalFontSize' | 'subtitleTranslatedFontSize', e: Event) {
+  settings.value[key] = Number((e.target as HTMLInputElement).value);
+  saveSubtitleSizes();
+}
+
+async function saveSubtitleSizes() {
+  try {
+    await SettingsStorage.set({
+      subtitleOriginalFontSize: settings.value.subtitleOriginalFontSize,
+      subtitleTranslatedFontSize: settings.value.subtitleTranslatedFontSize,
+    });
+  } catch {
+    errorMessage.value = '儲存字幕設定失敗';
+  }
+}
+
+async function setSubtitleSource(source: 'auto' | 'ai') {
+  try {
+    const tabId = await extensionBridge.queryActiveTabId();
+    if (!tabId) return;
+    await extensionBridge.sendTabMessage(tabId, { type: 'SET_NETFLIX_SELECTION', source });
+    // Optimistic UI; the 1s HUD poll reconciles with the tab's real state.
+    netflixHud.value = {
+      ...netflixHud.value,
+      selectionMode: source === 'ai' ? 'manual' : 'auto',
+      selectedTrackId: source === 'ai' ? 'ai-translate' : netflixHud.value.selectedTrackId,
+    };
+  } catch {
+    errorMessage.value = '無法切換字幕來源（分頁未回應）';
+  }
+}
 
 function onToggleEnabled(e: Event) {
   settings.value.enabled = (e.target as HTMLInputElement).checked;
@@ -126,6 +231,11 @@ const statusMessage = ref('');
 
 onMounted(async () => {
   try {
+    const url = await extensionBridge.queryActiveTabUrl();
+    if (url?.includes('youtube.com')) {
+      isYouTubeTab.value = true;
+    }
+
     const tabId = await extensionBridge.queryActiveTabId();
     if (tabId) {
       const state = await extensionBridge.sendTabMessage<{ primaryStatus?: string }>(tabId, { type: 'GET_NETFLIX_STATE' });
@@ -140,6 +250,8 @@ onMounted(async () => {
       settings.value.targetLanguage = s.targetLanguage;
       settings.value.activeProviderId = s.activeProviderId || 'mock-provider';
       settings.value.hasGeminiApiKey = Boolean(s.hasGeminiApiKey);
+      settings.value.subtitleOriginalFontSize = s.subtitleOriginalFontSize ?? 18;
+      settings.value.subtitleTranslatedFontSize = s.subtitleTranslatedFontSize ?? 22;
     }
   } catch (err) {
     loggerWarn('Failed to initialize popup settings:', err);
@@ -319,6 +431,72 @@ function openOptions() {
 
 .toggle input:checked + .slider::before {
   transform: translateX(20px);
+}
+
+/* ── Subtitle quick settings ───────────────────────────────────── */
+.subtitle-quick-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+}
+
+.sq-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary-accent);
+}
+
+.sq-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.sq-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sq-select {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+
+.sq-segment {
+  display: flex;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sq-seg-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border: none;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sq-seg-btn.active {
+  background: var(--primary-accent);
+  color: #fff;
+}
+
+.sq-row input[type='range'] {
+  width: 130px;
+  accent-color: var(--primary-accent);
 }
 
 /* ── Netflix summary ──────────────────────────────────────────── */

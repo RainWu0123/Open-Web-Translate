@@ -12,6 +12,7 @@ const logger = createLogger('ExtensionBridge');
 
 export interface ExtensionBridge {
   queryActiveTabId(): Promise<number | null>;
+  queryActiveTabUrl(): Promise<string | null>;
   sendTabMessage<T = any>(tabId: number, message: any): Promise<T | null>;
   sendTabCommand<T = any>(
     tabId: number,
@@ -33,6 +34,17 @@ class ExtensionBridgeImpl implements ExtensionBridge {
       return tabs[0]?.id ?? null;
     } catch (err) {
       logger.debug('Failed to query active tab', err);
+      return null;
+    }
+  }
+
+  async queryActiveTabUrl(): Promise<string | null> {
+    try {
+      if (typeof browser === 'undefined' || !browser?.tabs?.query) return null;
+      const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+      return tabs[0]?.url ?? null;
+    } catch (err) {
+      logger.debug('Failed to query active tab URL', err);
       return null;
     }
   }
