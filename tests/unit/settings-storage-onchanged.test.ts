@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { browser } from 'wxt/browser';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { STORAGE_KEYS, DEFAULT_SETTINGS } from '@/shared/constants';
 
@@ -14,13 +15,14 @@ vi.mock('wxt/browser', () => ({
           addListener: vi.fn((fn) => {
             registeredListener = fn;
           }),
+          removeListener: vi.fn(),
         },
       },
     },
   },
 }));
 
-describe('SettingsStorage.onChange Seam Unit Tests', () => {
+describe('SettingsStorage.watch Seam Unit Tests', () => {
   beforeEach(() => {
     registeredListener = null;
     vi.clearAllMocks();
@@ -28,7 +30,7 @@ describe('SettingsStorage.onChange Seam Unit Tests', () => {
 
   it('subscribes to storage changes and invokes callback with decorated settings', () => {
     const callback = vi.fn();
-    SettingsStorage.onChange(callback);
+    const unsubscribe = SettingsStorage.watch(callback);
 
     expect(registeredListener).not.toBeNull();
 
@@ -50,5 +52,8 @@ describe('SettingsStorage.onChange Seam Unit Tests', () => {
     expect(updated.targetLanguage).toBe('ja');
     expect(updated.hasGeminiApiKey).toBe(true);
     expect(updated.geminiApiKeyMasked).toBe('test••••••••2345');
+
+    unsubscribe();
+    expect((browser.storage.local.onChanged.removeListener as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(registeredListener);
   });
 });

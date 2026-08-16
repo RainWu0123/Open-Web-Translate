@@ -1,5 +1,6 @@
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { createLogger } from '@/shared/logger';
+import { DEFAULT_SETTINGS } from '@/shared/constants';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
 
 const logger = createLogger('YouTubeCaptionAdapter');
@@ -152,7 +153,14 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     }
   }
 
-  async start(targetLang?: string, displayMode?: string, origSize = 18, transSize = 22, origColor = '#ffffff', transColor = '#818cf8') {
+  async start(
+    targetLang?: string,
+    displayMode?: string,
+    origSize: number = DEFAULT_SETTINGS.subtitleOriginalFontSize ?? 18,
+    transSize: number = DEFAULT_SETTINGS.subtitleTranslatedFontSize ?? 22,
+    origColor: string = DEFAULT_SETTINGS.subtitleOriginalColor ?? '#ffffff',
+    transColor: string = DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#818cf8',
+  ) {
     if (targetLang) this.targetLang = targetLang;
     if (displayMode) this.displayMode = displayMode;
     this.subtitleOriginalFontSize = origSize;

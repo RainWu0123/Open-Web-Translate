@@ -35,7 +35,7 @@ export class TranslationPipeline {
 
   constructor() {
     try {
-      SettingsStorage.onChange(() => {
+      SettingsStorage.watch(() => {
         this.settingsCacheReady = false;
       });
     } catch {
@@ -45,7 +45,7 @@ export class TranslationPipeline {
 
   private async getSettings(): Promise<ExtensionSettings> {
     if (this.settingsCacheReady && this.cachedSettings) return this.cachedSettings;
-    this.cachedSettings = await SettingsStorage.getSettings();
+    this.cachedSettings = await SettingsStorage.get();
     this.settingsCacheReady = true;
     return this.cachedSettings;
   }

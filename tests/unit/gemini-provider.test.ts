@@ -15,7 +15,7 @@ describe('GeminiProvider Unit Tests', () => {
   beforeEach(() => {
     GeminiProvider.clearSessionBlocks();
     originalFetch = global.fetch;
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValue({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',
@@ -32,7 +32,7 @@ describe('GeminiProvider Unit Tests', () => {
   });
 
   it('throws ConfigurationError when API key is missing or empty', async () => {
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValueOnce({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValueOnce({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',
@@ -152,7 +152,7 @@ describe('GeminiProvider Unit Tests', () => {
 
   it('maps 401/403 status code without leaking secret API key in error message', async () => {
     const secretKey = 'super-secret-gemini-key-12345';
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValueOnce({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValueOnce({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',

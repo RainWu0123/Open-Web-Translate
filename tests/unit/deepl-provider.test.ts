@@ -37,7 +37,7 @@ describe('DeepLProvider Unit Tests', () => {
   });
 
   it('throws ConfigurationError when API key is missing', async () => {
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValue({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',
@@ -56,7 +56,7 @@ describe('DeepLProvider Unit Tests', () => {
   });
 
   it('translates successfully via mocked DeepL API response', async () => {
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValue({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',
@@ -95,7 +95,7 @@ describe('DeepLProvider Unit Tests', () => {
   });
 
   it('handles DeepL 456 quota exceeded error correctly', async () => {
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValue({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',

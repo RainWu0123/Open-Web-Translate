@@ -6,19 +6,14 @@ import { browser } from 'wxt/browser';
 vi.mock('wxt/browser', () => ({
   browser: {
     storage: {
-      sync: {
-        get: vi.fn().mockResolvedValue({
-          owt_netflix_config: {
-            enabled: true,
-            primarySize: 20,
-            secondarySize: 24,
-            bottomPosition: 100,
-            lineSpacing: 8,
-            enableBitmapRescue: true,
-            learningMode: false,
-          },
-        }),
+      local: {
+        get: vi.fn().mockResolvedValue({}),
         set: vi.fn().mockResolvedValue(undefined),
+        onChanged: { addListener: vi.fn(), removeListener: vi.fn() },
+      },
+      sync: {
+        get: vi.fn().mockResolvedValue({}),
+        remove: vi.fn().mockResolvedValue(undefined),
       },
     },
     tabs: {
@@ -44,7 +39,7 @@ describe('NetflixSubtitleConfigCard Vue Component Unit Tests', () => {
     expect(wrapper.find('[data-testid="line-spacing-slider"]').exists()).toBe(true);
   });
 
-  it('persists slider changes to browser.storage.sync and sends update message to tab', async () => {
+  it('persists slider changes through the single Settings seam (storage.local), with no push message', async () => {
     const wrapper = mount(NetflixSubtitleConfigCard);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -52,13 +47,20 @@ describe('NetflixSubtitleConfigCard Vue Component Unit Tests', () => {
     await slider.setValue(26);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(browser.storage.sync.set).toHaveBeenCalled();
-    expect(browser.tabs.sendMessage).toHaveBeenLastCalledWith(
-      101,
+    // Written once via SettingsStorage.set → storage.local under owt_settings
+    expect(browser.storage.local.set).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'UPDATE_NETFLIX_CONFIG',
-        payload: expect.objectContaining({ primarySize: 26 }),
+        owt_settings: expect.objectContaining({
+          netflix: expect.objectContaining({ primarySize: 26 }),
+        }),
       }),
     );
+
+    // The dedicated UPDATE_NETFLIX_CONFIG tab message is gone: the content
+    // script picks changes up from the same store via SettingsStorage.watch.
+    // (GET_NETFLIX_STATE polls are the HUD status query and still allowed.)
+    for (const call of (browser.tabs.sendMessage as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[1]?.type).not.toBe('UPDATE_NETFLIX_CONFIG');
+    }
   });
 });

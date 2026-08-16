@@ -23,6 +23,9 @@ export default defineBackground(() => {
   // Purge expired cache entries on service worker launch
   cacheRepo.purgeExpired().catch(() => {});
 
+  // Fold legacy sync-area Netflix config into the single settings store
+  SettingsStorage.migrateLegacyKeys().catch(() => {});
+
   // ── TRANSLATE_REQUEST ──────────────────────────────────────────
   messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
     return translationPipeline.translate(msg);
@@ -30,12 +33,12 @@ export default defineBackground(() => {
 
   // ── GET_SETTINGS ───────────────────────────────────────────────
   messageRouter.registerHandler('GET_SETTINGS', async () => {
-    return await SettingsStorage.getSettings();
+    return await SettingsStorage.get();
   });
 
   // ── UPDATE_SETTINGS ────────────────────────────────────────────
   messageRouter.registerHandler('UPDATE_SETTINGS', async (msg) => {
-    await SettingsStorage.saveSettings(msg.settings);
+    await SettingsStorage.set(msg.settings);
     return true;
   });
 

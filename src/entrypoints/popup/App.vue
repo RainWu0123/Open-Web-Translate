@@ -93,6 +93,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useNetflixSession } from '@/core/session/subtitle-session-store';
 
@@ -133,7 +134,7 @@ onMounted(async () => {
       }
     }
 
-    const s = await messageRouter.sendMessage({ type: 'GET_SETTINGS' });
+    const s = await SettingsStorage.get();
     if (s) {
       settings.value.enabled = s.enabled;
       settings.value.targetLanguage = s.targetLanguage;
@@ -155,13 +156,10 @@ function onSettingsPartialUpdate(partial: Record<string, any>) {
 
 async function save() {
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
-        enabled: settings.value.enabled,
-        targetLanguage: settings.value.targetLanguage,
-        activeProviderId: settings.value.activeProviderId,
-      },
+    await SettingsStorage.set({
+      enabled: settings.value.enabled,
+      targetLanguage: settings.value.targetLanguage,
+      activeProviderId: settings.value.activeProviderId,
     });
   } catch (err) {
     errorMessage.value = '儲存設定失敗';

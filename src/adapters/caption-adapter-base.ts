@@ -6,18 +6,19 @@
  * button re-injection, and SPA navigation guards with generation-based cache
  * invalidation. Site-specific DOM work stays in the subclasses.
  */
-import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { DEFAULT_SETTINGS } from '@/shared/constants';
 import type { ExtensionSettings } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 
+/** Single source of caption defaults: DEFAULT_SETTINGS (?? satisfies the optional field types). */
 export const DEFAULT_CAPTION_SETTINGS = {
-  targetLanguage: 'zh-Hant',
-  displayMode: 'bilingual',
-  subtitleOriginalFontSize: 18,
-  subtitleTranslatedFontSize: 22,
-  subtitleOriginalColor: '#ffffff',
-  subtitleTranslatedColor: '#818cf8',
+  targetLanguage: DEFAULT_SETTINGS.targetLanguage,
+  displayMode: DEFAULT_SETTINGS.displayMode ?? 'bilingual',
+  subtitleOriginalFontSize: DEFAULT_SETTINGS.subtitleOriginalFontSize ?? 18,
+  subtitleTranslatedFontSize: DEFAULT_SETTINGS.subtitleTranslatedFontSize ?? 22,
+  subtitleOriginalColor: DEFAULT_SETTINGS.subtitleOriginalColor ?? '#ffffff',
+  subtitleTranslatedColor: DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#818cf8',
 } as const;
 
 export abstract class CaptionAdapterBase {
@@ -51,8 +52,7 @@ export abstract class CaptionAdapterBase {
 
   /** Loads settings once at init; subclasses call this from init(). */
   protected loadInitialSettings(): void {
-    // Promise.resolve wrap: tolerate message-router mocks returning undefined.
-    Promise.resolve(messageRouter.sendMessage({ type: 'GET_SETTINGS' }))
+    Promise.resolve(SettingsStorage.get())
       .then((settings) => this.applySharedSettings(settings))
       .catch(() => {});
   }
@@ -60,11 +60,10 @@ export abstract class CaptionAdapterBase {
   /** Subscribes to settings changes; reprocesses captions while active. */
   protected setupSettingsListener(): void {
     try {
-      SettingsStorage.onChange((newSettings) => {
-        if (!newSettings) return;
+      SettingsStorage.watch((newSettings) => {
         this.applySharedSettings(newSettings);
         if (this.isActive) {
-          this.onSharedSettingsApplied();
+          this.onSharedSettingsApplied(newSettings);
           this.processCaptions();
         }
       });
@@ -73,8 +72,8 @@ export abstract class CaptionAdapterBase {
     }
   }
 
-  /** Hook fired when shared settings changed while active. */
-  protected onSharedSettingsApplied(): void {}
+  /** Hook fired when settings changed while active. */
+  protected onSharedSettingsApplied(_settings: ExtensionSettings): void {}
 
   /** Shared toggle flow: fetch settings, then start (or stop when active). */
   protected async handleToggleClick(): Promise<void> {
@@ -84,9 +83,7 @@ export abstract class CaptionAdapterBase {
     }
 
     try {
-      const settings = await Promise.resolve(
-        messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null),
-      );
+      const settings = await Promise.resolve(SettingsStorage.get()).catch(() => null);
       await this.start(
         settings?.targetLanguage || DEFAULT_CAPTION_SETTINGS.targetLanguage,
         settings?.displayMode || DEFAULT_CAPTION_SETTINGS.displayMode,

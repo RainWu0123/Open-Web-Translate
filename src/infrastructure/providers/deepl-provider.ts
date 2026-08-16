@@ -71,7 +71,7 @@ export class DeepLProvider implements TranslationProvider {
       throw new Error('Translation aborted');
     }
 
-    const settings = await SettingsStorage.getSettings();
+    const settings = await SettingsStorage.get();
     const apiKey = settings.deeplApiKey?.trim();
     const isPro = Boolean(settings.deeplApiIsPro);
 

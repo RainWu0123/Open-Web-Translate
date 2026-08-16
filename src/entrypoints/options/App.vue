@@ -117,6 +117,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { VocabularyExporter } from '@/infrastructure/storage/repositories/vocabulary-exporter';
 import {
   getActiveVerifiedModels,
@@ -352,7 +353,7 @@ function exportVocabulary() {
 
 async function loadSettings() {
   try {
-    const s = await messageRouter.sendMessage({ type: 'GET_SETTINGS' });
+    const s = await SettingsStorage.get();
     if (s) {
       settings.value.enabled = s.enabled;
       settings.value.targetLanguage = s.targetLanguage;
@@ -397,12 +398,9 @@ function onThemeChange(newTheme: ThemeMode) {
 
 async function saveModel(modelName: string) {
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         geminiModel: modelName,
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to save Gemini model', e);
@@ -411,9 +409,7 @@ async function saveModel(modelName: string) {
 
 async function save() {
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         enabled: settings.value.enabled,
         targetLanguage: settings.value.targetLanguage,
         defaultTranslationMode: settings.value.defaultTranslationMode,
@@ -425,8 +421,7 @@ async function save() {
         subtitleTranslatedFontSize: settings.value.subtitleTranslatedFontSize,
         subtitleOriginalColor: settings.value.subtitleOriginalColor,
         subtitleTranslatedColor: settings.value.subtitleTranslatedColor,
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to save settings', e);
@@ -436,12 +431,9 @@ async function save() {
 async function saveApiKey(key: string) {
   if (!key) return;
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         geminiApiKey: key,
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to save API key', e);
@@ -450,12 +442,9 @@ async function saveApiKey(key: string) {
 
 async function clearApiKey() {
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         geminiApiKey: '',
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear API key', e);
@@ -465,12 +454,9 @@ async function clearApiKey() {
 async function saveDeeplKey(key: string) {
   if (!key) return;
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         deeplApiKey: key,
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to save DeepL API key', e);
@@ -479,12 +465,9 @@ async function saveDeeplKey(key: string) {
 
 async function clearDeeplKey() {
   try {
-    await messageRouter.sendMessage({
-      type: 'UPDATE_SETTINGS',
-      settings: {
+    await SettingsStorage.set({
         deeplApiKey: '',
-      },
-    });
+      });
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear DeepL API key', e);

@@ -1,6 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 
@@ -311,7 +312,7 @@ export function useNetflixSession() {
   }
 
   async function loadConfig() {
-    const saved = await extensionBridge.getSyncStorage<NetflixConfig>('owt_netflix_config');
+    const saved = (await SettingsStorage.get()).netflix;
     if (saved) {
       config.value = { ...config.value, ...saved };
     }
@@ -319,15 +320,9 @@ export function useNetflixSession() {
 
   async function updateConfig(newConfig: NetflixConfig) {
     config.value = { ...newConfig };
-    await extensionBridge.setSyncStorage('owt_netflix_config', config.value);
-
-    const tabId = await extensionBridge.queryActiveTabId();
-    if (tabId) {
-      await extensionBridge.sendTabMessage(tabId, {
-        type: 'UPDATE_NETFLIX_CONFIG',
-        payload: config.value,
-      });
-    }
+    // Single settings seam: the content script's SettingsStorage.watch picks
+    // this up — no dedicated push message needed.
+    await SettingsStorage.set({ netflix: config.value });
   }
 
   onMounted(async () => {

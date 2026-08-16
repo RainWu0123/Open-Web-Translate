@@ -107,7 +107,7 @@ export class GeminiProvider implements TranslationProvider {
       throw new Error('Translation aborted');
     }
 
-    const settings = await SettingsStorage.getSettings();
+    const settings = await SettingsStorage.get();
     const apiKey = settings.geminiApiKey?.trim();
     const rawModel = settings.geminiModel?.trim() || DEFAULT_MODEL_ID;
 

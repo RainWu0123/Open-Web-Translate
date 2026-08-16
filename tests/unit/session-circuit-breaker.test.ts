@@ -14,7 +14,7 @@ describe('GeminiProvider Session Circuit Breaker Unit Tests', () => {
     GeminiProvider.clearSessionBlocks();
     vi.restoreAllMocks();
 
-    vi.spyOn(SettingsStorage, 'getSettings').mockResolvedValue({
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
       targetLanguage: 'zh-Hant',
       enabled: true,
       defaultTranslationMode: 'fast',

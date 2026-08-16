@@ -8,6 +8,7 @@
  */
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
 import { MessageErrorCode, ErrorPayload } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '@/adapters/youtube/youtube-caption-adapter';
@@ -99,11 +100,6 @@ export default defineContentScript({
       return netflixAdapter.getStateInfo();
     });
 
-    messageRouter.registerHandler('UPDATE_NETFLIX_CONFIG', async (msg) => {
-      netflixAdapter.updateConfig(msg.payload);
-      return true;
-    });
-
     messageRouter.listen();
 
     // 2. Setup SPA navigation listener to clear old translations on route change
@@ -115,7 +111,7 @@ export default defineContentScript({
     // 4. Read settings and conditionally add badge (suppressed on Netflix)
     if (!isNetflix) {
       try {
-        const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+        const settings = await SettingsStorage.get().catch(() => null);
         if (settings?.showFloatingButton !== false) {
           addFloatingBadge();
         }
@@ -157,17 +153,15 @@ function setupSpaNavigationListener(): void {
 }
 
 function setupSettingsListener(): void {
+  // The old listener watched storage.sync for a top-level showFloatingButton
+  // key — settings live in storage.local under owt_settings, so it never
+  // fired. The single Settings seam replaces it.
   try {
-    browser.storage.onChanged.addListener((changes, area) => {
-      if (area === 'sync' && changes.showFloatingButton) {
-        const newValue = changes.showFloatingButton.newValue;
-        if (newValue === false) {
-          removeFloatingBadge();
-        } else {
-          if (!window.location.hostname.includes('netflix.com')) {
-            addFloatingBadge();
-          }
-        }
+    SettingsStorage.watch((s) => {
+      if (s.showFloatingButton === false) {
+        removeFloatingBadge();
+      } else if (!window.location.hostname.includes('netflix.com')) {
+        addFloatingBadge();
       }
     });
   } catch (err) {
@@ -340,7 +334,7 @@ async function executeSelectionTranslation(
   selection: Selection,
 ): Promise<{ success: boolean; error?: ErrorPayload }> {
   try {
-    const settings = await messageRouter.sendMessage({ type: 'GET_SETTINGS' }).catch(() => null);
+    const settings = await SettingsStorage.get().catch(() => null);
     const targetLanguage = settings?.targetLanguage || 'zh-Hant';
 
     await genericDomAdapter.translateSelection(selection, document, {

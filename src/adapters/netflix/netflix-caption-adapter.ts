@@ -257,7 +257,12 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     this.clearOverlay();
   }
 
-  protected onSharedSettingsApplied(): void {
+  protected onSharedSettingsApplied(settings: import('@/core/contracts/messages').ExtensionSettings): void {
+    // Netflix card settings now live inside the single settings store; apply
+    // them through the same path the old UPDATE_NETFLIX_CONFIG message used.
+    if (settings.netflix) {
+      this.updateConfig(settings.netflix);
+    }
     // Force re-render so style changes (size/colors) apply to the visible line.
     this.lastProcessedText = '';
   }

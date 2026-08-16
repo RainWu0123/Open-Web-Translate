@@ -58,6 +58,8 @@ export interface ExtensionSettings {
   localHttpEndpoint?: string;
   localHttpApiKey?: string;
   localHttpModel?: string;
+  /** Netflix subtitle card settings; persisted inside the single settings store. */
+  netflix?: NetflixConfig;
 }
 
 export interface NetflixConfig {
@@ -143,11 +145,6 @@ export interface ClearVocabItemsMessage {
   type: 'CLEAR_VOCAB_ITEMS';
 }
 
-export interface UpdateNetflixConfigMessage {
-  type: 'UPDATE_NETFLIX_CONFIG';
-  payload: Partial<NetflixConfig>;
-}
-
 export interface GetNetflixStateMessage {
   type: 'GET_NETFLIX_STATE';
 }
@@ -165,7 +162,6 @@ export type BackgroundMessage =
   | GetVocabItemsMessage
   | DeleteVocabItemMessage
   | ClearVocabItemsMessage
-  | UpdateNetflixConfigMessage
   | GetNetflixStateMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
@@ -211,7 +207,6 @@ export type ResponseMap = {
   GET_VOCAB_ITEMS: VocabularyItem[];
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
-  UPDATE_NETFLIX_CONFIG: boolean;
   GET_NETFLIX_STATE: NetflixStateInfo;
 };
 

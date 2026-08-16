@@ -10,7 +10,18 @@ export const STORAGE_KEYS = {
   SETTINGS: 'owt_settings',
 } as const;
 
+export const DEFAULT_NETFLIX_CONFIG: NonNullable<ExtensionSettings['netflix']> = {
+  enabled: true,
+  primarySize: 18,
+  secondarySize: 22,
+  bottomPosition: 80,
+  lineSpacing: 4,
+  enableBitmapRescue: true,
+  learningMode: true,
+};
+
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  netflix: DEFAULT_NETFLIX_CONFIG,
   targetLanguage: 'zh-Hant',
   enabled: true,
   defaultTranslationMode: 'fast',

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { DEFAULT_SETTINGS } from '@/shared/constants';
+import type { ExtensionSettings } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '../../src/adapters/youtube/youtube-caption-adapter';
 import { messageRouter } from '../../src/infrastructure/messaging/message-router';
 
@@ -56,8 +59,13 @@ describe('YouTubeCaptionAdapter', () => {
     vi.advanceTimersByTime(2500);
     const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
 
-    // Mock get settings
-    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' } as any);
+    // Settings now come from the single Settings seam (storage.local), not a
+    // background message round-trip.
+    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
+      ...(DEFAULT_SETTINGS as ExtensionSettings),
+      targetLanguage: 'en',
+      displayMode: 'bilingual',
+    });
 
     toggleBtn.click();
     await vi.advanceTimersByTimeAsync(500);
@@ -68,10 +76,9 @@ describe('YouTubeCaptionAdapter', () => {
     const svg = toggleBtn.querySelector('svg');
     expect(svg?.style.fill).toBe('#818cf8');
 
-    // Make sure no full page translation was triggered (which would involve extracting targets and sending a huge request)
-    // The sendMessage call was only for GET_SETTINGS
-    expect(messageRouter.sendMessage).toHaveBeenCalledWith({ type: 'GET_SETTINGS' });
-    expect(messageRouter.sendMessage).toHaveBeenCalledTimes(1);
+    // Make sure no full page translation was triggered (which would involve
+    // extracting targets and sending a huge request)
+    expect(messageRouter.sendMessage).not.toHaveBeenCalled();
   });
 
   it('clicking toggle button again should stop adapter', async () => {
