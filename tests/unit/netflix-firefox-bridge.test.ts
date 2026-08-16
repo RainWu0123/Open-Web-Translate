@@ -51,6 +51,7 @@ describe('Netflix MAIN↔content bridge (Firefox fallback channels)', () => {
         source: window,
         origin: window.location.origin,
         data: {
+          source: 'owt-netflix-main',
           channel: 'owt',
           type: 'OWT_NETFLIX_TRACKS_UPDATED',
           revision: 1,
@@ -65,6 +66,7 @@ describe('Netflix MAIN↔content bridge (Firefox fallback channels)', () => {
 
   it('receives tracks via the owt:tracks-updated CustomEvent when postMessage fails (Firefox DataCloneError path)', () => {
     const payload = {
+      source: 'owt-netflix-main',
       channel: 'owt',
       type: 'OWT_NETFLIX_TRACKS_UPDATED',
       revision: 2,
@@ -72,13 +74,12 @@ describe('Netflix MAIN↔content bridge (Firefox fallback channels)', () => {
         { trackId: 't1', language: 'en', bcp47: 'en', url: 'https://x/t1.dfxp' },
         { trackId: 't2', language: 'zh-Hant', bcp47: 'zh-Hant', url: 'https://x/t2.dfxp' },
       ],
-      source: 'JSON.parse deep intercept',
+      captureSource: 'JSON.parse deep intercept',
     };
 
     document.dispatchEvent(
       new CustomEvent('owt:tracks-updated', { detail: JSON.stringify(payload) }),
     );
-
     const state = adapter.getStateInfo();
     expect(state.discoveredTracksCount).toBe(2);
   });

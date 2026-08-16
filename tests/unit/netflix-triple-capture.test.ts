@@ -49,6 +49,7 @@ describe('Netflix Triple Strategy Capture & State Messaging Unit Tests', () => {
         source: window,
         origin: window.location.origin,
         data: {
+          source: 'owt-netflix-main',
           channel: 'owt',
           type: 'OWT_NETFLIX_TRACKS_UPDATED',
           revision: 1,

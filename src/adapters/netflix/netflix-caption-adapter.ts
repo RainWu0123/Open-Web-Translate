@@ -4,6 +4,7 @@ import { createLogger } from '@/shared/logger';
 import { SubtitleOverlayRenderer } from '@/shared/ui/subtitle-overlay-renderer';
 import type { NetflixConfig, NetflixStateInfo } from '@/core/contracts/messages';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
+import { BRIDGE, onBridgeMessage, bridgeRequest } from './netflix-bridge';
 import { NetflixTrackManager, type DiscoveredTrack } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 
@@ -133,40 +134,20 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   private setupMainWorldMessageListener() {
-    const handleTracksPayload = (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') return;
-      const data = payload as { type?: string; tracks?: unknown };
+    // The bridge module owns both channels (postMessage + CustomEvent
+    // fallback) and revision dedup; the adapter only filters by type.
+    onBridgeMessage((msg) => {
       if (
-        (data.type === 'OWT_NETFLIX_TRACKS_DISCOVERED' ||
-         data.type === 'OWT_NETFLIX_TRACKS_UPDATED' ||
-         data.type === 'OWT_NETFLIX_MANIFEST_TRACKS') &&
-        Array.isArray(data.tracks)
+        msg.type === BRIDGE.messageType.TRACKS_UPDATED ||
+        msg.type === BRIDGE.messageType.TRACKS_DISCOVERED ||
+        msg.type === BRIDGE.messageType.MANIFEST_TRACKS
       ) {
-        this.discoveredTracks = data.tracks as DiscoveredTrack[];
+        const tracks = msg.tracks as unknown as DiscoveredTrack[];
+        if (!Array.isArray(tracks)) return;
+        this.discoveredTracks = tracks;
         this.trackManager.setDiscoveredTracks(this.discoveredTracks);
         this.updateSelectorMenuOptions();
         this.reconcileTrackSelection();
-      }
-    };
-
-    // Primary channel: postMessage from the MAIN-world script.
-    window.addEventListener('message', (event) => {
-      if (event.source !== window) return;
-      handleTracksPayload(event.data);
-    });
-
-    // Fallback channel: CustomEvent carrying a JSON-stringified payload.
-    // Firefox has thrown DataCloneError on postMessage payloads crossing the
-    // page/content boundary in some versions; the MAIN-world script mirrors
-    // every TRACKS_UPDATED dispatch on this channel, so failing postMessage
-    // alone must not lose the tracks.
-    document.addEventListener('owt:tracks-updated', (event) => {
-      const detail = (event as CustomEvent<string>).detail;
-      if (typeof detail !== 'string') return;
-      try {
-        handleTracksPayload(JSON.parse(detail));
-      } catch {
-        logger.warn('Received malformed owt:tracks-updated payload');
       }
     });
   }
@@ -179,47 +160,12 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
    * cross-origin directly, so the page-context script performs the download.
    */
   private fetchTtmlViaMainWorld(url: string, timeoutMs = 12000): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const requestId = `ttml_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-      const cleanup = () => {
-        window.removeEventListener('message', onMessage);
-        clearTimeout(failTimer);
-      };
-
-      const onMessage = (event: MessageEvent) => {
-        if (event.source !== window) return;
-        const data = event.data;
-        if (!data || typeof data !== 'object' || data.type !== 'OWT_NETFLIX_TTML_RESULT' || data.requestId !== requestId) {
-          return;
-        }
-        cleanup();
-        if (data.ok && typeof data.xml === 'string' && data.xml.length > 0) {
-          resolve(data.xml);
-        } else {
-          reject(new Error(`HTTP ${data.status || 'network error'}`));
-        }
-      };
-
-      const failTimer = setTimeout(() => {
-        cleanup();
-        reject(new Error('MAIN-world bridge timeout'));
-      }, timeoutMs);
-
-      window.addEventListener('message', onMessage);
-      try {
-        window.postMessage(
-          { source: 'owt-netflix-content', type: 'OWT_NETFLIX_FETCH_TTML', requestId, url },
-          location.origin,
-        );
-      } catch (err) {
-        // Firefox throws DataCloneError synchronously on some payloads;
-        // reject immediately so the direct-fetch fallback kicks in instead
-        // of hanging until the bridge timeout.
-        cleanup();
-        reject(err instanceof Error ? err : new Error('postMessage failed'));
-      }
-    });
+    return bridgeRequest<{ xml: string }>(BRIDGE.messageType.FETCH_TTML, { url }, timeoutMs).then(
+      (result) => {
+        if (typeof result.xml === 'string' && result.xml.length > 0) return result.xml;
+        throw new Error('empty TTML payload');
+      },
+    );
   }
 
   public async fetchTtmlXml(url: string): Promise<string> {
