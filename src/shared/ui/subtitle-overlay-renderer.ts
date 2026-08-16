@@ -1,4 +1,5 @@
 import type { ExtensionSettings } from '@/core/contracts/messages';
+import { composeBilingualLines, type BilingualDisplayMode, type BilingualLine } from '@/shared/subtitles/bilingual-lines';
 
 export interface OverlayRenderOptions {
   isError?: boolean;
@@ -74,45 +75,27 @@ export class SubtitleOverlayRenderer {
     container.style.textAlign = 'center';
 
     if (options.isError) {
-      const errorLine = this.createLine(
-        secondaryText || primaryText,
-        '#ef4444',
-        true,
-        '16px',
-      );
+      const errorLine = this.createLine({
+        kind: 'translated',
+        text: secondaryText || primaryText,
+        color: '#ef4444',
+        bold: true,
+        fontSize: '16px',
+      });
       container.appendChild(errorLine);
       target.appendChild(container);
       return;
     }
 
-    const originalLines = primaryText.split('\n').filter(Boolean);
-    const translatedLines = (secondaryText || '').split('\n').filter(Boolean);
+    const lines = composeBilingualLines(primaryText, secondaryText || '', this.displayMode, {
+      originalFontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
+      translatedFontSize: `${this.settings.subtitleTranslatedFontSize || 22}px`,
+      originalColor: this.settings.subtitleOriginalColor || '#ffffff',
+      translatedColor: this.settings.subtitleTranslatedColor || '#c084fc',
+    });
 
-    const originalFontSize = `${this.settings.subtitleOriginalFontSize || 18}px`;
-    const translatedFontSize = `${this.settings.subtitleTranslatedFontSize || 22}px`;
-    const originalColor = this.settings.subtitleOriginalColor || '#ffffff';
-    const translatedColor = this.settings.subtitleTranslatedColor || '#c084fc';
-    const displayMode = this.settings.displayMode || 'bilingual';
-
-    if (displayMode === 'immersive') {
-      translatedLines.forEach((line) =>
-        container.appendChild(this.createLine(line, translatedColor, true, translatedFontSize)),
-      );
-    } else if (displayMode === 'translation-first') {
-      translatedLines.forEach((line) =>
-        container.appendChild(this.createLine(line, translatedColor, true, translatedFontSize)),
-      );
-      originalLines.forEach((line) =>
-        container.appendChild(this.createLine(line, originalColor, false, originalFontSize)),
-      );
-    } else {
-      // default: bilingual (original first)
-      originalLines.forEach((line) =>
-        container.appendChild(this.createLine(line, originalColor, false, originalFontSize)),
-      );
-      translatedLines.forEach((line) =>
-        container.appendChild(this.createLine(line, translatedColor, true, translatedFontSize)),
-      );
+    for (const line of lines) {
+      container.appendChild(this.createLine(line));
     }
 
     target.appendChild(container);
@@ -143,12 +126,16 @@ export class SubtitleOverlayRenderer {
     this.overlayElement = null;
   }
 
-  private createLine(text: string, color: string, bold: boolean, fontSize: string): HTMLElement {
+  private get displayMode(): BilingualDisplayMode {
+    return (this.settings.displayMode as BilingualDisplayMode) || 'bilingual';
+  }
+
+  private createLine(spec: BilingualLine): HTMLElement {
     const line = document.createElement('span');
     line.style.display = 'block';
-    line.style.color = color;
-    line.style.fontWeight = bold ? '700' : '500';
-    line.style.fontSize = fontSize;
+    line.style.color = spec.color;
+    line.style.fontWeight = spec.bold ? '700' : '500';
+    line.style.fontSize = spec.fontSize;
     line.style.lineHeight = '1.4';
     line.style.margin = '0';
     line.style.padding = '2px 10px';
@@ -156,7 +143,7 @@ export class SubtitleOverlayRenderer {
     line.style.backgroundColor = 'rgba(8, 8, 8, 0.72)';
     line.style.boxSizing = 'border-box';
     line.style.textShadow = '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)';
-    line.textContent = text;
+    line.textContent = spec.text;
     return line;
   }
 

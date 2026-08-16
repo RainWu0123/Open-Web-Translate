@@ -2,6 +2,7 @@ import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { createLogger } from '@/shared/logger';
 import { DEFAULT_SETTINGS } from '@/shared/constants';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
+import { composeBilingualLines, type BilingualDisplayMode } from '@/shared/subtitles/bilingual-lines';
 
 const logger = createLogger('YouTubeCaptionAdapter');
 
@@ -448,11 +449,6 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     seg.style.maxWidth = '100%';
     seg.style.margin = '0 auto';
 
-    const origFontSize = `${this.subtitleOriginalFontSize}px`;
-    const transFontSize = `${this.subtitleTranslatedFontSize}px`;
-    const origColor = this.subtitleOriginalColor || '#ffffff';
-    const transColor = this.subtitleTranslatedColor || '#818cf8';
-
     const createSpan = (text: string, color: string, isBold = false, fontSize = '20px') => {
       const span = document.createElement('span');
       span.style.display = 'inline-block';
@@ -471,15 +467,20 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       return span;
     };
 
-    if (this.displayMode === 'immersive') {
-      seg.appendChild(createSpan(translatedText, transColor, true, transFontSize));
-    } else if (this.displayMode === 'translation-first') {
-      seg.appendChild(createSpan(translatedText, transColor, true, transFontSize));
-      seg.appendChild(createSpan(originalText, origColor, false, origFontSize));
-    } else {
-      // bilingual (default)
-      seg.appendChild(createSpan(originalText, origColor, false, origFontSize));
-      seg.appendChild(createSpan(translatedText, transColor, true, transFontSize));
+    const lines = composeBilingualLines(
+      originalText,
+      translatedText,
+      (this.displayMode as BilingualDisplayMode) || 'bilingual',
+      {
+        originalFontSize: `${this.subtitleOriginalFontSize}px`,
+        translatedFontSize: `${this.subtitleTranslatedFontSize}px`,
+        originalColor: this.subtitleOriginalColor || '#ffffff',
+        translatedColor: this.subtitleTranslatedColor || '#818cf8',
+      },
+    );
+
+    for (const line of lines) {
+      seg.appendChild(createSpan(line.text, line.color, line.bold, line.fontSize));
     }
 
     if (this.observer && this.observerTarget) {
