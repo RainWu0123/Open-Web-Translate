@@ -40,6 +40,24 @@
           <span>運作模式</span>
           <span>{{ netflixHud.modeLabel }}</span>
         </div>
+        <div class="netflix-summary-row">
+          <span>雙原生軌</span>
+          <span :class="netflixHud.dualTrack ? 'ok' : 'muted'">
+            {{ netflixHud.dualTrack ? '已對齊' : '單軌 / AI' }}
+          </span>
+        </div>
+        <div class="netflix-summary-row netflix-learning-toggle">
+          <span>學習模式（逐句暫停・點詞查詢）</span>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              :checked="learningMode"
+              @change="onLearningModeToggle"
+              data-testid="popup-learning-mode-toggle"
+            />
+            <span class="slider"></span>
+          </label>
+        </div>
         <button class="link-btn" @click="openOptions" data-testid="netflix-open-subtitle-settings">
           ⚙ 前往字幕設定
         </button>
@@ -148,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
@@ -174,10 +192,22 @@ const isYouTubeTab = ref(false);
 const isSubtitleTab = computed(() => isNetflixTab.value || isYouTubeTab.value);
 const { hudInfo: netflixHud } = useNetflixSession();
 
+const learningMode = ref(true);
+
 const netflixSource = computed<'auto' | 'ai'>(() =>
   netflixHud.value.selectionMode === 'manual' && netflixHud.value.selectedTrackId === 'ai-translate'
     ? 'ai'
     : 'auto',
+);
+
+// Keep the toggle honest once the tab reports its real state.
+watch(
+  () => netflixHud.value.learningMode,
+  (mode) => {
+    if (mode !== undefined) {
+      learningMode.value = mode;
+    }
+  },
 );
 
 function onTargetLanguageChange(e: Event) {
@@ -198,6 +228,18 @@ async function saveSubtitleSizes() {
     });
   } catch {
     errorMessage.value = '儲存字幕設定失敗';
+  }
+}
+
+async function onLearningModeToggle(e: Event) {
+  const enabled = (e.target as HTMLInputElement).checked;
+  learningMode.value = enabled;
+  try {
+    const current = (await SettingsStorage.get()).netflix ?? { enabled: true, primarySize: 18, secondarySize: 22, bottomPosition: 80, lineSpacing: 4, enableBitmapRescue: true, learningMode: true };
+    await SettingsStorage.set({ netflix: { ...current, learningMode: enabled } });
+    // The content script applies it via SettingsStorage.watch.
+  } catch {
+    errorMessage.value = '無法更新學習模式設定';
   }
 }
 
@@ -246,6 +288,7 @@ onMounted(async () => {
 
     const s = await SettingsStorage.get();
     if (s) {
+      learningMode.value = s.netflix?.learningMode ?? true;
       settings.value.enabled = s.enabled;
       settings.value.targetLanguage = s.targetLanguage;
       settings.value.activeProviderId = s.activeProviderId || 'mock-provider';
@@ -532,6 +575,12 @@ function openOptions() {
 
 .netflix-summary-row .muted {
   color: var(--text-muted);
+}
+
+.netflix-learning-toggle {
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-color);
+  margin-top: 2px;
 }
 
 /* ── Banners & links ──────────────────────────────────────────── */

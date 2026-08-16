@@ -53,7 +53,10 @@ export abstract class CaptionAdapterBase {
   /** Loads settings once at init; subclasses call this from init(). */
   protected loadInitialSettings(): void {
     Promise.resolve(SettingsStorage.get())
-      .then((settings) => this.applySharedSettings(settings))
+      .then((settings) => {
+        this.applySharedSettings(settings);
+        this.onSharedSettingsApplied(settings);
+      })
       .catch(() => {});
   }
 

@@ -6,9 +6,10 @@ Open Web Translate v3 — 術語以英文為準，介面與說明可用中文。
 
 ### SubtitleOverlayRenderer
 Netflix 用的雙語字幕疊加層：fixed 定位、可拖曳、Shadow DOM 渲染。職責是把
-`BilingualLine` 規格放上畫面；不決定行的順序。
+`BilingualLine` 規格放上畫面；不決定行的順序。學習模式時原文行渲染成
+可點擊的 token span，點擊發出 `owt-token-clicked`。
 
-- **Interface**: `mount()`, `render()`, `clear()`, `destroy()`, `updateSettings()`
+- **Interface**: `mount()`, `render()`, `clear()`, `destroy()`, `updateSettings()`, `setLineVisibility()`
 - **Seam**: 站在 Platform Caption Adapters 與瀏覽器 DOM 之間。
 
 ### composeBilingualLines（純規則模組）
@@ -16,11 +17,27 @@ displayMode（bilingual / translation-first / immersive）的唯一規則所在�
 哪些行、什麼順序、哪行粗體。兩個 rendering adapter（Netflix 疊加層、
 YouTube 行內段）共用；零 DOM，直接可測。
 
+### CueAligner（時間對齊模組）
+兩條原生軌幾乎不會同切句：`alignCueTracks` 對每個主軌 cue 選**時間重疊
+最大**的副軌 cue（最小重疊門檻），不做 index 對齊。`findPairingAt` 依
+播放頭二分搜尋配對。Netflix 雙軌模式的配對來源。
+
+### SentenceController（逐句控制）
+學習模式的核心迴圈：Alt+A/D 上一/下一句、Alt+S 重播本句、Alt+Q/E 速度、
+Alt+Z/C 開關主/副行、cue 結尾自動暫停。介面：`attach/detach/setTimeline`；
+時間軸由宿主 adapter 提供（雙軌模式 = 主軌 cue；單軌 = 副軌 cue）。
+
+### DictionaryPopover
+點詞彈窗：詞、整句、整句翻譯、查詞（`onLookup` seam——目前接機翻單詞，
+JMdict 級辭典是這個 seam 後面的未來模組）、存單字。純 DOM。
+
 ### NetflixCaptionAdapter / CaptionAdapterBase
 站台字幕 adapter。共用生命週期（設定同步、導航守衞、routeGeneration 快取
 失效、按鈕再注入）住在 `CaptionAdapterBase`；站台特定的 DOM 工作在子類。
 **選軌政策**：`auto` 模式優先選目標語言的原生軌，找不到才退 AI／機器翻譯；
-`manual` 尊重使用者選擇，軌道消失時退回 auto。
+`manual` 尊重使用者選擇，軌道消失時退回 auto。**雙軌模式**：學習模式開啟
+且存在第二條原生軌時，下載兩軌、CueAligner 對齊、由 NetflixSyncEngine 依
+`video.currentTime` 驅動渲染（不再靠 DOM 撈取）。
 
 ## Netflix MAIN↔content Bridge
 

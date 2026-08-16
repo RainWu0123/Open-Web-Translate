@@ -89,6 +89,8 @@ export interface NetflixStateInfo {
   /** 'auto' prefers a native track matching the target language; 'manual' is a user pick (incl. AI-only). */
   selectionMode?: 'auto' | 'manual';
   secondaryCuesCount?: number;
+  learningMode?: boolean;
+  dualTrack?: boolean;
 }
 
 // ─── Messages (Content/Popup/Options → Background/Tab) ────────────
