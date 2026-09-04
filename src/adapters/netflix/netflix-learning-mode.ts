@@ -14,6 +14,7 @@ import { globalSubtitleSessionStore } from '@/core/session/subtitle-session-stor
 
 export interface LearningModeHost {
   isActive(): boolean;
+  sourceLang(): string;
   targetLang(): string;
   currentVideoId(): string;
   /** Language of the dual-mode primary track, 'auto' otherwise. */
@@ -61,7 +62,7 @@ export class NetflixLearningMode {
           const response = await messageRouter.sendMessage({
             type: 'TRANSLATE_REQUEST',
             segments: [{ id: 'dict-gloss', text: surface }],
-            sourceLanguage: 'auto',
+            sourceLanguage: this.host.sourceLang(),
             targetLanguage: this.host.targetLang(),
           });
           return response?.segments?.[0]?.translatedText || '';

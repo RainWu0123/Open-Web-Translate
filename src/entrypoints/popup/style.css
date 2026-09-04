@@ -9,4 +9,19 @@
 body {
   background-color: var(--bg-primary, #0f172a);
   color: var(--text-primary, #f8fafc);
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+:where(button, select, input, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

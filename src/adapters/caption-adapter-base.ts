@@ -13,6 +13,7 @@ import { createLogger } from '@/shared/logger';
 
 /** Single source of caption defaults: DEFAULT_SETTINGS (?? satisfies the optional field types). */
 export const DEFAULT_CAPTION_SETTINGS = {
+  sourceLanguage: DEFAULT_SETTINGS.sourceLanguage,
   targetLanguage: DEFAULT_SETTINGS.targetLanguage,
   displayMode: DEFAULT_SETTINGS.displayMode ?? 'bilingual',
   subtitleOriginalFontSize: DEFAULT_SETTINGS.subtitleOriginalFontSize ?? 18,
@@ -29,6 +30,7 @@ export abstract class CaptionAdapterBase {
   protected lastMouseMoveTime = 0;
 
   protected targetLang: string = DEFAULT_CAPTION_SETTINGS.targetLanguage;
+  protected sourceLang: string = DEFAULT_CAPTION_SETTINGS.sourceLanguage;
   protected displayMode: string = DEFAULT_CAPTION_SETTINGS.displayMode;
   protected subtitleOriginalFontSize: number = DEFAULT_CAPTION_SETTINGS.subtitleOriginalFontSize;
   protected subtitleTranslatedFontSize: number = DEFAULT_CAPTION_SETTINGS.subtitleTranslatedFontSize;
@@ -42,6 +44,7 @@ export abstract class CaptionAdapterBase {
   /** Applies shared ExtensionSettings fields onto adapter state. */
   protected applySharedSettings(settings: Partial<ExtensionSettings> | null | undefined): void {
     if (!settings) return;
+    if (settings.sourceLanguage) this.sourceLang = settings.sourceLanguage;
     if (settings.targetLanguage) this.targetLang = settings.targetLanguage;
     if (settings.displayMode) this.displayMode = settings.displayMode;
     if (settings.subtitleOriginalFontSize) this.subtitleOriginalFontSize = settings.subtitleOriginalFontSize;
@@ -87,6 +90,7 @@ export abstract class CaptionAdapterBase {
 
     try {
       const settings = await Promise.resolve(SettingsStorage.get()).catch(() => null);
+      this.applySharedSettings(settings);
       await this.start(
         settings?.targetLanguage || DEFAULT_CAPTION_SETTINGS.targetLanguage,
         settings?.displayMode || DEFAULT_CAPTION_SETTINGS.displayMode,
@@ -168,7 +172,12 @@ export abstract class CaptionAdapterBase {
 
   abstract stop(): void;
 
-  abstract injectControlsButton(): void;
-
   abstract processCaptions(): void;
+
+  /**
+   * Site-player button injection. Deprecated as a surface: subtitle
+   * control lives in the popup now; adapters override only if they still
+   * want an in-player affordance.
+   */
+  protected injectControlsButton(): void {}
 }

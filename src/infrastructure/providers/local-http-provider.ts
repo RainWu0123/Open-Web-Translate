@@ -15,12 +15,14 @@ import {
 } from '@/core/domain/errors/translation-errors';
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
+import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 
 const logger = createLogger('LocalHttpProvider');
 
 export interface LocalHttpConfig {
   endpoint?: string;
   apiKey?: string;
+  instructions?: string;
 }
 
 export class LocalHttpProvider implements TranslationProvider {
@@ -36,10 +38,12 @@ export class LocalHttpProvider implements TranslationProvider {
 
   private endpoint: string;
   private apiKey?: string;
+  private instructions: string;
 
   constructor(config: LocalHttpConfig = {}) {
     this.endpoint = config.endpoint || 'http://127.0.0.1:8080';
     this.apiKey = config.apiKey;
+    this.instructions = config.instructions?.trim().slice(0, 2000) || '';
   }
 
   validateConfig(config: unknown): ProviderConfigValidation {
@@ -100,6 +104,11 @@ export class LocalHttpProvider implements TranslationProvider {
         glossaryPrompt = ` Adhere to glossary: [${terms}].`;
       }
     }
+    const userInstructions = this.instructions ? ` User style instructions: ${this.instructions}.` : '';
+    const isSingle = request.segments.length === 1;
+    const promptContent = isSingle
+      ? `Translate the following text to target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
+      : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase:\n\n${request.segments.map((s, idx) => `[${idx}] ${s.text}`).join('\n')}`;
 
     const data = await httpTranslationFetch(this.id, {
       url,
@@ -109,7 +118,7 @@ export class LocalHttpProvider implements TranslationProvider {
         messages: [
           {
             role: 'user',
-            content: `Translate to ${request.targetLanguage}${glossaryPrompt}: ${JSON.stringify(request.segments.map((s) => s.text))}`,
+            content: promptContent,
           },
         ],
       },
@@ -120,10 +129,28 @@ export class LocalHttpProvider implements TranslationProvider {
 
     let outputText = data.choices?.[0]?.message?.content || data.translatedText || '';
 
-    const translatedSegments: TranslatedSegment[] = request.segments.map((seg) => ({
-      id: seg.id,
-      text: outputText ? `${outputText}` : `[Translated] ${seg.text}`,
-    }));
+    let translatedSegments: TranslatedSegment[];
+    if (isSingle) {
+      translatedSegments = [
+        {
+          id: request.segments[0].id,
+          text: outputText ? normalizeSubtitleAlternatives(`${outputText}`.trim()) : `[Translated] ${request.segments[0].text}`,
+        },
+      ];
+    } else {
+      const lines = `${outputText}`.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+      translatedSegments = request.segments.map((seg, idx) => {
+        const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
+        if (matchingLine) {
+          const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
+          return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
+        }
+        if (lines[idx]) {
+          return { id: seg.id, text: normalizeSubtitleAlternatives(lines[idx].replace(/^\[\d+\]\s*/, '').trim()) };
+        }
+        return { id: seg.id, text: outputText ? normalizeSubtitleAlternatives(outputText) : `[Translated] ${seg.text}` };
+      });
+    }
 
     return {
       providerId: this.id,

@@ -29,6 +29,7 @@ import {
 } from './gemini/model-registry';
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
+import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 
 const logger = createLogger('GeminiProvider');
 
@@ -45,7 +46,7 @@ export class GeminiProvider implements TranslationProvider {
   readonly capabilities: ProviderCapabilities = {
     streaming: false,
     glossary: false,
-    context: false,
+    context: true,
     maxSegments: 100,
   };
 
@@ -107,6 +108,10 @@ export class GeminiProvider implements TranslationProvider {
     const settings = await SettingsStorage.get();
     const apiKey = settings.geminiApiKey?.trim();
     const rawModel = settings.geminiModel?.trim() || DEFAULT_MODEL_ID;
+    const userInstructions = settings.aiTranslationInstructions?.trim().slice(0, 2000) || '';
+    const userInstructionsBlock = userInstructions
+      ? `USER STYLE INSTRUCTIONS (follow unless they conflict with the output format):\n${userInstructions}`
+      : '';
 
     if (!apiKey) {
       throw new ConfigurationError('Gemini API key is not configured. Please set your API key in Options.');
@@ -130,9 +135,28 @@ export class GeminiProvider implements TranslationProvider {
     // 3. Construct safe origin-locked endpoint
     const apiUrl = `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(modelId)}:generateContent`;
 
+    const previousContext = (request.context?.previous ?? []).slice(-8);
+    const contextBlock =
+      previousContext.length > 0
+        ? `
+
+RECENT DIALOGUE CONTEXT (for coherence only - do NOT translate or output these lines):
+${previousContext.map((p) => `- ${p.source} => ${p.translation}`).join('\n')}`
+        : '';
+
     const systemPrompt = `You are a professional, accurate translator.
 Translate the provided text segments into the target language: "${request.targetLanguage}".
 Source language (if known): "${request.sourceLanguage}".
+
+Use the dialogue context (if any) to resolve pronouns, gender, tense, names,
+and tone consistently across consecutive lines.
+
+OUTPUT STYLE:
+- Produce one natural target-language subtitle line; do not explain or annotate it.
+- Resolve ambiguous honorifics and gender instead of offering alternatives.
+- NEVER return slash-separated alternatives such as "先生/小姐", "先生／小姐", or "他/她".${contextBlock}
+
+${userInstructionsBlock}
 
 CRITICAL INSTRUCTIONS:
 - Return ONLY a valid JSON array of objects.
@@ -211,7 +235,7 @@ Example: [{"id": "seg-1", "translatedText": "..."}]`;
 
     const translatedSegments: TranslatedSegment[] = validSegments.map((item) => ({
       id: item.id as SegmentId,
-      text: item.translatedText,
+      text: normalizeSubtitleAlternatives(item.translatedText),
     }));
 
     return {

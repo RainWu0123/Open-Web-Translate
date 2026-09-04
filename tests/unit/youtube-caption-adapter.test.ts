@@ -1,7 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { DEFAULT_SETTINGS } from '@/shared/constants';
-import type { ExtensionSettings } from '@/core/contracts/messages';
 import { YouTubeCaptionAdapter } from '../../src/adapters/youtube/youtube-caption-adapter';
 import { messageRouter } from '../../src/infrastructure/messaging/message-router';
 
@@ -26,7 +23,6 @@ describe('YouTubeCaptionAdapter', () => {
       </div>
     `;
 
-    // We need to mock location and some APIs
     Object.defineProperty(window, 'location', {
       value: { hostname: 'www.youtube.com', pathname: '/watch', search: '?v=123' },
       writable: true,
@@ -44,57 +40,63 @@ describe('YouTubeCaptionAdapter', () => {
     document.body.innerHTML = '';
   });
 
-  it('should inject toggle button into .ytp-right-controls', () => {
-    // Advance timers so setInterval triggers button injection
+  it('injects no player button — the popup is the command center', () => {
     vi.advanceTimersByTime(2500);
-
-    const rightControls = document.querySelector('.ytp-right-controls');
-    const toggleBtn = rightControls?.querySelector('.owt-yt-toggle-btn');
-
-    expect(toggleBtn).toBeTruthy();
-    expect(toggleBtn?.getAttribute('aria-label')).toBe('OWT 雙語字幕');
+    expect(document.querySelector('.owt-yt-toggle-btn')).toBeNull();
   });
 
-  it('clicking toggle button should start adapter without triggering page translation', async () => {
-    vi.advanceTimersByTime(2500);
-    const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
-
-    // Settings now come from the single Settings seam (storage.local), not a
-    // background message round-trip.
-    vi.spyOn(SettingsStorage, 'get').mockResolvedValue({
-      ...(DEFAULT_SETTINGS as ExtensionSettings),
-      targetLanguage: 'en',
-      displayMode: 'bilingual',
-    });
-
-    toggleBtn.click();
+  it('setActive(true) starts without triggering page translation', async () => {
+    adapter.setActive(true);
     await vi.advanceTimersByTimeAsync(500);
 
-    // Check if adapter started
     expect((adapter as any).isActive).toBe(true);
+    expect(adapter.getStateInfo()).toMatchObject({ isActive: true });
 
-    const svg = toggleBtn.querySelector('svg');
-    expect(svg?.style.fill).toBe('#818cf8');
-
-    // Make sure no full page translation was triggered (which would involve
-    // extracting targets and sending a huge request)
+    // Subtitle mode must not fire a full page-translation request.
     expect(messageRouter.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('clicking toggle button again should stop adapter', async () => {
-    vi.advanceTimersByTime(2500);
-    const toggleBtn = document.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement;
-
-    vi.mocked(messageRouter.sendMessage).mockResolvedValueOnce({ targetLanguage: 'en', displayMode: 'bilingual' } as any);
-    toggleBtn.click();
+  it('setActive(false) stops the engine after starting', async () => {
+    adapter.setActive(true);
     await vi.advanceTimersByTimeAsync(500);
     expect((adapter as any).isActive).toBe(true);
 
-    toggleBtn.click();
+    adapter.setActive(false);
     await vi.advanceTimersByTimeAsync(500);
-    expect((adapter as any).isActive).toBe(false);
 
-    const svg = toggleBtn.querySelector('svg');
-    expect(svg?.style.fill).toBe('rgba(255, 255, 255, 0.85)');
+    expect((adapter as any).isActive).toBe(false);
+    expect(adapter.getStateInfo()).toMatchObject({ isActive: false });
+  });
+
+  it('ensureCorrectTrackSelected auto-switches to original track when current track is target language and foreign tracks exist', () => {
+    (adapter as any).isActive = true;
+    (adapter as any).targetLang = 'zh-Hant';
+    (adapter as any).sourceLang = 'auto';
+    (adapter as any).selectedTrackId = 'zh-TW';
+    (adapter as any).discoveredTracks = [
+      { id: '1', languageCode: 'ja', label: 'Japanese' },
+      { id: '2', languageCode: 'zh-TW', label: 'Chinese (Traditional)' },
+    ];
+
+    const setTrackSpy = vi.spyOn(adapter, 'setTrack');
+    (adapter as any).ensureCorrectTrackSelected();
+
+    expect(setTrackSpy).toHaveBeenCalledWith('auto');
+  });
+
+  it('ensureCorrectTrackSelected does NOT switch when video original is Chinese and all tracks are Chinese', () => {
+    (adapter as any).isActive = true;
+    (adapter as any).targetLang = 'zh-Hant';
+    (adapter as any).sourceLang = 'auto';
+    (adapter as any).selectedTrackId = 'zh-TW';
+    (adapter as any).discoveredTracks = [
+      { id: '1', languageCode: 'zh-TW', label: 'Chinese (Traditional)' },
+      { id: '2', languageCode: 'zh-CN', label: 'Chinese (Simplified)' },
+    ];
+
+    const setTrackSpy = vi.spyOn(adapter, 'setTrack');
+    (adapter as any).ensureCorrectTrackSelected();
+
+    expect(setTrackSpy).not.toHaveBeenCalled();
   });
 });

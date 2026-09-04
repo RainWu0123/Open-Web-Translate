@@ -20,6 +20,45 @@
       </select>
     </div>
 
+    <!-- Shared prompt guidance for providers that accept instructions -->
+    <div class="provider-key-section" data-testid="ai-instructions-section">
+      <div class="setting-item-inner">
+        <div class="setting-label">
+          <span class="title">{{ translate('aiInstructions') }}</span>
+          <span class="desc">{{ translate('aiInstructionsDesc') }}</span>
+        </div>
+        <textarea
+          v-model="aiInstructionsDraft"
+          class="key-input ai-instructions-input"
+          rows="4"
+          maxlength="2000"
+          :placeholder="translate('aiInstructionsPlaceholder')"
+          data-testid="ai-instructions-input"
+        ></textarea>
+        <div class="key-input-row">
+          <button
+            class="btn btn-save"
+            @click="onSaveAiInstructions"
+            :disabled="aiInstructionsDraft.trim() === (props.aiTranslationInstructions || '').trim()"
+            data-testid="save-ai-instructions-btn"
+          >
+            {{ translate('save') }}
+          </button>
+          <button
+            class="btn btn-clear"
+            @click="onClearAiInstructions"
+            :disabled="!(props.aiTranslationInstructions || '').trim()"
+            data-testid="clear-ai-instructions-btn"
+          >
+            {{ translate('clear') }}
+          </button>
+        </div>
+        <div v-if="aiInstructionsMessage" class="key-status-msg" data-testid="ai-instructions-msg">
+          {{ aiInstructionsMessage }}
+        </div>
+      </div>
+    </div>
+
     <!-- Gemini Configuration Section -->
     <div
       class="provider-key-section"
@@ -50,7 +89,7 @@
               v-if="safeDeprecatedModels.length > 0"
             >
               <option v-for="m in safeDeprecatedModels" :key="m.id" :value="m.id">
-                ⚠️ {{ m.displayName }}
+                {{ m.displayName }}
               </option>
             </optgroup>
             <option value="custom">Custom Model ID (Advanced / Experimental)...</option>
@@ -73,7 +112,7 @@
         class="key-status-msg error-msg"
         data-testid="model-validation-error"
       >
-        ❌ {{ modelValidationError }}
+        {{ modelValidationError }}
       </div>
 
       <div class="key-header margin-top-12">
@@ -299,6 +338,7 @@ const props = withDefaults(
     hasGeminiApiKey?: boolean;
     geminiApiKeyMasked?: string;
     geminiModel?: string;
+    aiTranslationInstructions?: string;
     hasDeeplApiKey?: boolean;
     deeplApiKeyMasked?: string;
     activeModels?: GeminiModelEntry[];
@@ -313,6 +353,7 @@ const props = withDefaults(
     hasGeminiApiKey: false,
     geminiApiKeyMasked: '',
     geminiModel: DEFAULT_MODEL_ID,
+    aiTranslationInstructions: '',
     hasDeeplApiKey: false,
     deeplApiKeyMasked: '',
     activeModels: () => [],
@@ -327,6 +368,8 @@ const emit = defineEmits<{
   (e: 'saveGeminiKey', key: string): void;
   (e: 'clearGeminiKey'): void;
   (e: 'saveGeminiModel', modelId: string): void;
+  (e: 'saveAiInstructions', instructions: string): void;
+  (e: 'clearAiInstructions'): void;
   (e: 'saveDeeplKey', key: string): void;
   (e: 'clearDeeplKey'): void;
   (e: 'update:provider', val: ProviderConfig): void;
@@ -337,6 +380,8 @@ const emit = defineEmits<{
 
 const apiKeyInput = ref('');
 const keyMessage = ref('');
+const aiInstructionsDraft = ref(props.aiTranslationInstructions || '');
+const aiInstructionsMessage = ref('');
 const deeplKeyInput = ref('');
 const deeplKeyMessage = ref('');
 const selectedModelPreset = ref(props.geminiModel || DEFAULT_MODEL_ID);
@@ -357,6 +402,9 @@ function translate(key: string): string {
   const fallbackDict: Record<string, string> = {
     selectProvider: 'Translation Provider',
     selectProviderDesc: 'Select translation engine',
+    aiInstructions: 'AI translation instructions',
+    aiInstructionsDesc: 'Optional style and terminology guidance for Gemini, Ollama, and local HTTP AI.',
+    aiInstructionsPlaceholder: 'Example: use natural conversational Traditional Chinese and keep character names consistent.',
     geminiModel: 'Gemini Model',
     geminiModelDesc: 'Select verified model or enter custom model ID',
     verified: 'Verified',
@@ -372,6 +420,14 @@ function translate(key: string): string {
   };
   return fallbackDict[key] || key;
 }
+
+watch(
+  () => props.aiTranslationInstructions,
+  (value) => {
+    aiInstructionsDraft.value = value || '';
+  },
+  { immediate: true }
+);
 
 watch(
   () => props.geminiModel,
@@ -414,6 +470,29 @@ function saveCustomModel() {
   }
 
   emit('saveGeminiModel', validation.modelId);
+}
+
+function onSaveAiInstructions() {
+  const instructions = aiInstructionsDraft.value.trim().slice(0, 2000);
+  if (instructions === (props.aiTranslationInstructions || '').trim()) return;
+
+  aiInstructionsDraft.value = instructions;
+  emit('saveAiInstructions', instructions);
+  aiInstructionsMessage.value = instructions
+    ? 'AI translation instructions saved.'
+    : 'AI translation instructions cleared.';
+  setTimeout(() => {
+    aiInstructionsMessage.value = '';
+  }, 3000);
+}
+
+function onClearAiInstructions() {
+  aiInstructionsDraft.value = '';
+  emit('clearAiInstructions');
+  aiInstructionsMessage.value = 'AI translation instructions cleared.';
+  setTimeout(() => {
+    aiInstructionsMessage.value = '';
+  }, 3000);
 }
 
 function onSaveGeminiKey() {
@@ -511,17 +590,19 @@ function onTestConnection() {
 
 <style scoped>
 .owt-provider-config-card {
-  background-color: var(--bg-card, #1e293b);
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid var(--border-color, #334155);
+  background-color: var(--bg-card);
+  border-radius: var(--radius-lg, 14px);
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-rim-light), var(--card-shadow);
 }
 
-.setting-item, .setting-item-inner {
+.setting-item,
+.setting-item-inner {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .setting-label {
@@ -533,32 +614,25 @@ function onTestConnection() {
 .setting-label .title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
 }
 
 .setting-label .desc {
   font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .verified-tag {
   font-size: 11px;
-  color: var(--accent-badge-text, #34d399);
-  background: var(--accent-badge-bg, rgba(16, 185, 129, 0.15));
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-weight: 600;
+  color: var(--accent-badge-text);
+  background: var(--accent-badge-bg);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
   display: inline-block;
   width: fit-content;
-}
-
-select {
-  background-color: var(--bg-input, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 14px;
-  cursor: pointer;
+  border: 1px solid rgba(20, 184, 166, 0.25);
 }
 
 .model-select-col {
@@ -569,43 +643,47 @@ select {
 }
 
 .key-input {
-  background-color: var(--bg-input, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 6px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
   padding: 8px 12px;
   font-size: 13px;
   width: 100%;
+  font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .provider-key-section {
-  border-top: 1px solid var(--border-color, #334155);
-  padding-top: 16px;
-  margin-top: 16px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 18px;
+  margin-top: 18px;
 }
 
 .key-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .badge {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-full);
   font-weight: 600;
 }
 
 .badge.configured {
-  background-color: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  background-color: var(--accent-badge-bg);
+  color: var(--accent-badge-text);
+  border: 1px solid rgba(20, 184, 166, 0.25);
 }
 
 .badge.unconfigured {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid rgba(248, 113, 113, 0.25);
 }
 
 .key-input-row {
@@ -616,32 +694,43 @@ select {
 
 .btn {
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 8px);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border: none;
-  transition: background 0.2s;
+  border: 1px solid transparent;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn-save {
-  background-color: var(--primary-accent, #3b82f6);
-  color: #ffffff;
+  background-color: var(--primary-accent);
+  color: var(--on-primary, #ffffff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px var(--primary-glow);
 }
 
 .btn-save:hover:not(:disabled) {
-  background-color: var(--primary-hover, #2563eb);
+  background-color: var(--primary-hover);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 4px 14px var(--primary-glow);
 }
 
 .btn-clear {
   background-color: transparent;
-  border: 1px solid var(--border-color, #334155);
-  color: var(--text-secondary, #cbd5e1);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .btn-clear:hover:not(:disabled) {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background-color: var(--danger-bg);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: var(--danger-text);
 }
 
 .btn:disabled {
@@ -652,11 +741,11 @@ select {
 .key-status-msg {
   margin-top: 8px;
   font-size: 12px;
-  color: #34d399;
+  color: var(--accent-badge-text);
 }
 
 .error-msg {
-  color: #fca5a5;
+  color: var(--danger-text);
 }
 
 .margin-top-12 {

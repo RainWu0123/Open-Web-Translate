@@ -95,7 +95,7 @@
                 class="vocab-link"
                 data-testid="vocab-source-link"
               >
-                View timestamped source video 📺
+                View timestamped source video
               </a>
             </div>
             <button
@@ -255,17 +255,19 @@ function onExportCsv() {
 .panel-title {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-primary, #f8fafc);
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .count-badge {
-  font-size: 12px;
-  background: var(--bg-input, #0f172a);
-  color: var(--text-muted, #94a3b8);
-  border: 1px solid var(--border-color, #334155);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-full);
 }
 
 .header-actions {
@@ -280,54 +282,67 @@ function onExportCsv() {
 
 .search-input {
   width: 100%;
-  background-color: var(--bg-input, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 8px;
-  padding: 8px 36px 8px 12px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
+  padding: 9px 36px 9px 12px;
   font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .clear-search-btn {
   position: absolute;
-  right: 10px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 16px;
   cursor: pointer;
+  padding: 2px;
+}
+
+.clear-search-btn:hover {
+  color: var(--text-primary);
 }
 
 .card {
-  background-color: var(--bg-card, #1e293b);
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid var(--border-color, #334155);
+  background-color: var(--bg-card);
+  border-radius: var(--radius-lg, 14px);
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-rim-light), var(--card-shadow);
 }
 
 .empty-state {
   text-align: center;
-  color: var(--text-muted, #94a3b8);
-  font-size: 14px;
-  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 40px 16px;
 }
 
 .vocab-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .vocab-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  background-color: var(--bg-input, #0f172a);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 8px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
   padding: 12px 16px;
+  transition: border-color 0.18s ease;
+}
+
+.vocab-row:hover {
+  border-color: rgba(20, 184, 166, 0.35);
 }
 
 .vocab-main {
@@ -344,52 +359,62 @@ function onExportCsv() {
 
 .vocab-word {
   font-weight: 700;
-  font-size: 15px;
-  color: var(--primary-accent, #3b82f6);
+  font-size: 14.5px;
+  color: var(--primary-accent);
 }
 
 .vocab-translation {
-  font-size: 14px;
-  color: var(--text-primary, #f8fafc);
+  font-size: 13.5px;
+  color: var(--text-primary);
 }
 
 .vocab-context {
   font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-style: italic;
+  line-height: 1.4;
 }
 
 .vocab-link {
   font-size: 11px;
-  color: var(--primary-accent, #3b82f6);
+  color: var(--primary-accent);
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .btn-delete-item {
   background: none;
   border: none;
-  color: var(--text-muted, #94a3b8);
-  font-size: 20px;
+  color: var(--text-muted);
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-
-  transition: color 0.2s, background-color 0.2s;
+  padding: 4px 6px;
+  border-radius: var(--radius-xs, 4px);
+  transition: all 0.18s ease;
 }
 
 .btn-delete-item:hover {
-  color: #fca5a5;
-  background-color: rgba(239, 68, 68, 0.2);
+  color: var(--danger-text);
+  background-color: var(--danger-bg);
 }
 
 .btn {
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 8px);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn-sm {
@@ -398,19 +423,26 @@ function onExportCsv() {
 }
 
 .btn-save {
-  background-color: var(--primary-accent, #3b82f6);
-  color: #ffffff;
+  background-color: var(--primary-accent);
+  color: var(--on-primary, #ffffff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px var(--primary-glow);
+}
+
+.btn-save:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 4px 14px var(--primary-glow);
 }
 
 .btn-clear {
   background-color: transparent;
-  border: 1px solid var(--border-color, #334155);
-  color: var(--text-secondary, #cbd5e1);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .btn-clear:hover:not(:disabled) {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background-color: var(--danger-bg);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: var(--danger-text);
 }
 
 .btn:disabled {

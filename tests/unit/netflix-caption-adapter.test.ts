@@ -40,26 +40,22 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     adapter.stop();
   });
 
-  it('injects control button using stable data-uia selector or fallback controls container', () => {
+  it('injects no player button — the popup is the command center', () => {
     adapter.init();
-    adapter.injectControlsButton();
-
-    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement | null;
-    expect(injectedBtn).not.toBeNull();
-    expect(injectedBtn?.title).toBe('OWT 雙語字幕與語言學習 Overlay');
+    expect(document.querySelector('.owt-netflix-toggle-btn')).toBeNull();
   });
 
-  it('toggles active state on button click', async () => {
-    adapter.init();
-    adapter.injectControlsButton();
-
-    const injectedBtn = document.querySelector('.owt-netflix-toggle-btn') as HTMLButtonElement;
-    expect(injectedBtn).not.toBeNull();
-
-    injectedBtn.click();
+  it('setActive toggles the engine and getStateInfo exposes the popup surface', async () => {
+    adapter.setActive(true);
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((adapter as any).isActive).toBe(true);
 
-    injectedBtn.click();
+    const state = adapter.getStateInfo();
+    expect(Array.isArray(state.tracks)).toBe(true);
+    expect(typeof state.learningMode).toBe('boolean');
+
+    adapter.setActive(false);
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect((adapter as any).isActive).toBe(false);
   });
 });

@@ -43,4 +43,10 @@ describe('composeBilingualLines', () => {
     expect(composeBilingualLines('', '', 'bilingual', style)).toEqual([]);
     expect(composeBilingualLines('', '你好', 'immersive', style).map((l) => l.text)).toEqual(['你好']);
   });
+
+  it('deduplicates when original and translated are identical', () => {
+    const lines = composeBilingualLines('看著繁星欲墜的夜晚', '看著繁星欲墜的夜晚', 'bilingual', style);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].text).toBe('看著繁星欲墜的夜晚');
+  });
 });

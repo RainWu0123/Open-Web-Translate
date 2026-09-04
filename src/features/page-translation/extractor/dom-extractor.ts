@@ -129,11 +129,11 @@ function extractFromCandidateList(candidates: Element[]): ExtractionResult {
     if (hasChildBlockCandidates(el)) continue;
 
     const { textWithPlaceholders, tagMap } = encodeInlineTags(el);
-    const text = textWithPlaceholders.trim();
+    let text = textWithPlaceholders.trim();
     if (!text) continue;
 
     if (text.length > PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT) {
-      continue;
+      text = text.slice(0, PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT);
     }
 
     if (totalChars + text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS) {

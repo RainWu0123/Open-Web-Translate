@@ -21,6 +21,7 @@ import {
 } from '../../core/domain/errors/translation-errors';
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
+import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 
 const logger = createLogger('GoogleTranslateProvider');
 
@@ -69,16 +70,20 @@ export class GoogleTranslateProvider implements TranslationProvider {
 
     const translatedSegments: TranslatedSegment[] = [];
     try {
-      const promises = request.segments.map(async (seg) => {
-        const translatedText = await this.translateSingle(seg.text, targetLang, request.signal);
-        return {
-          id: seg.id,
-          text: translatedText,
-        };
-      });
-
-      const results = await Promise.all(promises);
-      translatedSegments.push(...results);
+      const concurrency = 3;
+      for (let i = 0; i < request.segments.length; i += concurrency) {
+        const batch = request.segments.slice(i, i + concurrency);
+        const batchResults = await Promise.all(
+          batch.map(async (seg) => {
+            const translatedText = await this.translateSingle(seg.text, targetLang, request.signal);
+            return {
+              id: seg.id,
+              text: normalizeSubtitleAlternatives(translatedText),
+            };
+          }),
+        );
+        translatedSegments.push(...batchResults);
+      }
     } catch (err: any) {
       if (err instanceof QuotaExceededError || err instanceof NetworkError || err instanceof ProviderError) {
         throw err;

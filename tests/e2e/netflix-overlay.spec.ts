@@ -41,9 +41,8 @@ describe('Netflix Overlay E2E Integration Suite', () => {
     adapter = new NetflixCaptionAdapter();
     adapter.init();
 
-    const btn = document.querySelector('.owt-netflix-toggle-btn');
-    expect(btn).not.toBeNull();
-    expect(btn?.textContent).toContain('OWT');
+    // The player button is gone — popup is the command center.
+    expect(document.querySelector('.owt-netflix-toggle-btn')).toBeNull();
   });
 
   it('mounts open Shadow DOM host container on video container when starting adapter', async () => {

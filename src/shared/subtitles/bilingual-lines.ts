@@ -53,6 +53,16 @@ export function composeBilingualLines(
       fontSize: style.translatedFontSize,
     }));
 
+  // If original and translated are identical (e.g. video subtitles already in target language),
+  // do not render two identical lines on top of each other.
+  if (
+    originalText &&
+    translatedText &&
+    originalText.trim().toLowerCase() === translatedText.trim().toLowerCase()
+  ) {
+    return original();
+  }
+
   switch (mode) {
     case 'immersive':
       return translated();

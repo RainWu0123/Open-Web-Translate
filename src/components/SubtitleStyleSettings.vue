@@ -1,7 +1,9 @@
 <template>
   <div class="card subtitle-style-settings" data-testid="subtitle-style-settings">
     <div class="card-header">
-      <span class="card-icon">🔤</span>
+      <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="4 7 4 4 20 4 20 7" /><line x1="9" y1="20" x2="15" y2="20" /><line x1="12" y1="4" x2="12" y2="20" />
+      </svg>
       <div>
         <span class="card-title">{{ translate('subtitleStyleTitle') }}</span>
         <span class="card-desc">{{ translate('subtitleStyleDesc') }}</span>
@@ -146,36 +148,39 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 20px;
-  background: var(--bg-card, #fff);
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 14px;
-  box-shadow: var(--card-shadow);
+  padding: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-rim-light), var(--card-shadow);
+  border-radius: var(--radius-lg, 14px);
 }
 
 .card-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .card-icon {
-  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  color: var(--primary-accent);
+  flex-shrink: 0;
 }
 
 .card-title {
   display: block;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary, #111827);
+  color: var(--text-primary);
 }
 
 .card-desc {
   display: block;
   font-size: 12px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-muted);
   margin-top: 2px;
 }
 
@@ -189,57 +194,59 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 .setting-label {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   max-width: 55%;
 }
 
 .title {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary, #111827);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .desc {
   font-size: 12px;
-  color: var(--text-secondary, #6b7280);
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
 .range-control {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
   justify-content: flex-end;
 }
 
 .range-control input[type='range'] {
   width: 140px;
-  accent-color: var(--primary-accent, #3b82f6);
+  accent-color: var(--primary-accent);
 }
 
 .range-val,
 .color-val {
   font-size: 12px;
   font-family: monospace;
-  color: var(--primary-accent, #3b82f6);
-  min-width: 46px;
+  color: var(--primary-accent);
+  min-width: 52px;
   text-align: right;
 }
 
 .color-control {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .color-control input[type='color'] {
-  width: 36px;
-  height: 28px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 2px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0;
   cursor: pointer;
-  background: #fff;
+  background: var(--bg-input);
+  -webkit-appearance: none;
+  appearance: none;
 }
 </style>

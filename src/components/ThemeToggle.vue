@@ -9,7 +9,11 @@
         @click="selectTheme('light')"
         data-testid="theme-btn-light"
       >
-        ☀️ <span v-if="!compact">Light</span>
+        <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+        <span v-if="!compact">Light</span>
       </button>
       <button
         type="button"
@@ -19,7 +23,10 @@
         @click="selectTheme('dark')"
         data-testid="theme-btn-dark"
       >
-        🌙 <span v-if="!compact">Dark</span>
+        <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+        <span v-if="!compact">Dark</span>
       </button>
       <button
         type="button"
@@ -29,7 +36,11 @@
         @click="selectTheme('system')"
         data-testid="theme-btn-system"
       >
-        🖥️ <span v-if="!compact">System</span>
+        <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+        <span v-if="!compact">System</span>
       </button>
     </div>
   </div>
@@ -106,9 +117,9 @@ onMounted(() => {
 
 .theme-options {
   display: inline-flex;
-  background: var(--bg-input, #0f172a);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
   padding: 2px;
   gap: 2px;
 }
@@ -116,24 +127,32 @@ onMounted(() => {
 .theme-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--radius-xs, 6px);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: all 0.2s ease;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.theme-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .theme-btn:hover {
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
 }
 
 .theme-btn.active {
-  background: var(--primary-accent, #3b82f6);
-  color: #ffffff;
+  background: var(--primary-accent);
+  color: var(--on-primary, #ffffff);
   font-weight: 600;
+  box-shadow: 0 1px 4px var(--primary-glow);
 }
 </style>

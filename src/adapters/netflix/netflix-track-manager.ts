@@ -179,7 +179,10 @@ export class NetflixTrackManager implements INetflixTrackManager {
   }
 
   public findBestMatchingTrack(targetLang: string = this.targetLang): DiscoveredTrack | undefined {
-    return this.discoveredTracks.find((t) => trackMatchesTargetLanguage(t, targetLang));
+    // Discovery is progressive: prefer a language match that already has a
+    // download URL over one that may still be hydrating its manifest entry.
+    const matches = this.discoveredTracks.filter((t) => trackMatchesTargetLanguage(t, targetLang));
+    return matches.find((t) => t.url) ?? matches[0];
   }
 
   /**

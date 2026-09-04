@@ -11,6 +11,9 @@ export interface TranslationPipelineRequest {
   sourceLanguage: string;
   targetLanguage: string;
   forceProvider?: string;
+  context?: {
+    previous?: Array<{ source: string; translation: string }>;
+  };
 }
 
 export interface TranslationPipelineResponse {
@@ -60,11 +63,13 @@ export class TranslationPipeline {
 
     const providerFingerprint =
       activeProviderId === 'gemini-provider'
-        ? settings.geminiModel?.trim() || 'gemini-2.0-flash'
+        ? `v2:${settings.geminiModel?.trim() || 'gemini-2.0-flash'}:${settings.aiTranslationInstructions?.trim() || ''}`
         : activeProviderId === 'ollama-provider'
-        ? settings.ollamaModel?.trim() || 'llama3'
+        ? `v2:${settings.ollamaEndpoint?.trim() || 'default'}:${settings.ollamaModel?.trim() || 'llama3'}:${settings.aiTranslationInstructions?.trim() || ''}`
         : activeProviderId === 'local-http-provider'
-        ? settings.localHttpModel?.trim() || 'local-model'
+        ? `v2:${settings.localHttpEndpoint?.trim() || 'default'}:${settings.localHttpModel?.trim() || 'local-model'}:${settings.aiTranslationInstructions?.trim() || ''}`
+        : activeProviderId === 'google-provider' || activeProviderId === 'google'
+        ? 'free-v2-subtitle'
         : 'default';
 
     // 1. Concurrent cache lookups (were N sequential IndexedDB roundtrips)
@@ -111,6 +116,10 @@ export class TranslationPipeline {
       sourceLanguage: msg.sourceLanguage as any,
       targetLanguage: msg.targetLanguage as any,
       mode: settings.defaultTranslationMode || 'fast',
+      ...(settings.aiTranslationInstructions?.trim()
+        ? { instructions: settings.aiTranslationInstructions.trim().slice(0, 2000) }
+        : {}),
+      ...(msg.context?.previous?.length ? { context: msg.context } : {}),
     };
 
     let providerResult;

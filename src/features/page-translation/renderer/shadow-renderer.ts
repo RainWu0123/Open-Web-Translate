@@ -113,23 +113,23 @@ export function renderBilingualBlock(
     .owt-block {
       margin: 2px 0 10px 0;
       padding: 8px 14px;
-      border-left: 3px solid #667eea;
-      background: rgba(102, 126, 234, 0.06);
+      border-left: 3px solid #0d9488;
+      background: rgba(13, 148, 136, 0.06);
       border-radius: 0 6px 6px 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
     }
     .owt-translated {
       font-weight: 600;
-      color: #3b82f6;
+      color: #0d9488;
       font-size: 14px;
     }
     .owt-toggle-btn {
       display: inline-block;
       margin-top: 6px;
       background: transparent;
-      border: 1px solid rgba(102, 126, 234, 0.3);
-      color: #667eea;
+      border: 1px solid rgba(13, 148, 136, 0.3);
+      color: #0d9488;
       padding: 2px 8px;
       border-radius: 4px;
       font-size: 11px;
@@ -138,13 +138,13 @@ export function renderBilingualBlock(
       transition: background 0.2s, color 0.2s;
     }
     .owt-toggle-btn:hover, .owt-toggle-btn:focus {
-      background: rgba(102, 126, 234, 0.15);
+      background: rgba(13, 148, 136, 0.15);
       outline: none;
     }
     @media (prefers-color-scheme: dark) {
-      .owt-translated { color: #818cf8; }
-      .owt-block { background: rgba(129, 140, 248, 0.1); }
-      .owt-toggle-btn { color: #818cf8; border-color: rgba(129, 140, 248, 0.3); }
+      .owt-translated { color: #2dd4bf; }
+      .owt-block { background: rgba(20, 184, 166, 0.1); border-left-color: #14b8a6; }
+      .owt-toggle-btn { color: #5eead4; border-color: rgba(20, 184, 166, 0.35); }
     }
   `;
   shadow.appendChild(style);
@@ -242,9 +242,9 @@ export function renderInlineHost(
       display: inline-block;
       margin-left: 6px;
       padding: 1px 6px;
-      background: #eff6ff;
-      color: #2563eb;
-      border: 1px solid #bfdbfe;
+      background: rgba(13, 148, 136, 0.1);
+      color: #0f766e;
+      border: 1px solid rgba(13, 148, 136, 0.25);
       border-radius: 4px;
       font-size: 0.9em;
       font-weight: 500;
@@ -252,9 +252,9 @@ export function renderInlineHost(
     }
     @media (prefers-color-scheme: dark) {
       .owt-inline-badge {
-        background: rgba(129, 140, 248, 0.15);
-        color: #818cf8;
-        border-color: rgba(129, 140, 248, 0.3);
+        background: rgba(20, 184, 166, 0.15);
+        color: #5eead4;
+        border-color: rgba(20, 184, 166, 0.35);
       }
     }
   `;

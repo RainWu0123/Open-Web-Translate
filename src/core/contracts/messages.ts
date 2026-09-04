@@ -9,9 +9,9 @@ import type { VocabularyItem } from '@/infrastructure/storage/indexeddb/schemas'
 // ─── Limits & Error Constants ─────────────────────────────────────
 
 export const PAYLOAD_LIMITS = {
-  MAX_TARGETS: 30,
-  MAX_CHARS_PER_SEGMENT: 1000,
-  MAX_TOTAL_CHARS: 12000,
+  MAX_TARGETS: 50,
+  MAX_CHARS_PER_SEGMENT: 3000,
+  MAX_TOTAL_CHARS: 25000,
 } as const;
 
 export enum MessageErrorCode {
@@ -33,6 +33,7 @@ export interface ErrorPayload {
 
 /** Extension settings persisted in browser storage */
 export interface ExtensionSettings {
+  sourceLanguage: string;
   targetLanguage: string;
   enabled: boolean;
   defaultTranslationMode: 'fast' | 'quality';
@@ -41,6 +42,8 @@ export interface ExtensionSettings {
   geminiApiKeyMasked?: string;
   hasGeminiApiKey?: boolean;
   geminiModel?: string;
+  /** User-authored style/terminology guidance appended to prompt-aware AI providers. */
+  aiTranslationInstructions?: string;
   deeplApiKey?: string;
   deeplApiKeyMasked?: string;
   hasDeeplApiKey?: boolean;
@@ -88,6 +91,8 @@ export interface NetflixStateInfo {
   selectedTrackId?: string;
   /** 'auto' prefers a native track matching the target language; 'manual' is a user pick (incl. AI-only). */
   selectionMode?: 'auto' | 'manual';
+  /** Downloadable tracks for the popup selector. */
+  tracks?: Array<{ id: string; label: string; isCC: boolean }>;
   secondaryCuesCount?: number;
   learningMode?: boolean;
   dualTrack?: boolean;
@@ -101,6 +106,9 @@ export interface TranslateRequestMessage {
   sourceLanguage: string;
   targetLanguage: string;
   forceProvider?: string;
+  context?: {
+    previous?: Array<{ source: string; translation: string }>;
+  };
 }
 
 export interface GetSettingsMessage {
@@ -155,7 +163,41 @@ export interface GetNetflixStateMessage {
 
 export interface SetNetflixSelectionMessage {
   type: 'SET_NETFLIX_SELECTION';
-  source: 'auto' | 'ai';
+  source: 'auto' | 'ai' | 'track';
+  trackId?: string;
+}
+
+export interface SetNetflixActiveMessage {
+  type: 'SET_NETFLIX_ACTIVE';
+  active: boolean;
+}
+
+export interface YoutubeTrackInfo {
+  id: string;
+  label: string;
+  languageCode: string;
+  kind?: string;
+  isDefault?: boolean;
+}
+
+export interface YoutubeStateInfo {
+  isActive: boolean;
+  tracks?: YoutubeTrackInfo[];
+  selectedTrackId?: string | null;
+}
+
+export interface GetYoutubeStateMessage {
+  type: 'GET_YOUTUBE_STATE';
+}
+
+export interface SetYoutubeActiveMessage {
+  type: 'SET_YOUTUBE_ACTIVE';
+  active: boolean;
+}
+
+export interface SetYoutubeTrackMessage {
+  type: 'SET_YOUTUBE_TRACK';
+  trackId: string;
 }
 
 /** All messages that can be sent in the messaging system */
@@ -172,7 +214,11 @@ export type BackgroundMessage =
   | DeleteVocabItemMessage
   | ClearVocabItemsMessage
   | GetNetflixStateMessage
-  | SetNetflixSelectionMessage;
+  | SetNetflixSelectionMessage
+  | SetNetflixActiveMessage
+  | GetYoutubeStateMessage
+  | SetYoutubeActiveMessage
+  | SetYoutubeTrackMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -217,8 +263,12 @@ export type ResponseMap = {
   GET_VOCAB_ITEMS: VocabularyItem[];
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
-  GET_NETFLIX_STATE: NetflixStateInfo;
+  GET_NETFLIX_STATE: NetflixStateInfo | null;
   SET_NETFLIX_SELECTION: boolean;
+  SET_NETFLIX_ACTIVE: boolean;
+  GET_YOUTUBE_STATE: YoutubeStateInfo | null;
+  SET_YOUTUBE_ACTIVE: boolean;
+  SET_YOUTUBE_TRACK: boolean;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────

@@ -22,6 +22,8 @@ export interface TranslationContext {
   title?: string;
   previousText?: string;
   nextText?: string;
+  /** Recent source=>translation pairs; gives subtitle/dialogue models coherence. */
+  previous?: Array<{ source: string; translation: string }>;
 }
 
 /** Token or character usage statistics */
@@ -44,6 +46,8 @@ export interface TranslationRequest {
   targetLanguage: LanguageCode;
   glossary?: ResolvedGlossary;
   context?: TranslationContext;
+  /** Optional user-authored style guidance; prompt-aware providers consume it. */
+  instructions?: string;
   signal?: AbortSignal;
   mode: TranslationMode;
 }

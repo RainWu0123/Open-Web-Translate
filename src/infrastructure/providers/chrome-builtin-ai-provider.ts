@@ -17,6 +17,34 @@ import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('ChromeBuiltInAIProvider');
 
+function getChromeAiApi(): any {
+  const scopes = [
+    typeof globalThis !== 'undefined' ? (globalThis as any) : null,
+    typeof self !== 'undefined' ? (self as any) : null,
+    typeof window !== 'undefined' ? (window as any) : null,
+  ];
+
+  // 1. Prioritize objects that actually have translator or translate function
+  for (const s of scopes) {
+    if (!s) continue;
+    if (s.translation && (s.translation.translator || typeof s.translation.translate === 'function')) {
+      return s.translation;
+    }
+    if (s.ai && (s.ai.translator || typeof s.ai.translate === 'function')) {
+      return s.ai;
+    }
+  }
+
+  // 2. Fallback to generic translation or ai object if present
+  for (const s of scopes) {
+    if (!s) continue;
+    if (s.translation) return s.translation;
+    if (s.ai) return s.ai;
+  }
+
+  return null;
+}
+
 export class ChromeBuiltInAIProvider implements TranslationProvider {
   readonly id = 'chrome-builtin-ai-provider' as ProviderId;
   readonly displayName = 'Chrome Built-in AI';
@@ -29,8 +57,8 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
   };
 
   validateConfig(_config?: unknown): ProviderConfigValidation {
-    const hasAi = typeof window !== 'undefined' && ('ai' in window || 'translation' in window);
-    if (!hasAi) {
+    const aiApi = getChromeAiApi();
+    if (!aiApi) {
       return {
         isValid: false,
         errors: ['Chrome Built-in AI translator API is not supported or enabled in this browser'],
@@ -57,7 +85,7 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
       };
     }
 
-    const aiApi = typeof window !== 'undefined' ? ((window as any).ai || (window as any).translation) : null;
+    const aiApi = getChromeAiApi();
 
     if (!aiApi) {
       logger.error('Chrome Built-in AI API unavailable');

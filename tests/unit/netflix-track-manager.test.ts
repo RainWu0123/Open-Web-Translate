@@ -47,6 +47,19 @@ describe('NetflixTrackManager Unit Tests', () => {
     expect(rescuedUrl).toBe('https://cdn.netflix.com/sub/dfxp_text.xml');
   });
 
+  it('findBestMatchingTrack prefers the language match that already has a URL', () => {
+    const hydrating = { id: 'track_zh_pending', language: 'zh-Hant', label: '中文（繁體）', url: '', isCC: false, hasUrl: false };
+    const ready = { id: 'track_zh_ready', language: 'zh-Hant', label: 'Chinese (Traditional)', url: 'https://cdn.netflix.com/sub/zh.ttml', isCC: false, hasUrl: true };
+    manager.setDiscoveredTracks([hydrating, ready]);
+
+    expect(manager.findBestMatchingTrack('zh-Hant')?.id).toBe('track_zh_ready');
+
+    // No URL-bearing match: still returns the first language match so the
+    // adapter can decide (bitmap rescue etc.).
+    manager.setDiscoveredTracks([hydrating]);
+    expect(manager.findBestMatchingTrack('zh-Hant')?.id).toBe('track_zh_pending');
+  });
+
   it('transitions adapter state machine correctly', () => {
     manager.setAdapterState('discovering');
     expect(manager.getAdapterState()).toBe('discovering');

@@ -15,6 +15,7 @@ import {
 } from '@/core/domain/errors/translation-errors';
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
+import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 
 const logger = createLogger('OllamaProvider');
 
@@ -22,6 +23,7 @@ export interface OllamaConfig {
   endpoint?: string;
   model?: string;
   temperature?: number;
+  instructions?: string;
 }
 
 export class OllamaProvider implements TranslationProvider {
@@ -37,10 +39,12 @@ export class OllamaProvider implements TranslationProvider {
 
   private endpoint: string;
   private model: string;
+  private instructions: string;
 
   constructor(config: OllamaConfig = {}) {
     this.endpoint = config.endpoint || 'http://localhost:11434';
     this.model = config.model || 'llama3';
+    this.instructions = config.instructions?.trim().slice(0, 2000) || '';
   }
 
   validateConfig(config: unknown): ProviderConfigValidation {
@@ -83,8 +87,11 @@ export class OllamaProvider implements TranslationProvider {
     }
 
     const segmentsText = request.segments.map((s, idx) => `[${idx}] ${s.text}`).join('\n');
+    const userInstructions = this.instructions
+      ? `\nUser style instructions: ${this.instructions}`
+      : '';
 
-    return `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryInstructions}\nReturn only the translated text segments in the exact format [idx] Translated Text, without commentary.\n\n${segmentsText}`;
+    return `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryInstructions}${userInstructions}\nReturn only the translated text segments in the exact format [idx] Translated Text, without commentary.\nDo not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase.\n\n${segmentsText}`;
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
@@ -124,12 +131,15 @@ export class OllamaProvider implements TranslationProvider {
       const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
       if (matchingLine) {
         const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
-        return { id: seg.id, text: cleanText };
+        return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
       }
       if (lines[idx]) {
-        return { id: seg.id, text: lines[idx].replace(/^\[\d+\]\s*/, '').trim() };
+        return {
+          id: seg.id,
+          text: normalizeSubtitleAlternatives(lines[idx].replace(/^\[\d+\]\s*/, '').trim()),
+        };
       }
-      return { id: seg.id, text: generatedText.trim() || seg.text };
+      return { id: seg.id, text: normalizeSubtitleAlternatives(generatedText.trim() || seg.text) };
     });
 
     return {

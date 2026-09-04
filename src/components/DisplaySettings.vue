@@ -16,6 +16,23 @@
       </div>
 
       <div class="setting-row">
+        <span class="label">{{ translate('sourceLanguage') }}</span>
+        <select
+          :value="localSettings.sourceLanguage"
+          @change="onSourceLanguageChange"
+          data-testid="source-language-select"
+        >
+          <option value="auto">自動偵測</option>
+          <option value="en">English</option>
+          <option value="zh-Hant">繁體中文</option>
+          <option value="zh-Hans">簡體中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="es">Español</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
         <span class="label">{{ translate('targetLanguage') }}</span>
         <select
           :value="localSettings.targetLanguage"
@@ -48,6 +65,28 @@
           />
           <span class="slider"></span>
         </label>
+      </div>
+
+      <!-- Target Language -->
+      <!-- Source Language -->
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="title">{{ translate('sourceLanguage') }}</span>
+          <span class="desc">{{ translate('sourceLanguageDesc') }}</span>
+        </div>
+        <select
+          :value="localSettings.sourceLanguage"
+          @change="onSourceLanguageChange"
+          data-testid="source-language-select"
+        >
+          <option value="auto">自動偵測</option>
+          <option value="en">English</option>
+          <option value="zh-Hant">繁體中文</option>
+          <option value="zh-Hans">簡體中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="es">Español</option>
+        </select>
       </div>
 
       <!-- Target Language -->
@@ -171,6 +210,7 @@ const emit = defineEmits<{
 const localSettings = computed(() => {
   return {
     enabled: props.settings?.enabled ?? (props.autoTranslate !== undefined ? props.autoTranslate : true),
+    sourceLanguage: props.settings?.sourceLanguage || 'auto',
     targetLanguage: props.settings?.targetLanguage || props.targetLanguage || 'zh-Hant',
     displayMode: props.settings?.displayMode || props.displayMode || 'bilingual',
     defaultTranslationMode: props.settings?.defaultTranslationMode || 'fast',
@@ -188,8 +228,10 @@ function translate(key: string): string {
   const fallbackDict: Record<string, string> = {
     enableTranslation: 'Enable Translation',
     enableTranslationDesc: 'Toggle translation on all pages',
+    sourceLanguage: 'Source Language',
+    sourceLanguageDesc: 'Used by webpage and video subtitle translation',
     targetLanguage: 'Target Language',
-    targetLanguageDesc: 'Language to translate into',
+    targetLanguageDesc: 'Used by webpage and video subtitle translation',
     displayLayoutMode: 'Display Layout Mode',
     displayLayoutDesc: 'Bilingual = side-by-side, Translation-First = muted original, Immersive = accessible toggle button',
     translationMode: 'Translation Mode',
@@ -231,6 +273,11 @@ function onTargetLanguageChange(e: Event) {
   updateSetting('targetLanguage', target.value);
 }
 
+function onSourceLanguageChange(e: Event) {
+  const target = e.target as HTMLSelectElement;
+  updateSetting('sourceLanguage', target.value);
+}
+
 function onDisplayModeChange(e: Event) {
   const target = e.target as HTMLSelectElement;
   updateSetting('displayMode', target.value as any);
@@ -268,10 +315,11 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 }
 
 .card {
-  background-color: var(--bg-card, #1e293b);
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid var(--border-color, #334155);
+  background-color: var(--bg-card);
+  border-radius: var(--radius-lg, 14px);
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-rim-light), var(--card-shadow);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -293,8 +341,8 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #334155);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .setting-item:last-child {
@@ -311,38 +359,43 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 .setting-label .title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #f8fafc);
+  color: var(--text-primary);
 }
 
 .setting-label .desc {
   font-size: 12px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 select {
-  background-color: var(--bg-input, #0f172a);
-  color: var(--text-primary, #f8fafc);
-  border: 1px solid var(--border-color, #334155);
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 14px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
+  padding: 8px 32px 8px 12px;
+  font-size: 13px;
   cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.range-control, .color-control {
+.range-control,
+.color-control {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .range-control input[type="range"] {
-  accent-color: var(--primary-accent, #3b82f6);
+  accent-color: var(--primary-accent);
   cursor: pointer;
 }
 
-.range-val, .color-val {
-  font-size: 13px;
-  color: var(--text-secondary, #cbd5e1);
+.range-val,
+.color-val {
+  font-size: 12px;
+  color: var(--text-secondary);
   min-width: 45px;
   text-align: right;
   font-family: monospace;
@@ -350,51 +403,13 @@ select {
 
 .color-control input[type="color"] {
   -webkit-appearance: none;
-  border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  appearance: none;
+  border: 1px solid var(--border-color);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-}
-
-.toggle {
-  position: relative;
-  width: 44px;
-  height: 24px;
-}
-
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  inset: 0;
-  background-color: #475569;
-  border-radius: 24px;
-  transition: 0.3s;
-  cursor: pointer;
-}
-
-.slider::before {
-  content: '';
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: #ffffff;
-  border-radius: 50%;
-  transition: 0.3s;
-}
-
-.toggle input:checked + .slider {
-  background-color: var(--primary-accent, #3b82f6);
-}
-
-.toggle input:checked + .slider::before {
-  transform: translateX(20px);
+  background: none;
+  padding: 0;
 }
 </style>

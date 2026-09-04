@@ -84,6 +84,27 @@ describe('Decomposed UI Components Unit Tests', () => {
 
       expect(wrapper.emitted('saveGeminiKey')?.[0]).toEqual(['test-gemini-key-12345']);
     });
+
+    it('saves and clears user-authored AI translation instructions', async () => {
+      const wrapper = mount(ProviderConfigCard, {
+        props: {
+          activeProviderId: 'gemini-provider',
+          aiTranslationInstructions: 'Use natural Traditional Chinese.',
+        },
+      });
+
+      const input = wrapper.find('[data-testid="ai-instructions-input"]');
+      expect((input.element as HTMLTextAreaElement).value).toBe('Use natural Traditional Chinese.');
+
+      await input.setValue('  Use natural conversational Traditional Chinese.  ');
+      await wrapper.find('[data-testid="save-ai-instructions-btn"]').trigger('click');
+      expect(wrapper.emitted('saveAiInstructions')?.[0]).toEqual([
+        'Use natural conversational Traditional Chinese.',
+      ]);
+
+      await wrapper.find('[data-testid="clear-ai-instructions-btn"]').trigger('click');
+      expect(wrapper.emitted('clearAiInstructions')).toHaveLength(1);
+    });
   });
 
   describe('DisplaySettings.vue', () => {

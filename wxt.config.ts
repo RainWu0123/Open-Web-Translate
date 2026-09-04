@@ -27,10 +27,17 @@ export default defineConfig({
         strict_min_version: '109.0',
       },
     },
+    action: {
+      default_title: '開啟 Open Web Translate 設定',
+    },
     web_accessible_resources: [
       {
         resources: ['netflix-main.js'],
         matches: ['*://*.netflix.com/*'],
+      },
+      {
+        resources: ['youtube-main.js'],
+        matches: ['*://*.youtube.com/*'],
       },
     ],
   }),

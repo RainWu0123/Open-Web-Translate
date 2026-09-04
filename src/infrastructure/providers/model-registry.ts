@@ -85,6 +85,7 @@ export class ModelRegistry {
   private static aliasMap = new Map<string, string>([
     ['ollama', 'ollama-provider'],
     ['chrome-ai', 'chrome-builtin-ai-provider'],
+    ['chrome-ai-provider', 'chrome-builtin-ai-provider'],
     ['chrome-builtin-ai', 'chrome-builtin-ai-provider'],
     ['chromeaiprovider', 'chrome-builtin-ai-provider'],
     ['gemini', 'gemini-provider'],
@@ -135,6 +136,7 @@ export class ModelRegistry {
           endpoint: settings?.ollamaEndpoint,
           model: settings?.ollamaModel,
           temperature: settings?.ollamaTemperature,
+          instructions: settings?.aiTranslationInstructions,
         });
       case 'chrome-builtin-ai-provider':
         return new ChromeAiProvider();
@@ -146,6 +148,7 @@ export class ModelRegistry {
         return new LocalHttpProvider({
           endpoint: settings?.localHttpEndpoint,
           apiKey: settings?.localHttpApiKey,
+          instructions: settings?.aiTranslationInstructions,
         });
       case 'mock-provider':
         return new MockProvider();

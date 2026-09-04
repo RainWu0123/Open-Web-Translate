@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from '@/shared/constants';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
 import { composeBilingualLines, type BilingualDisplayMode } from '@/shared/subtitles/bilingual-lines';
 
+import { YT_BRIDGE, postToMain, subscribeToYouTubeBridge, type YouTubeTrack } from './youtube-bridge';
+
 const logger = createLogger('YouTubeCaptionAdapter');
 
 interface RequestState {
@@ -14,9 +16,14 @@ interface RequestState {
 export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   private observer: MutationObserver | null = null;
   private observerTarget: Element | null = null;
-  private controlsButton: HTMLElement | null = null;
 
   private pendingRequests = new Map<string, RequestState>();
+  /** Rolling source=>translation window so AI lines stay coherent. */
+  private recentAiContext: Array<{ source: string; translation: string }> = [];
+
+  private discoveredTracks: YouTubeTrack[] = [];
+  private selectedTrackId: string | null = null;
+  private unsubscribeBridge: (() => void) | null = null;
 
   constructor() {
     super();
@@ -26,27 +33,101 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     if (typeof window !== 'undefined' && window.location?.hostname?.includes('youtube.com')) {
       logger.info('Initializing YouTubeCaptionAdapter on youtube.com');
       this.setupNavigationListeners();
+      this.loadInitialSettings();
       this.setupSettingsListener();
-      this.wireControlsButtonReinjection();
+      this.setupBridgeListener();
+      this.requestTracks();
+    }
+  }
 
-      this.injectControlsButton();
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-          this.injectControlsButton();
-        }, { once: true });
+  private setupBridgeListener() {
+    if (this.unsubscribeBridge || typeof window === 'undefined') return;
+
+    this.unsubscribeBridge = subscribeToYouTubeBridge((data) => {
+      if (data.type === YT_BRIDGE.messageType.TRACKS_UPDATED) {
+        if (Array.isArray(data.tracks)) {
+          this.discoveredTracks = data.tracks;
+          logger.info('Discovered YouTube tracks:', this.discoveredTracks);
+          if (this.isActive) {
+            this.ensureCorrectTrackSelected();
+          }
+        }
+        if (data.selectedTrackId !== undefined) {
+          this.selectedTrackId = data.selectedTrackId;
+        }
+      }
+    });
+  }
+
+  private ensureCorrectTrackSelected() {
+    if (!this.discoveredTracks || this.discoveredTracks.length === 0) return;
+
+    if (this.sourceLang && this.sourceLang !== 'auto') {
+      const hasMatch = this.discoveredTracks.some(
+        (t) => t.languageCode === this.sourceLang || t.languageCode?.startsWith(this.sourceLang),
+      );
+      if (hasMatch && this.selectedTrackId !== this.sourceLang) {
+        logger.info(`Switching YouTube track to configured sourceLang: ${this.sourceLang}`);
+        this.setTrack(this.sourceLang);
+        return;
+      }
+    }
+
+    // Auto mode: prioritize original track
+    // If current selectedTrackId matches the target language prefix (e.g. 'zh' for zh-Hant)
+    // but tracks outside the target language exist, auto-switch to original track!
+    const targetPrefix = this.targetLang?.split('-')[0]?.toLowerCase();
+    if (targetPrefix) {
+      const isCurrentTarget = this.selectedTrackId?.toLowerCase().startsWith(targetPrefix);
+      const hasNonTarget = this.discoveredTracks.some(
+        (t) => !t.languageCode?.toLowerCase().startsWith(targetPrefix),
+      );
+      if (isCurrentTarget && hasNonTarget) {
+        logger.info(`Current track is in target language (${targetPrefix}), auto-switching to original track`);
+        this.setTrack('auto');
       }
     }
   }
 
-  /**
-   * Listens to mouse movements on YouTube.
-   * When controls reappear on hover, ensures OWT button is always injected.
-   */
-  private wireControlsButtonReinjection() {
-    this.setupMouseMoveInjectionListener(400, () => {
-      if (document.querySelector('.owt-yt-toggle-btn')) return;
-      this.injectControlsButton();
-    });
+  public requestTracks(): void {
+    if (typeof window !== 'undefined') {
+      postToMain(YT_BRIDGE.messageType.REQUEST_TRACKS);
+    }
+  }
+
+  public setTrack(languageCode: string): void {
+    this.selectedTrackId = languageCode;
+    if (typeof window !== 'undefined') {
+      postToMain(YT_BRIDGE.messageType.SET_TRACK, {
+        languageCode,
+        targetLanguage: this.targetLang,
+      });
+    }
+    this.inlineTranslationCache.clear();
+    this.restoreNativeSegments();
+  }
+
+  /** Popup entry point: current bilingual-subtitle state. */
+  public getStateInfo(): {
+    isActive: boolean;
+    tracks: YouTubeTrack[];
+    selectedTrackId: string | null;
+  } {
+    return {
+      isActive: this.isActive,
+      tracks: this.discoveredTracks,
+      selectedTrackId: this.selectedTrackId,
+    };
+  }
+
+  /** Popup entry point: turn the bilingual subtitle engine on/off. */
+  public setActive(active: boolean): void {
+    if (active === this.isActive) return;
+    if (active) {
+      void this.start();
+    } else {
+      this.stop();
+    }
   }
 
   private setupNavigationListeners() {
@@ -62,6 +143,14 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   protected onVideoChanged(): void {
     this.abortPendingRequests();
     this.restoreNativeSegments();
+    this.recentAiContext = [];
+    this.requestTracks();
+  }
+
+  protected onSharedSettingsApplied(settings: any): void {
+    if (settings?.sourceLanguage && settings.sourceLanguage !== 'auto') {
+      this.setTrack(settings.sourceLanguage);
+    }
   }
 
   private maxConcurrentRequests = 3;
@@ -87,72 +176,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     if (next) next();
   }
 
-  public injectControlsButton(): void {
-    if (typeof document === 'undefined') return;
 
-    const subtitlesBtn = document.querySelector('.ytp-subtitles-button');
-    const settingsBtn = document.querySelector('.ytp-settings-button');
-    const rightControls =
-      subtitlesBtn?.parentElement ||
-      settingsBtn?.parentElement ||
-      document.querySelector('.ytp-right-controls');
-
-    if (!rightControls) return;
-
-    let btn = rightControls.querySelector('.owt-yt-toggle-btn') as HTMLButtonElement | null;
-    if (btn && document.body.contains(btn)) {
-      this.controlsButton = btn;
-      this.updateControlsButtonState();
-      return;
-    }
-
-    btn = document.createElement('button');
-    btn.className = 'ytp-button owt-yt-toggle-btn';
-    btn.setAttribute('aria-label', 'OWT 雙語字幕');
-    btn.setAttribute('title', 'OWT 雙語字幕 (點擊開啟/關閉)');
-
-    btn.innerHTML = `
-      <svg height="100%" viewBox="0 0 36 36" width="100%" style="padding: 6px; box-sizing: border-box; display: block; width: 100%; height: 100%;">
-        <path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0014.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02 1.42 1.42 5.09-5.02 3.12 3.12 1.65-2.03zM21.5 10l-4.5 12h2.15l1.2-3.2h4.7l1.2 3.2h2.15L23.9 10h-2.4zm-0.4 6.8l1.6-4.27 1.6 4.27h-3.2z" fill="rgba(255, 255, 255, 0.85)"/>
-      </svg>
-    `;
-
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.handleToggleClick();
-    });
-
-    if (subtitlesBtn && subtitlesBtn.nextSibling) {
-      subtitlesBtn.parentNode?.insertBefore(btn, subtitlesBtn.nextSibling);
-    } else if (settingsBtn) {
-      settingsBtn.parentNode?.insertBefore(btn, settingsBtn);
-    } else {
-      rightControls.appendChild(btn);
-    }
-
-    this.controlsButton = btn;
-    this.updateControlsButtonState();
-    logger.info('Injected OWT button into YouTube controls');
-  }
-
-  private updateControlsButtonState() {
-    if (!this.controlsButton) return;
-    if (this.isActive) {
-      this.controlsButton.classList.add('owt-active');
-    } else {
-      this.controlsButton.classList.remove('owt-active');
-    }
-
-    const svg = this.controlsButton.querySelector('svg');
-    if (svg) {
-      const color = this.isActive ? '#818cf8' : 'rgba(255, 255, 255, 0.85)';
-      svg.style.fill = color;
-      svg.style.color = color;
-      const path = svg.querySelector('path');
-      if (path) path.setAttribute('fill', color);
-      svg.style.filter = this.isActive ? 'drop-shadow(0 0 6px rgba(129, 140, 248, 0.9))' : 'none';
-    }
-  }
 
   async start(
     targetLang?: string,
@@ -171,11 +195,23 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.currentVideoId = new URLSearchParams(window.location.search).get('v');
 
     this.isActive = true;
-    this.updateControlsButtonState();
-    this.injectControlsButton();
-
+    this.ensureNativeSubtitlesEnabled();
+    this.setTrack(this.sourceLang || 'auto');
     this.startObserver();
     logger.info('YouTubeCaptionAdapter started', { targetLang, displayMode, origSize, transSize, origColor, transColor });
+  }
+
+  private ensureNativeSubtitlesEnabled(): void {
+    try {
+      if (typeof document === 'undefined') return;
+      const ccButton = document.querySelector<HTMLButtonElement>('.ytp-subtitles-button');
+      if (ccButton && ccButton.getAttribute('aria-pressed') === 'false') {
+        logger.info('Auto-enabling YouTube native captions via .ytp-subtitles-button');
+        ccButton.click();
+      }
+    } catch (err) {
+      logger.debug('Failed to auto-enable native YouTube captions', err);
+    }
   }
 
   stop() {
@@ -193,7 +229,6 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.inlineTranslationCache.clear();
     this.abortPendingRequests();
     this.restoreNativeSegments();
-    this.updateControlsButtonState();
     logger.info('YouTubeCaptionAdapter stopped');
   }
 
@@ -313,8 +348,9 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       const response = await messageRouter.sendMessage({
         type: 'TRANSLATE_REQUEST',
         segments: [{ id: 'yt-caption', text: originalText }],
-        sourceLanguage: 'auto',
+        sourceLanguage: this.sourceLang,
         targetLanguage: this.targetLang,
+        context: { previous: [...this.recentAiContext] },
       });
 
       if (!this.isActive || this.routeGeneration !== generation || abortController.signal.aborted) {
@@ -337,6 +373,8 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       }
 
       this.inlineTranslationCache.set(fingerprint, translatedText);
+      this.recentAiContext.push({ source: originalText, translation: translatedText });
+      if (this.recentAiContext.length > 8) this.recentAiContext.shift();
 
       const targets = this.getElementsWithFingerprint(fingerprint);
       if (targets.length > 0) {

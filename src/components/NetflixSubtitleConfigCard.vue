@@ -13,7 +13,7 @@
 
     <!-- Diagnostic Evidence HUD -->
     <div class="diagnostic-hud" data-testid="diagnostic-hud">
-      <div class="hud-header">⚙ 字幕驗收診斷 (Diagnostic HUD)</div>
+      <div class="hud-header">字幕驗收診斷 (Diagnostic HUD)</div>
       <div class="hud-row">
         <span>主軌 (Primary):</span>
         <span class="hud-value">{{ hudInfo.primaryStatus }}</span>
@@ -149,115 +149,136 @@ async function onConfigChange() {
 .netflix-config-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  background: var(--bg-card, #1e293b);
-  border-radius: 10px;
-  color: #e2e8f0;
-  font-family: system-ui, -apple-system, sans-serif;
+  gap: 16px;
+  padding: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-rim-light), var(--card-shadow);
+  border-radius: var(--radius-lg, 14px);
+  color: var(--text-secondary);
+  font-family: var(--font-ui, system-ui, -apple-system, 'Segoe UI', sans-serif);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .status-badge {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
 }
+
 .status-badge.active {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
+  background: var(--accent-badge-bg);
+  color: var(--accent-badge-text);
+  border: 1px solid rgba(20, 184, 166, 0.25);
 }
+
 .status-badge.inactive {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid rgba(248, 113, 113, 0.25);
 }
 
 .toggle-btn {
-  background: #3b82f6;
-  color: white;
-  border: none;
+  background: var(--primary-accent);
+  color: var(--on-primary, #ffffff);
+  border: 1px solid transparent;
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 8px);
   font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px var(--primary-glow);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
 }
+
+.toggle-btn:hover:not(.active) {
+  background: var(--primary-hover);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 4px 12px var(--primary-glow);
+}
+
 .toggle-btn.active {
-  background: #ef4444;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border-color: rgba(248, 113, 113, 0.3);
+  box-shadow: none;
 }
 
 .diagnostic-hud {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 11px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 8px);
+  padding: 12px 14px;
+  font-size: 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .hud-header {
   font-weight: 700;
-  color: #38bdf8;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
-  padding-bottom: 4px;
-  margin-bottom: 2px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  border-bottom: 1px dashed var(--border-color);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
 }
 
 .hud-row {
   display: flex;
   justify-content: space-between;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .hud-value {
-  color: #f1f5f9;
+  color: var(--text-primary);
   font-family: monospace;
 }
 
 .hud-mode.dual-native {
-  color: #4ade80;
+  color: var(--accent-badge-text);
   font-weight: 700;
 }
 
 .hud-mode.ai-mode {
-  color: #fbbf24;
+  color: var(--warning-text);
   font-weight: 700;
 }
 
 .hud-mode.native-only {
-  color: #f87171;
+  color: var(--danger-text);
   font-weight: 700;
 }
 
 .hud-preview {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 11px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
 }
 
 .preview-line.primary {
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .preview-line.secondary {
-  color: #818cf8;
+  color: var(--accent-badge-text);
 }
 
 .sliders-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .slider-group {
@@ -269,24 +290,25 @@ async function onConfigChange() {
 .slider-label {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .value-text {
-  color: #38bdf8;
+  color: var(--primary-accent);
   font-weight: 600;
+  font-family: monospace;
 }
 
 input[type='range'] {
-  accent-color: #38bdf8;
+  accent-color: var(--primary-accent);
   cursor: pointer;
 }
 
 .options-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   margin-top: 4px;
 }
 
@@ -294,28 +316,28 @@ input[type='range'] {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: #cbd5e1;
+  font-size: 13px;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .hotkeys-guide {
   margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
 }
 
 .hotkeys-guide h4 {
   margin: 0 0 6px 0;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 .hotkeys-guide ul {
   margin: 0;
   padding-left: 16px;
-  font-size: 11px;
-  color: #cbd5e1;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .hotkeys-guide li {
@@ -323,11 +345,12 @@ input[type='range'] {
 }
 
 kbd {
-  background: #334155;
-  color: #f8fafc;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   padding: 2px 5px;
-  border-radius: 4px;
-  font-size: 10px;
+  border-radius: var(--radius-xs, 4px);
+  font-size: 11px;
   font-family: monospace;
 }
 </style>
