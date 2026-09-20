@@ -36,6 +36,7 @@ export abstract class CaptionAdapterBase {
   protected subtitleTranslatedFontSize: number = DEFAULT_CAPTION_SETTINGS.subtitleTranslatedFontSize;
   protected subtitleOriginalColor: string = DEFAULT_CAPTION_SETTINGS.subtitleOriginalColor;
   protected subtitleTranslatedColor: string = DEFAULT_CAPTION_SETTINGS.subtitleTranslatedColor;
+  protected smartBlur: boolean = false;
 
   protected routeGeneration = 0;
   protected currentVideoId: string | null = null;
@@ -51,6 +52,7 @@ export abstract class CaptionAdapterBase {
     if (settings.subtitleTranslatedFontSize) this.subtitleTranslatedFontSize = settings.subtitleTranslatedFontSize;
     if (settings.subtitleOriginalColor) this.subtitleOriginalColor = settings.subtitleOriginalColor;
     if (settings.subtitleTranslatedColor) this.subtitleTranslatedColor = settings.subtitleTranslatedColor;
+    if (settings.smartBlurSubtitles !== undefined) this.smartBlur = settings.smartBlurSubtitles;
   }
 
   /** Loads settings once at init; subclasses call this from init(). */

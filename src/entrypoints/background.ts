@@ -11,6 +11,8 @@ import { translationPipeline } from '@/core/pipeline/translation-pipeline';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
 import { VocabularyRepository } from '@/infrastructure/storage/repositories/vocabulary-repository';
+import { learningRepository } from '@/infrastructure/storage/repositories/learning-repository';
+import { aiLearningEngine } from '@/core/pipeline/ai-learning-engine';
 import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 
@@ -113,18 +115,21 @@ export default defineBackground(() => {
     });
   });
 
-  // ── VOCABULARY & DIAGNOSTICS ───────────────────────────────────
-  const vocabRepo = new VocabularyRepository();
-
+  // ── LEARNING & VOCABULARY WORKBENCH ───────────────────────────
   messageRouter.registerHandler('SAVE_VOCAB_ITEM', async (msg) => {
     try {
-      const id = `${msg.word}-${Date.now()}`;
-      await vocabRepo.add({
-        id,
+      await learningRepository.add({
         word: msg.word,
-        translation: msg.translation,
-        context: msg.context || '',
-        url: msg.url,
+        meaning: msg.meaning || msg.translation || '',
+        lemma: msg.lemma,
+        pos: msg.pos,
+        phonetic: msg.phonetic,
+        contextSentence: msg.contextSentence || msg.context,
+        contextTranslation: msg.contextTranslation,
+        sourceUrl: msg.sourceUrl || msg.url,
+        sourceLang: msg.sourceLang,
+        targetLang: msg.targetLang,
+        tags: msg.tags,
       });
       return { success: true };
     } catch (err: any) {
@@ -134,17 +139,33 @@ export default defineBackground(() => {
   });
 
   messageRouter.registerHandler('GET_VOCAB_ITEMS', async () => {
-    return await vocabRepo.getAll();
+    return await learningRepository.getAll();
   });
 
   messageRouter.registerHandler('DELETE_VOCAB_ITEM', async (msg) => {
-    await vocabRepo.delete(msg.id);
+    await learningRepository.delete(msg.id);
     return true;
   });
 
   messageRouter.registerHandler('CLEAR_VOCAB_ITEMS', async () => {
-    await vocabRepo.clear();
+    await learningRepository.clear();
     return true;
+  });
+
+  messageRouter.registerHandler('ANALYZE_WORD', async (msg) => {
+    return await aiLearningEngine.analyzeWord(msg);
+  });
+
+  messageRouter.registerHandler('EXPLAIN_GRAMMAR', async (msg) => {
+    return await aiLearningEngine.explainGrammar(msg);
+  });
+
+  messageRouter.registerHandler('RECORD_SRS_REVIEW', async (msg) => {
+    return await learningRepository.recordReview(msg.id, msg.grade);
+  });
+
+  messageRouter.registerHandler('GET_DUE_CARDS', async () => {
+    return await learningRepository.getDueCards();
   });
 
   // Start listening

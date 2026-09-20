@@ -7,8 +7,8 @@
 }
 
 body {
-  background-color: var(--bg-primary, #0f172a);
-  color: var(--text-primary, #f8fafc);
+  background-color: var(--bg-primary, #0e0e11);
+  color: var(--text-primary, #e2e2e5);
   min-height: 100vh;
   font-family: var(--font-ui, system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif);
 }
@@ -16,6 +16,24 @@ body {
 :where(button, select, input, [tabindex]):focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+/* Sharp right-angle micro-radii globally for options */
+.card, button, input, select, textarea, kbd, .badge {
+  border-radius: var(--radius-sm, 2px);
+}
+
+/* Subtle dark scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #222225;
+  border-radius: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {

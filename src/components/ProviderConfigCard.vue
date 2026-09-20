@@ -590,11 +590,10 @@ function onTestConnection() {
 
 <style scoped>
 .owt-provider-config-card {
-  background-color: var(--bg-card);
-  border-radius: var(--radius-lg, 14px);
+  background-color: var(--bg-card, #141416);
+  border-radius: 2px;
   padding: 24px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--card-rim-light), var(--card-shadow);
+  border: 1px solid var(--border-color, #222225);
 }
 
 .setting-item,
@@ -614,25 +613,25 @@ function onTestConnection() {
 .setting-label .title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-primary, #e2e2e5);
 }
 
 .setting-label .desc {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-muted, #808086);
   line-height: 1.4;
 }
 
 .verified-tag {
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent-badge-text);
-  background: var(--accent-badge-bg);
+  color: var(--text-muted, #808086);
+  background: #1c1c1f;
   padding: 2px 8px;
-  border-radius: var(--radius-full);
+  border-radius: 2px;
   display: inline-block;
   width: fit-content;
-  border: 1px solid rgba(20, 184, 166, 0.25);
+  border: 1px solid #26262a;
 }
 
 .model-select-col {
@@ -643,19 +642,24 @@ function onTestConnection() {
 }
 
 .key-input {
-  background-color: var(--bg-input);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm, 8px);
+  background-color: var(--bg-input, #0a0a0c);
+  color: var(--text-primary, #e2e2e5);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
   padding: 8px 12px;
   font-size: 13px;
   width: 100%;
   font-family: inherit;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: border-color 0.15s ease;
+}
+
+.key-input:focus {
+  outline: none;
+  border-color: var(--border-light, #2e2e33);
 }
 
 .provider-key-section {
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-color, #222225);
   padding-top: 18px;
   margin-top: 18px;
 }
@@ -670,20 +674,20 @@ function onTestConnection() {
 .badge {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: var(--radius-full);
+  border-radius: 2px;
   font-weight: 600;
 }
 
 .badge.configured {
-  background-color: var(--accent-badge-bg);
-  color: var(--accent-badge-text);
-  border: 1px solid rgba(20, 184, 166, 0.25);
+  background-color: #181d19;
+  color: #7d9b85;
+  border: 1px solid #212c24;
 }
 
 .badge.unconfigured {
-  background-color: var(--danger-bg);
-  color: var(--danger-text);
-  border: 1px solid rgba(248, 113, 113, 0.25);
+  background-color: #241a1a;
+  color: #b07070;
+  border: 1px solid #362222;
 }
 
 .key-input-row {
@@ -694,12 +698,12 @@ function onTestConnection() {
 
 .btn {
   padding: 8px 16px;
-  border-radius: var(--radius-sm, 8px);
+  border-radius: 2px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -707,30 +711,30 @@ function onTestConnection() {
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .btn-save {
-  background-color: var(--primary-accent);
-  color: var(--on-primary, #ffffff);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px var(--primary-glow);
+  background-color: var(--primary-accent, #e2e2e5);
+  color: var(--on-primary, #101012);
+  font-weight: 700;
 }
 
 .btn-save:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 4px 14px var(--primary-glow);
+  background-color: #ffffff;
 }
 
 .btn-clear {
   background-color: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
+  border: 1px solid var(--border-color, #222225);
+  color: var(--text-secondary, #b0b0b6);
+  border-radius: 2px;
 }
 
 .btn-clear:hover:not(:disabled) {
-  background-color: var(--danger-bg);
-  border-color: rgba(248, 113, 113, 0.35);
-  color: var(--danger-text);
+  background-color: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
 }
 
 .btn:disabled {

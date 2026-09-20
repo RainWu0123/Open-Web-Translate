@@ -117,9 +117,9 @@ onMounted(() => {
 
 .theme-options {
   display: inline-flex;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-input, #0a0a0c);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
   padding: 2px;
   gap: 2px;
 }
@@ -127,16 +127,16 @@ onMounted(() => {
 .theme-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-muted, #808086);
   padding: 4px 8px;
-  border-radius: var(--radius-xs, 6px);
+  border-radius: 1px;
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease;
   user-select: none;
 }
 
@@ -146,13 +146,13 @@ onMounted(() => {
 }
 
 .theme-btn:hover {
-  color: var(--text-primary);
+  color: var(--text-primary, #e2e2e5);
 }
 
 .theme-btn.active {
-  background: var(--primary-accent);
-  color: var(--on-primary, #ffffff);
-  font-weight: 600;
-  box-shadow: 0 1px 4px var(--primary-glow);
+  background: var(--primary-accent, #e2e2e5);
+  color: var(--on-primary, #101012);
+  font-weight: 700;
+  box-shadow: none;
 }
 </style>

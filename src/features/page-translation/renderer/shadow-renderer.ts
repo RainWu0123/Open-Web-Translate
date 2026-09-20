@@ -113,38 +113,39 @@ export function renderBilingualBlock(
     .owt-block {
       margin: 2px 0 10px 0;
       padding: 8px 14px;
-      border-left: 3px solid #0d9488;
-      background: rgba(13, 148, 136, 0.06);
-      border-radius: 0 6px 6px 0;
+      border-left: 3px solid #475569;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 0 2px 2px 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
     }
     .owt-translated {
       font-weight: 600;
-      color: #0d9488;
+      color: #e2e2e5;
       font-size: 14px;
     }
     .owt-toggle-btn {
       display: inline-block;
       margin-top: 6px;
       background: transparent;
-      border: 1px solid rgba(13, 148, 136, 0.3);
-      color: #0d9488;
+      border: 1px solid #334155;
+      color: #94a3b8;
       padding: 2px 8px;
-      border-radius: 4px;
+      border-radius: 2px;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       transition: background 0.2s, color 0.2s;
     }
     .owt-toggle-btn:hover, .owt-toggle-btn:focus {
-      background: rgba(13, 148, 136, 0.15);
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
       outline: none;
     }
     @media (prefers-color-scheme: dark) {
-      .owt-translated { color: #2dd4bf; }
-      .owt-block { background: rgba(20, 184, 166, 0.1); border-left-color: #14b8a6; }
-      .owt-toggle-btn { color: #5eead4; border-color: rgba(20, 184, 166, 0.35); }
+      .owt-translated { color: #e2e2e5; }
+      .owt-block { background: rgba(255, 255, 255, 0.04); border-left-color: #475569; }
+      .owt-toggle-btn { color: #94a3b8; border-color: #334155; }
     }
   `;
   shadow.appendChild(style);
@@ -242,19 +243,19 @@ export function renderInlineHost(
       display: inline-block;
       margin-left: 6px;
       padding: 1px 6px;
-      background: rgba(13, 148, 136, 0.1);
-      color: #0f766e;
-      border: 1px solid rgba(13, 148, 136, 0.25);
-      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #e2e2e5;
+      border: 1px solid #334155;
+      border-radius: 2px;
       font-size: 0.9em;
       font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     @media (prefers-color-scheme: dark) {
       .owt-inline-badge {
-        background: rgba(20, 184, 166, 0.15);
-        color: #5eead4;
-        border-color: rgba(20, 184, 166, 0.35);
+        background: rgba(255, 255, 255, 0.06);
+        color: #e2e2e5;
+        border-color: #334155;
       }
     }
   `;

@@ -34,10 +34,7 @@
 
     <div class="sliders-section">
       <div class="slider-group">
-        <div class="slider-label">
-          <span>主字幕大小</span>
-          <span class="value-text">{{ config.primarySize }}px</span>
-        </div>
+        <span class="slider-label">主字幕大小</span>
         <input
           type="range"
           min="12"
@@ -47,13 +44,11 @@
           @change="onConfigChange"
           data-testid="primary-size-slider"
         />
+        <span class="value-text">{{ config.primarySize }}px</span>
       </div>
 
       <div class="slider-group">
-        <div class="slider-label">
-          <span>副字幕大小</span>
-          <span class="value-text">{{ config.secondarySize }}px</span>
-        </div>
+        <span class="slider-label">副字幕大小</span>
         <input
           type="range"
           min="12"
@@ -63,13 +58,11 @@
           @change="onConfigChange"
           data-testid="secondary-size-slider"
         />
+        <span class="value-text">{{ config.secondarySize }}px</span>
       </div>
 
       <div class="slider-group">
-        <div class="slider-label">
-          <span>字幕位置</span>
-          <span class="value-text">{{ config.bottomPosition }}px</span>
-        </div>
+        <span class="slider-label">字幕位置</span>
         <input
           type="range"
           min="20"
@@ -78,13 +71,11 @@
           @input="onConfigChange"
           data-testid="bottom-position-slider"
         />
+        <span class="value-text">{{ config.bottomPosition }}px</span>
       </div>
 
       <div class="slider-group">
-        <div class="slider-label">
-          <span>字幕間距</span>
-          <span class="value-text">{{ config.lineSpacing }}px</span>
-        </div>
+        <span class="slider-label">字幕間距</span>
         <input
           type="range"
           min="0"
@@ -93,6 +84,7 @@
           @input="onConfigChange"
           data-testid="line-spacing-slider"
         />
+        <span class="value-text">{{ config.lineSpacing }}px</span>
       </div>
     </div>
 
@@ -114,18 +106,19 @@
           @change="onConfigChange"
           data-testid="learning-mode-checkbox"
         />
-        <span>學習模式 (單字逐詞點擊)</span>
+        <span>學習模式（單字逐詞點擊）</span>
       </label>
     </div>
 
+    <!-- Hotkeys Quick Guide -->
     <div class="hotkeys-guide">
-      <h4>快捷鍵對照 (Alt + 組合鍵)</h4>
-      <ul>
-        <li><kbd>Alt + Q</kbd> / <kbd>Alt + E</kbd> : 減慢 / 加快播放速度</li>
-        <li><kbd>Alt + A</kbd> / <kbd>Alt + D</kbd> : 上一個 / 下一個字幕</li>
-        <li><kbd>Alt + S</kbd> : 重複播放當前字幕</li>
-        <li><kbd>Alt + Z</kbd> / <kbd>Alt + C</kbd> : 開關主字幕 / 開關副字幕</li>
-      </ul>
+      <div class="hotkeys-title">快捷鍵對照 (Alt + 組合鍵)</div>
+      <div class="hotkey-grid">
+        <div class="hotkey-item"><kbd>Alt + Q</kbd> / <kbd>Alt + E</kbd> <span>減慢 / 加快播放速度</span></div>
+        <div class="hotkey-item"><kbd>Alt + A</kbd> / <kbd>Alt + D</kbd> <span>上一個 / 下一個字幕</span></div>
+        <div class="hotkey-item"><kbd>Alt + S</kbd> <span>重複播放當前字幕</span></div>
+        <div class="hotkey-item"><kbd>Alt + Z</kbd> / <kbd>Alt + C</kbd> <span>開關主字幕 / 開關副字幕</span></div>
+      </div>
     </div>
   </div>
 </template>
@@ -171,51 +164,49 @@ async function onConfigChange() {
   font-size: 12px;
   font-weight: 600;
   padding: 3px 10px;
-  border-radius: var(--radius-full);
+  border-radius: 2px;
 }
 
 .status-badge.active {
-  background: var(--accent-badge-bg);
-  color: var(--accent-badge-text);
-  border: 1px solid rgba(20, 184, 166, 0.25);
+  background: #181d19;
+  color: #7d9b85;
+  border: 1px solid #212c24;
 }
 
 .status-badge.inactive {
-  background: var(--danger-bg);
-  color: var(--danger-text);
-  border: 1px solid rgba(248, 113, 113, 0.25);
+  background: #241a1a;
+  color: #b07070;
+  border: 1px solid #362222;
 }
 
 .toggle-btn {
-  background: var(--primary-accent);
-  color: var(--on-primary, #ffffff);
+  background: var(--primary-accent, #e2e2e5);
+  color: var(--on-primary, #101012);
   border: 1px solid transparent;
   padding: 6px 14px;
-  border-radius: var(--radius-sm, 8px);
-  font-weight: 600;
+  border-radius: 2px;
+  font-weight: 700;
   font-size: 13px;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), 0 2px 8px var(--primary-glow);
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease;
   user-select: none;
 }
 
 .toggle-btn:hover:not(.active) {
-  background: var(--primary-hover);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), 0 4px 12px var(--primary-glow);
+  background: #ffffff;
 }
 
 .toggle-btn.active {
-  background: var(--danger-bg);
-  color: var(--danger-text);
-  border-color: rgba(248, 113, 113, 0.3);
+  background: #241a1a;
+  color: #b07070;
+  border-color: #362222;
   box-shadow: none;
 }
 
 .diagnostic-hud {
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-input, #0a0a0c);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
   padding: 12px 14px;
   font-size: 12px;
   display: flex;
@@ -283,26 +274,33 @@ async function onConfigChange() {
 
 .slider-group {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .slider-label {
-  display: flex;
-  justify-content: space-between;
   font-size: 13px;
   color: var(--text-secondary);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.slider-group input[type='range'] {
+  flex: 1;
 }
 
 .value-text {
-  color: var(--primary-accent);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
   font-weight: 600;
-  font-family: monospace;
-}
-
-input[type='range'] {
-  accent-color: var(--primary-accent);
-  cursor: pointer;
+  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-input, #0a0a0c);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
+  padding: 2px 6px;
+  min-width: 46px;
+  text-align: center;
 }
 
 .options-section {
@@ -321,36 +319,48 @@ input[type='range'] {
   cursor: pointer;
 }
 
+.checkbox-label input[type='checkbox'] {
+  accent-color: var(--primary-accent, #e2e2e5);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
 .hotkeys-guide {
   margin-top: 6px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border-color);
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #222225);
 }
 
-.hotkeys-guide h4 {
-  margin: 0 0 6px 0;
+.hotkeys-title {
   font-size: 12px;
-  color: var(--text-muted);
+  font-weight: 600;
+  color: var(--text-muted, #808086);
+  margin-bottom: 8px;
 }
 
-.hotkeys-guide ul {
-  margin: 0;
-  padding-left: 16px;
+.hotkey-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.hotkey-item {
   font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.hotkeys-guide li {
-  margin-bottom: 3px;
+  color: var(--text-secondary, #b0b0b6);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 kbd {
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 2px 5px;
-  border-radius: var(--radius-xs, 4px);
+  background: var(--bg-input, #0a0a0c);
+  border: 1px solid var(--border-color, #222225);
+  color: var(--text-primary, #e2e2e5);
+  padding: 2px 6px;
+  border-radius: 2px;
   font-size: 11px;
-  font-family: monospace;
+  font-family: var(--font-mono, monospace);
+  font-weight: 500;
 }
 </style>

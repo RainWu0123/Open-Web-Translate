@@ -39,4 +39,5 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   subtitleTranslatedFontSize: 22,
   subtitleOriginalColor: '#ffffff',
   subtitleTranslatedColor: '#818cf8',
+  smartBlurSubtitles: false,
 };

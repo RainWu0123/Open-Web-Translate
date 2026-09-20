@@ -5,6 +5,12 @@
  */
 import type { LanguageCode } from './common';
 import type { VocabularyItem } from '@/infrastructure/storage/indexeddb/schemas';
+import type {
+  WordAnalysisResult,
+  GrammarExplanation,
+  LearningCard,
+  SrsGrade,
+} from '@/core/domain/learning-types';
 
 // ─── Limits & Error Constants ─────────────────────────────────────
 
@@ -61,6 +67,7 @@ export interface ExtensionSettings {
   localHttpEndpoint?: string;
   localHttpApiKey?: string;
   localHttpModel?: string;
+  smartBlurSubtitles?: boolean;
   /** Netflix subtitle card settings; persisted inside the single settings store. */
   netflix?: NetflixConfig;
 }
@@ -139,9 +146,45 @@ export interface RestorePageTranslationMessage {
 export interface SaveVocabItemMessage {
   type: 'SAVE_VOCAB_ITEM';
   word: string;
-  translation: string;
+  translation?: string;
+  meaning?: string;
+  lemma?: string;
+  pos?: string;
+  phonetic?: string;
   context?: string;
+  contextSentence?: string;
+  contextTranslation?: string;
   url?: string;
+  sourceUrl?: string;
+  sourceLang?: string;
+  targetLang?: string;
+  tags?: string[];
+}
+
+export interface AnalyzeWordMessage {
+  type: 'ANALYZE_WORD';
+  word: string;
+  sentence: string;
+  sourceLang: string;
+  targetLang: string;
+}
+
+export interface ExplainGrammarMessage {
+  type: 'EXPLAIN_GRAMMAR';
+  sentence: string;
+  focusWord?: string;
+  sourceLang: string;
+  targetLang: string;
+}
+
+export interface RecordSrsReviewMessage {
+  type: 'RECORD_SRS_REVIEW';
+  id: string;
+  grade: SrsGrade;
+}
+
+export interface GetDueCardsMessage {
+  type: 'GET_DUE_CARDS';
 }
 
 export interface GetVocabItemsMessage {
@@ -213,6 +256,10 @@ export type BackgroundMessage =
   | GetVocabItemsMessage
   | DeleteVocabItemMessage
   | ClearVocabItemsMessage
+  | AnalyzeWordMessage
+  | ExplainGrammarMessage
+  | RecordSrsReviewMessage
+  | GetDueCardsMessage
   | GetNetflixStateMessage
   | SetNetflixSelectionMessage
   | SetNetflixActiveMessage
@@ -260,9 +307,13 @@ export type ResponseMap = {
   EXECUTE_PAGE_TRANSLATION: ExecutePageTranslationResponsePayload;
   RESTORE_PAGE_TRANSLATION: RestorePageTranslationResponsePayload;
   SAVE_VOCAB_ITEM: { success: boolean };
-  GET_VOCAB_ITEMS: VocabularyItem[];
+  GET_VOCAB_ITEMS: LearningCard[];
   DELETE_VOCAB_ITEM: boolean;
   CLEAR_VOCAB_ITEMS: boolean;
+  ANALYZE_WORD: WordAnalysisResult;
+  EXPLAIN_GRAMMAR: GrammarExplanation;
+  RECORD_SRS_REVIEW: LearningCard;
+  GET_DUE_CARDS: LearningCard[];
   GET_NETFLIX_STATE: NetflixStateInfo | null;
   SET_NETFLIX_SELECTION: boolean;
   SET_NETFLIX_ACTIVE: boolean;

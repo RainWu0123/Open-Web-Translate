@@ -3,6 +3,8 @@ import { createLogger } from '@/shared/logger';
 import { DEFAULT_SETTINGS } from '@/shared/constants';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
 import { composeBilingualLines, type BilingualDisplayMode } from '@/shared/subtitles/bilingual-lines';
+import { DictionaryPopover } from '@/shared/ui/dictionary-popover';
+import { tokenizeText } from '@/core/session/subtitle-session-store';
 
 import { YT_BRIDGE, postToMain, subscribeToYouTubeBridge, type YouTubeTrack } from './youtube-bridge';
 
@@ -14,6 +16,7 @@ interface RequestState {
 }
 
 export class YouTubeCaptionAdapter extends CaptionAdapterBase {
+  private popover: DictionaryPopover | null = null;
   private observer: MutationObserver | null = null;
   private observerTarget: Element | null = null;
 
@@ -229,6 +232,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.inlineTranslationCache.clear();
     this.abortPendingRequests();
     this.restoreNativeSegments();
+    this.popover?.hide();
     logger.info('YouTubeCaptionAdapter stopped');
   }
 
@@ -487,7 +491,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     seg.style.maxWidth = '100%';
     seg.style.margin = '0 auto';
 
-    const createSpan = (text: string, color: string, isBold = false, fontSize = '20px') => {
+    const createSpan = (text: string, color: string, isBold = false, fontSize = '20px', isTranslated = false) => {
       const span = document.createElement('span');
       span.style.display = 'inline-block';
       span.style.width = 'fit-content';
@@ -501,7 +505,33 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       span.style.margin = '3px auto';
       span.style.textAlign = 'center';
       span.style.textShadow = '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)';
-      span.textContent = text;
+
+      if (isTranslated) {
+        span.textContent = text;
+        if (this.smartBlur) {
+          span.style.filter = 'blur(6px)';
+          span.style.transition = 'filter 0.2s ease';
+          span.style.cursor = 'pointer';
+          span.title = '懸浮以顯示譯文';
+          span.addEventListener('mouseenter', () => {
+            span.style.filter = 'none';
+          });
+          span.addEventListener('mouseleave', () => {
+            span.style.filter = 'blur(6px)';
+          });
+        }
+      } else {
+        span.textContent = text;
+        span.style.cursor = 'pointer';
+        span.title = '點擊單字或句子開啟 AI 學習彈窗';
+        span.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const selected = window.getSelection()?.toString().trim();
+          const targetWord = selected || text;
+          this.showPopover(targetWord, originalText, translatedText, e.clientX, e.clientY);
+        });
+      }
+
       return span;
     };
 
@@ -518,12 +548,62 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     );
 
     for (const line of lines) {
-      seg.appendChild(createSpan(line.text, line.color, line.bold, line.fontSize));
+      const isTranslated = line.text === translatedText;
+      seg.appendChild(createSpan(line.text, line.color, line.bold, line.fontSize, isTranslated));
     }
 
     if (this.observer && this.observerTarget) {
       this.observer.observe(this.observerTarget, { childList: true, subtree: true });
     }
+  }
+
+  private showPopover(surface: string, sentence: string, sentenceTranslation: string, clientX: number, clientY: number) {
+    if (!this.popover) {
+      this.popover = new DictionaryPopover({
+        onLookup: async (word, sent) => {
+          return await messageRouter.sendMessage({
+            type: 'ANALYZE_WORD',
+            word,
+            sentence: sent || '',
+            sourceLang: this.sourceLang || 'auto',
+            targetLang: this.targetLang || 'zh-Hant',
+          });
+        },
+        onExplainGrammar: async (sent, focusWord) => {
+          return await messageRouter.sendMessage({
+            type: 'EXPLAIN_GRAMMAR',
+            sentence: sent,
+            focusWord,
+            sourceLang: this.sourceLang || 'auto',
+            targetLang: this.targetLang || 'zh-Hant',
+          });
+        },
+        onSave: async (entry) => {
+          await messageRouter.sendMessage({
+            type: 'SAVE_VOCAB_ITEM',
+            word: entry.surface,
+            meaning: entry.meaning,
+            lemma: entry.lemma,
+            pos: entry.pos,
+            phonetic: entry.phonetic,
+            contextSentence: entry.sentence,
+            contextTranslation: entry.sentenceTranslation,
+            sourceLang: this.sourceLang || 'auto',
+            targetLang: this.targetLang || 'zh-Hant',
+            url: window.location.href,
+          });
+        },
+      });
+    }
+    this.popover.show({
+      surface,
+      sentence,
+      sentenceTranslation,
+      clientX,
+      clientY,
+      sourceLang: this.sourceLang || 'auto',
+      targetLang: this.targetLang || 'zh-Hant',
+    });
   }
 
   private abortPendingRequests() {

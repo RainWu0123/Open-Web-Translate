@@ -304,14 +304,14 @@ function addFloatingBadge(): void {
       .owt-badge {
         width: 44px;
         height: 44px;
-        border-radius: 50%;
-        background: #0d9488;
-        color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 4px;
+        background: #141416;
+        color: #e2e2e5;
+        border: 1px solid #2e2e33;
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.22),
-          0 2px 6px rgba(0, 0, 0, 0.28),
-          0 6px 16px rgba(13, 148, 136, 0.38);
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 2px 6px rgba(0, 0, 0, 0.4),
+          0 6px 16px rgba(0, 0, 0, 0.5);
         display: flex;
         align-items: center;
         justify-content: center;

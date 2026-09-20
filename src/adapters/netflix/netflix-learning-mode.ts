@@ -58,20 +58,45 @@ export class NetflixLearningMode {
 
     if (!this.popover) {
       this.popover = new DictionaryPopover({
-        onLookup: async (surface) => {
-          const response = await messageRouter.sendMessage({
-            type: 'TRANSLATE_REQUEST',
-            segments: [{ id: 'dict-gloss', text: surface }],
-            sourceLanguage: this.host.sourceLang(),
-            targetLanguage: this.host.targetLang(),
+        onLookup: async (surface, sentence) => {
+          return await messageRouter.sendMessage({
+            type: 'ANALYZE_WORD',
+            word: surface,
+            sentence: sentence || '',
+            sourceLang: this.host.sourceLang(),
+            targetLang: this.host.targetLang(),
           });
-          return response?.segments?.[0]?.translatedText || '';
+        },
+        onExplainGrammar: async (sentence, focusWord) => {
+          return await messageRouter.sendMessage({
+            type: 'EXPLAIN_GRAMMAR',
+            sentence,
+            focusWord,
+            sourceLang: this.host.sourceLang(),
+            targetLang: this.host.targetLang(),
+          });
         },
         onSave: async (entry) => {
+          await messageRouter.sendMessage({
+            type: 'SAVE_VOCAB_ITEM',
+            word: entry.surface,
+            meaning: entry.meaning,
+            lemma: entry.lemma,
+            pos: entry.pos,
+            phonetic: entry.phonetic,
+            contextSentence: entry.sentence,
+            contextTranslation: entry.sentenceTranslation,
+            sourceLang: this.host.sourceLang(),
+            targetLang: this.host.targetLang(),
+            url: window.location.href,
+          });
+          // Also sync to legacy session store for immediate backward compat
           await globalSubtitleSessionStore.saveVocabularyCard({
             language: this.host.primaryTrackLang(),
-            lemma: entry.surface,
+            lemma: entry.lemma || entry.surface,
             surface: entry.surface,
+            reading: entry.phonetic,
+            meaning: entry.meaning,
             example: {
               text: entry.sentence,
               translation: entry.sentenceTranslation,
@@ -110,6 +135,8 @@ export class NetflixLearningMode {
       sentenceTranslation: sentence?.translated ?? undefined,
       clientX: detail.clientX,
       clientY: detail.clientY,
+      sourceLang: this.host.sourceLang(),
+      targetLang: this.host.targetLang(),
     });
   };
 }

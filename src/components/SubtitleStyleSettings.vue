@@ -123,7 +123,10 @@ const builtinTranslations: Record<string, string> = {
 };
 
 function translate(key: string): string {
-  if (props.t) return props.t(key);
+  if (props.t) {
+    const val = props.t(key);
+    if (val && val !== key) return val;
+  }
   return builtinTranslations[key] ?? key;
 }
 
@@ -134,12 +137,17 @@ function updateSetting(key: keyof ExtensionSettings, value: unknown) {
   emit('change', updated);
 }
 
-function onRangeChange(key: keyof ExtensionSettings, e: Event) {
-  updateSetting(key, Number((e.target as HTMLInputElement).value));
+function onRangeChange(key: keyof ExtensionSettings, event: Event) {
+  const target = event.target as HTMLInputElement;
+  const numVal = parseInt(target.value, 10);
+  if (!isNaN(numVal)) {
+    updateSetting(key, numVal);
+  }
 }
 
-function onColorChange(key: keyof ExtensionSettings, e: Event) {
-  updateSetting(key, (e.target as HTMLInputElement).value);
+function onColorChange(key: keyof ExtensionSettings, event: Event) {
+  const target = event.target as HTMLInputElement;
+  updateSetting(key, target.value);
 }
 </script>
 
@@ -147,41 +155,40 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 .subtitle-style-settings {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 24px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--card-rim-light), var(--card-shadow);
-  border-radius: var(--radius-lg, 14px);
+  gap: 16px;
+  padding: 20px;
+  background: var(--bg-card, #141416);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
 }
 
 .card-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border-color);
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, #222225);
 }
 
 .card-icon {
-  width: 20px;
-  height: 20px;
-  color: var(--primary-accent);
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted, #808086);
   flex-shrink: 0;
 }
 
 .card-title {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-primary, #e2e2e5);
 }
 
 .card-desc {
   display: block;
   font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
+  color: var(--text-muted, #808086);
+  margin-top: 1px;
 }
 
 .setting-item {
@@ -194,19 +201,19 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 .setting-label {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   max-width: 55%;
 }
 
 .title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #e2e2e5);
 }
 
 .desc {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  color: var(--text-muted, #808086);
   line-height: 1.4;
 }
 
@@ -219,34 +226,47 @@ function onColorChange(key: keyof ExtensionSettings, e: Event) {
 }
 
 .range-control input[type='range'] {
-  width: 140px;
-  accent-color: var(--primary-accent);
+  width: 160px;
 }
 
 .range-val,
 .color-val {
-  font-size: 12px;
-  font-family: monospace;
-  color: var(--primary-accent);
-  min-width: 52px;
-  text-align: right;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-input, #0a0a0c);
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
+  padding: 3px 6px;
+  min-width: 48px;
+  text-align: center;
 }
 
 .color-control {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .color-control input[type='color'] {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm, 6px);
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-color, #222225);
+  border-radius: 2px;
   padding: 0;
   cursor: pointer;
-  background: var(--bg-input);
+  background: transparent;
   -webkit-appearance: none;
   appearance: none;
+}
+
+.color-control input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-control input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 1px;
 }
 </style>
