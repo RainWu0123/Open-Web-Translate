@@ -57,7 +57,9 @@ export class MockProvider implements TranslationProvider {
       })),
       usage: { characters: request.segments.reduce((sum, s) => sum + s.text.length, 0) },
       warnings: [],
-      cacheable: true,
+      // Echoes the source text back; caching it would serve untranslated
+      // text as if it were a real translation.
+      cacheable: false,
     };
   }
 }

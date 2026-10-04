@@ -124,9 +124,15 @@ export class TranslationPipeline {
 
     let providerResult;
     let degraded: string | undefined;
+    // Results produced by a fallback path (another provider, or the mock
+    // echo) must never be written to the cache under the primary provider's
+    // key: a transient outage would otherwise pin untranslated text for the
+    // whole cache TTL.
+    let usedFallback = false;
     try {
       providerResult = await provider.translate(request);
     } catch (err: any) {
+      usedFallback = true;
       if (provider.isLocal) {
         logger.error(
           `Local private provider ${activeProviderId} failed. Privacy boundary enforced (no fallback).`,
@@ -155,7 +161,7 @@ export class TranslationPipeline {
     // 4. Persist new translations (concurrent writes; Map lookup instead of
     //    the previous O(n*m) find-per-result loop)
     const sourceById = new Map(segmentsToTranslate.map((s) => [s.id as string, s]));
-    if (providerResult.cacheable) {
+    if (providerResult.cacheable && !usedFallback) {
       await Promise.all(
         providerResult.segments.map((resSeg: { id: unknown; text: string }) => {
           const originalSeg = sourceById.get(resSeg.id as string);
