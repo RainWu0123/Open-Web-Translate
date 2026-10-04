@@ -9,8 +9,8 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![WXT](https://img.shields.io/badge/Built_with-WXT-FF6B6B)](https://wxt.dev/)
-[![Tests](https://img.shields.io/badge/Tests-255_passing-brightgreen)](https://github.com/)
-[![Platform](https://img.shields.io/badge/Platform-Chrome_%7C_Firefox-orange)](https://github.com/)
+[![CI](https://github.com/RainWu0123/Open-Web-Translate/actions/workflows/ci.yml/badge.svg)](https://github.com/RainWu0123/Open-Web-Translate/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/Platform-Chrome_%7C_Firefox-orange)](#-如何載入已解壓的擴充功能)
 
 [功能特點](#-核心功能) • [支援引擎](#-多引擎-ai-翻譯核心) • [快捷鍵指南](#-影音學習快捷鍵) • [本地開發](#-本地開發與安裝) • [隱私架構](#-隱私與安全模型)
 
@@ -109,7 +109,7 @@ pnpm dev:firefox
 # 4. 執行 TypeScript 型別檢查
 pnpm typecheck
 
-# 5. 執行完整單元測試（47 個測試檔，255+ 項測試）
+# 5. 執行完整單元／整合測試
 pnpm test
 
 # 6. 生產環境建構

@@ -6,7 +6,8 @@ export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: () => ({
     name: 'Open Web Translate',
-    version: '0.1.0',
+    // `version` is intentionally omitted: WXT derives it from package.json,
+    // so the manifest can no longer drift from the released version.
     description: 'An open-source browser translation extension.',
     permissions: [
       'activeTab',
