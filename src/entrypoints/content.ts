@@ -305,13 +305,10 @@ function addFloatingBadge(): void {
         width: 44px;
         height: 44px;
         border-radius: 4px;
-        background: #141416;
-        color: #e2e2e5;
-        border: 1px solid #2e2e33;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.05),
-          0 2px 6px rgba(0, 0, 0, 0.4),
-          0 6px 16px rgba(0, 0, 0, 0.5);
+        background: #000000;
+        color: #fafafa;
+        border: 1px solid #525252;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -333,11 +330,7 @@ function addFloatingBadge(): void {
 
       .owt-badge:hover {
         transform: scale(1.07);
-        filter: brightness(1.07);
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.22),
-          0 3px 8px rgba(0, 0, 0, 0.3),
-          0 8px 20px rgba(13, 148, 136, 0.5);
+        border-color: #fafafa;
       }
 
       .owt-badge.dragging {
@@ -346,20 +339,16 @@ function addFloatingBadge(): void {
         transition: none;
       }
 
+      /* State is conveyed by contrast, not hue: busy = spinner on black,
+         translated = inverted (white badge, black glyph). */
       .owt-badge-translating {
-        background: #b45309;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.22),
-          0 2px 6px rgba(0, 0, 0, 0.28),
-          0 6px 16px rgba(180, 83, 9, 0.38);
+        border-color: #fafafa;
       }
 
       .owt-badge-translated {
-        background: #059669;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.22),
-          0 2px 6px rgba(0, 0, 0, 0.28),
-          0 6px 16px rgba(5, 150, 105, 0.38);
+        background: #fafafa;
+        color: #0a0a0a;
+        border-color: #fafafa;
       }
 
       .owt-spinner-ring {

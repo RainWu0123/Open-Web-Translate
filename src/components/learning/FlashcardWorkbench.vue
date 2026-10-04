@@ -433,7 +433,7 @@ onUnmounted(() => {
   width: 100%;
   max-width: 1360px;
   margin: 0 auto;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
 }
 
@@ -465,7 +465,7 @@ onUnmounted(() => {
   align-items: center;
   font-size: 12px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   padding: 0 4px;
 }
 
@@ -477,11 +477,11 @@ onUnmounted(() => {
 
 .fc-counter {
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .fc-divider {
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
 }
 
 .fc-info-right {
@@ -493,9 +493,9 @@ onUnmounted(() => {
 .fc-kbd {
   padding: 2px 6px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   font-size: 11px;
 }
 
@@ -505,14 +505,14 @@ onUnmounted(() => {
   gap: 6px;
   background: none;
   border: none;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   font-size: 12px;
   cursor: pointer;
   transition: color 0.15s ease;
 }
 
 .fc-audio-action-btn:hover {
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .fc-icon {
@@ -522,8 +522,8 @@ onUnmounted(() => {
 
 .fc-exit-btn {
   background: none;
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-dim, #4c4c52);
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-dim, var(--text-dim));
   border-radius: 2px;
   padding: 2px 8px;
   font-size: 12px;
@@ -531,8 +531,8 @@ onUnmounted(() => {
 }
 
 .fc-exit-btn:hover {
-  color: var(--text-primary, #e2e2e5);
-  background: var(--bg-hover, #19191c);
+  color: var(--text-primary, var(--text-primary));
+  background: var(--bg-hover, var(--bg-hover));
 }
 
 /* Framed Card Stage */
@@ -540,8 +540,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 380px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 16px;
   cursor: pointer;
@@ -550,15 +550,15 @@ onUnmounted(() => {
 }
 
 .fc-card-frame:hover {
-  border-color: var(--border-light, #2e2e33);
+  border-color: var(--border-light, var(--border-light));
 }
 
 .fc-card-inner {
   display: flex;
   flex-direction: column;
   flex: 1;
-  background: var(--bg-inset, #08080a);
-  border: 1px solid #1c1c1f;
+  background: var(--bg-inset, var(--bg-input));
+  border: 1px solid var(--border-color);
   border-radius: 2px;
   padding: 32px 28px;
   justify-content: space-between;
@@ -581,18 +581,18 @@ onUnmounted(() => {
 }
 
 .fc-phonetic-top {
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .fc-reveal-tag {
   font-size: 11px;
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
   letter-spacing: 0.05em;
 }
 
 .fc-revealed-tag {
   font-size: 11px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   letter-spacing: 0.05em;
 }
 
@@ -610,7 +610,7 @@ onUnmounted(() => {
   font-size: 52px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   margin: 0;
 }
 
@@ -618,9 +618,9 @@ onUnmounted(() => {
   display: inline-block;
   padding: 12px 20px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-muted, #808086);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-muted, var(--text-muted));
   font-size: 14px;
   max-width: 640px;
 }
@@ -631,15 +631,15 @@ onUnmounted(() => {
 }
 
 :deep(.cloze-blank) {
-  border-bottom: 2px solid #e2e2e5;
+  border-bottom: 2px solid var(--primary-accent);
   padding: 0 4px;
   font-weight: 700;
-  color: #e2e2e5;
+  color: var(--text-primary);
 }
 
 .fc-face-footer {
   font-size: 11px;
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
   text-align: center;
 }
 
@@ -653,12 +653,12 @@ onUnmounted(() => {
 .fc-back-term {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .fc-back-phonetic {
   font-size: 12px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .fc-back-body {
@@ -670,14 +670,14 @@ onUnmounted(() => {
 .fc-meaning-text {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .fc-sentence-card {
   padding: 14px 16px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   font-size: 12.5px;
   display: flex;
   flex-direction: column;
@@ -685,25 +685,25 @@ onUnmounted(() => {
 }
 
 .fc-sentence-orig {
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .fc-sentence-trans {
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 :deep(.highlight-word) {
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 700;
 }
 
 .fc-notes-box {
   padding: 12px 14px;
   border-radius: 2px;
-  background: #0c0c0e;
-  border: 1px solid #1c1c1f;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   font-size: 11px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   line-height: 1.6;
 }
 
@@ -720,17 +720,17 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 16px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
 }
 
 .fc-grade-btn:hover {
-  background: var(--bg-hover, #18181b);
-  border-color: var(--border-light, #2e2e33);
+  background: var(--bg-hover, var(--bg-hover));
+  border-color: var(--border-light, var(--border-light));
 }
 
 .grade-info {
@@ -742,24 +742,24 @@ onUnmounted(() => {
 .grade-name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .grade-interval {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
   margin-top: 2px;
 }
 
 .grade-kbd {
   padding: 2px 8px;
   border-radius: 2px;
-  background: #0c0c0e;
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color, var(--border-color));
   font-size: 11px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .fc-unflipped-controls {
@@ -770,17 +770,17 @@ onUnmounted(() => {
   width: 100%;
   padding: 14px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-muted, #808086);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-muted, var(--text-muted));
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .fc-flip-btn:hover {
-  color: var(--text-primary, #e2e2e5);
-  border-color: var(--border-light, #2e2e33);
+  color: var(--text-primary, var(--text-primary));
+  border-color: var(--border-light, var(--border-light));
 }
 
 /* Right 1 Column Sidebar */
@@ -793,8 +793,8 @@ onUnmounted(() => {
 .fc-inspector-card {
   padding: 20px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -819,17 +819,17 @@ onUnmounted(() => {
   font-weight: 700;
   font-family: var(--font-mono, monospace);
   letter-spacing: 0.05em;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .stage-pill {
   padding: 2px 8px;
   border-radius: 2px;
-  background: #1c1c1f;
-  border: 1px solid #26262a;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .inspector-specs {
@@ -846,11 +846,11 @@ onUnmounted(() => {
 }
 
 .spec-label {
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .spec-val {
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   font-weight: 500;
 }
 
@@ -863,7 +863,7 @@ onUnmounted(() => {
 }
 
 .inspector-collocations {
-  border-top: 1px solid var(--border-color, #222225);
+  border-top: 1px solid var(--border-color, var(--border-color));
   padding-top: 12px;
   display: flex;
   flex-direction: column;
@@ -873,7 +873,7 @@ onUnmounted(() => {
 .collocations-title {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   text-transform: uppercase;
 }
 
@@ -886,14 +886,14 @@ onUnmounted(() => {
 .col-tag {
   padding: 4px 8px;
   border-radius: 2px;
-  background: #0c0c0e;
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color, var(--border-color));
   font-size: 11px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .inspector-actions {
-  border-top: 1px solid var(--border-color, #222225);
+  border-top: 1px solid var(--border-color, var(--border-color));
   padding-top: 12px;
   display: flex;
   flex-direction: column;
@@ -908,9 +908,9 @@ onUnmounted(() => {
   width: 100%;
   padding: 10px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -918,7 +918,7 @@ onUnmounted(() => {
 }
 
 .btn-inspector-audio:hover {
-  background: var(--bg-hover, #18181b);
+  background: var(--bg-hover, var(--bg-hover));
 }
 
 .btn-icon {
@@ -934,9 +934,9 @@ onUnmounted(() => {
   width: 100%;
   padding: 10px;
   border-radius: 2px;
-  background: var(--primary-accent, #e2e2e5);
-  border: 1px solid var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background: var(--primary-accent, var(--primary-accent));
+  border: 1px solid var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -944,16 +944,16 @@ onUnmounted(() => {
 }
 
 .btn-inspector-copy:hover {
-  background: #ffffff;
-  border-color: #ffffff;
+  background: var(--primary-hover);
+  border-color: var(--primary-accent);
 }
 
 /* Shortcuts Card */
 .fc-shortcuts-card {
   padding: 20px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -962,7 +962,7 @@ onUnmounted(() => {
 .shortcuts-title {
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .shortcuts-list {
@@ -979,17 +979,17 @@ onUnmounted(() => {
 }
 
 .shortcut-label {
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .shortcut-kbd {
   padding: 2px 6px;
   border-radius: 2px;
-  background: #0c0c0e;
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color, var(--border-color));
   font-size: 10.5px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 /* Summary Card */
@@ -1006,8 +1006,8 @@ onUnmounted(() => {
   width: 100%;
   padding: 32px;
   border-radius: 2px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -1022,21 +1022,21 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   padding: 2px 8px;
   border-radius: 2px;
-  background: #1c1c1f;
-  border: 1px solid #27272b;
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .summary-title {
   font-size: 20px;
   font-weight: 700;
   margin: 0;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .summary-desc {
   font-size: 13px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   margin: 0;
   line-height: 1.5;
 }
@@ -1052,8 +1052,8 @@ onUnmounted(() => {
 .stat-box {
   padding: 12px 8px;
   border-radius: 2px;
-  background: #0c0c0e;
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color, var(--border-color));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1061,13 +1061,13 @@ onUnmounted(() => {
 
 .stat-label {
   font-size: 11px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .stat-num {
   font-size: 18px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .summary-actions {
@@ -1079,9 +1079,9 @@ onUnmounted(() => {
   width: 100%;
   padding: 12px;
   border-radius: 2px;
-  background: var(--primary-accent, #e2e2e5);
-  border: 1px solid var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background: var(--primary-accent, var(--primary-accent));
+  border: 1px solid var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -1089,6 +1089,6 @@ onUnmounted(() => {
 }
 
 .btn-primary:hover {
-  background: #ffffff;
+  background: var(--primary-hover);
 }
 </style>

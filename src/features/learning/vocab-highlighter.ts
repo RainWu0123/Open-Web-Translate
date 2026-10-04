@@ -115,7 +115,7 @@ export class VocabHighlighter {
         mark.textContent = matchedWord;
         mark.style.background = 'transparent';
         mark.style.color = 'inherit';
-        mark.style.borderBottom = '2px dashed rgba(20, 184, 166, 0.7)';
+        mark.style.borderBottom = '2px dashed currentColor';
         mark.style.cursor = 'pointer';
         mark.style.padding = '0 1px';
         mark.title = vocabInfo?.meaning ? `生詞: ${matchedWord} (${vocabInfo.meaning})` : `生詞: ${matchedWord}`;

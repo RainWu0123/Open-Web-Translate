@@ -76,11 +76,11 @@
       <div class="color-control">
         <input
           type="color"
-          :value="localSettings.subtitleTranslatedColor || '#818cf8'"
+          :value="localSettings.subtitleTranslatedColor || '#d4d4d4'"
           @input="onColorChange('subtitleTranslatedColor', $event)"
           data-testid="color-trans-color"
         />
-        <span class="color-val">{{ localSettings.subtitleTranslatedColor || '#818cf8' }}</span>
+        <span class="color-val">{{ localSettings.subtitleTranslatedColor || '#d4d4d4' }}</span>
       </div>
     </div>
   </div>
@@ -157,8 +157,8 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   flex-direction: column;
   gap: 16px;
   padding: 20px;
-  background: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
 }
 
@@ -167,13 +167,13 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   align-items: center;
   gap: 10px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #222225);
+  border-bottom: 1px solid var(--border-color, var(--border-color));
 }
 
 .card-icon {
   width: 18px;
   height: 18px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   flex-shrink: 0;
 }
 
@@ -181,13 +181,13 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .card-desc {
   display: block;
   font-size: 12px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   margin-top: 1px;
 }
 
@@ -208,12 +208,12 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
 .title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .desc {
   font-size: 11.5px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   line-height: 1.4;
 }
 
@@ -234,9 +234,9 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--text-primary, #e2e2e5);
-  background: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  color: var(--text-primary, var(--text-primary));
+  background: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 3px 6px;
   min-width: 48px;
@@ -252,7 +252,7 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
 .color-control input[type='color'] {
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border-color, #222225);
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 0;
   cursor: pointer;

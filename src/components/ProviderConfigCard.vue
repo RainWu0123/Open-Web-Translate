@@ -590,10 +590,10 @@ function onTestConnection() {
 
 <style scoped>
 .owt-provider-config-card {
-  background-color: var(--bg-card, #141416);
+  background-color: var(--bg-card, var(--bg-card));
   border-radius: 2px;
   padding: 24px;
-  border: 1px solid var(--border-color, #222225);
+  border: 1px solid var(--border-color, var(--border-color));
 }
 
 .setting-item,
@@ -613,25 +613,25 @@ function onTestConnection() {
 .setting-label .title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .setting-label .desc {
   font-size: 12px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   line-height: 1.4;
 }
 
 .verified-tag {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted, #808086);
-  background: #1c1c1f;
+  color: var(--text-muted, var(--text-muted));
+  background: var(--bg-hover);
   padding: 2px 8px;
   border-radius: 2px;
   display: inline-block;
   width: fit-content;
-  border: 1px solid #26262a;
+  border: 1px solid var(--border-color);
 }
 
 .model-select-col {
@@ -642,9 +642,9 @@ function onTestConnection() {
 }
 
 .key-input {
-  background-color: var(--bg-input, #0a0a0c);
-  color: var(--text-primary, #e2e2e5);
-  border: 1px solid var(--border-color, #222225);
+  background-color: var(--bg-input, var(--bg-input));
+  color: var(--text-primary, var(--text-primary));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 8px 12px;
   font-size: 13px;
@@ -655,11 +655,11 @@ function onTestConnection() {
 
 .key-input:focus {
   outline: none;
-  border-color: var(--border-light, #2e2e33);
+  border-color: var(--border-light, var(--border-light));
 }
 
 .provider-key-section {
-  border-top: 1px solid var(--border-color, #222225);
+  border-top: 1px solid var(--border-color, var(--border-color));
   padding-top: 18px;
   margin-top: 18px;
 }
@@ -679,15 +679,15 @@ function onTestConnection() {
 }
 
 .badge.configured {
-  background-color: #181d19;
-  color: #7d9b85;
-  border: 1px solid #212c24;
+  background-color: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
 }
 
 .badge.unconfigured {
-  background-color: #241a1a;
-  color: #b07070;
-  border: 1px solid #362222;
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .key-input-row {
@@ -715,26 +715,26 @@ function onTestConnection() {
 }
 
 .btn-save {
-  background-color: var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background-color: var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   font-weight: 700;
 }
 
 .btn-save:hover:not(:disabled) {
-  background-color: #ffffff;
+  background-color: var(--primary-hover);
 }
 
 .btn-clear {
   background-color: transparent;
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-secondary, #b0b0b6);
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-secondary, var(--text-secondary));
   border-radius: 2px;
 }
 
 .btn-clear:hover:not(:disabled) {
   background-color: rgba(239, 68, 68, 0.08);
   border-color: rgba(239, 68, 68, 0.3);
-  color: #ef4444;
+  color: var(--danger-text);
 }
 
 .btn:disabled {

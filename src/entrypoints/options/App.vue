@@ -125,7 +125,8 @@
           <!-- ========================================================= -->
           <template v-if="activeTab === 'subtitles'">
             <!-- Live Subtitle Video Preview Canvas (NO MAC DOTS) -->
-            <div id="sub-preview" class="preview-canvas-card">
+            <!-- The mock video frame is always dark, whatever the page theme: scope the dark tokens to it. -->
+            <div id="sub-preview" class="preview-canvas-card" data-theme="dark">
               <!-- Floating Glass Toolbar like Stitch -->
               <div class="canvas-toolbar">
                 <div class="toolbar-chip">
@@ -174,7 +175,7 @@
                     class="rendered-sub secondary"
                     :style="{
                       fontSize: (settings.subtitleTranslatedFontSize || 22) + 'px',
-                      color: settings.subtitleTranslatedColor || '#818cf8',
+                      color: settings.subtitleTranslatedColor || '#d4d4d4',
                     }"
                   >
                     知識的起點，是發現我們所不理解的事物。
@@ -794,7 +795,7 @@ const settings = ref({
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
   subtitleOriginalColor: '#ffffff',
-  subtitleTranslatedColor: '#818cf8',
+  subtitleTranslatedColor: '#d4d4d4',
 });
 
 const netflixConfig = ref({
@@ -1115,7 +1116,7 @@ async function loadSettings() {
       settings.value.subtitleOriginalFontSize = s.subtitleOriginalFontSize || 18;
       settings.value.subtitleTranslatedFontSize = s.subtitleTranslatedFontSize || 22;
       settings.value.subtitleOriginalColor = s.subtitleOriginalColor || '#ffffff';
-      settings.value.subtitleTranslatedColor = s.subtitleTranslatedColor || '#818cf8';
+      settings.value.subtitleTranslatedColor = s.subtitleTranslatedColor || '#d4d4d4';
 
       if (s.netflix) {
         netflixConfig.value.enabled = s.netflix.enabled ?? true;
@@ -1224,8 +1225,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background-color: #0d0d0f;
-  color: #e2e2e5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
 }
 
@@ -1236,8 +1237,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  border-bottom: 1px solid #1f1f23;
-  background: #0d0d0f;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -1260,7 +1261,7 @@ onMounted(async () => {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .brand-badge {
@@ -1269,8 +1270,8 @@ onMounted(async () => {
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 999px;
-  border: 1px solid #333338;
-  color: #94949e;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
   letter-spacing: 0.05em;
 }
 
@@ -1283,8 +1284,8 @@ onMounted(async () => {
 .search-pill {
   display: flex;
   align-items: center;
-  background: #161619;
-  border: 1px solid #232328;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
   border-radius: 999px;
   padding: 5px 14px;
   gap: 8px;
@@ -1292,13 +1293,13 @@ onMounted(async () => {
 }
 
 .search-pill:focus-within {
-  border-color: #3b3b44;
+  border-color: var(--border-light);
 }
 
 .search-icon {
   width: 14px;
   height: 14px;
-  color: #71717a;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -1306,23 +1307,23 @@ onMounted(async () => {
   background: transparent;
   border: none;
   outline: none;
-  color: #e2e2e5;
+  color: var(--text-primary);
   font-size: 13px;
   width: 100%;
 }
 
 .search-input::placeholder {
-  color: #71717a;
+  color: var(--text-muted);
 }
 
 .search-kbd {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  color: #808086;
-  background: #202025;
+  color: var(--text-muted);
+  background: var(--bg-hover);
   padding: 1px 6px;
   border-radius: 4px;
-  border: 1px solid #2d2d35;
+  border: 1px solid var(--border-light);
   white-space: nowrap;
 }
 
@@ -1335,7 +1336,7 @@ onMounted(async () => {
 .header-icon-btn {
   background: transparent;
   border: none;
-  color: #808086;
+  color: var(--text-muted);
   width: 28px;
   height: 28px;
   display: flex;
@@ -1347,8 +1348,8 @@ onMounted(async () => {
 }
 
 .header-icon-btn:hover {
-  color: #ffffff;
-  background: #1c1c20;
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .header-icon-btn svg {
@@ -1361,9 +1362,9 @@ onMounted(async () => {
 }
 
 .stitch-theme-select {
-  background: #161619;
-  border: 1px solid #232328;
-  color: #a1a1aa;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 4px;
@@ -1372,8 +1373,8 @@ onMounted(async () => {
 }
 
 .stitch-theme-select:hover {
-  border-color: #3b3b44;
-  color: #ffffff;
+  border-color: var(--border-light);
+  color: var(--text-primary);
 }
 
 /* ── 3-Column Body ──────────────────────────────────────────────── */
@@ -1386,8 +1387,8 @@ onMounted(async () => {
 /* ── 2A. Left Sidebar ───────────────────────────────────────────── */
 .stitch-sidebar-left {
   width: 240px;
-  background: #0d0d0f;
-  border-right: 1px solid #1f1f23;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border-color);
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
@@ -1414,7 +1415,7 @@ onMounted(async () => {
   border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--text-secondary);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -1423,13 +1424,13 @@ onMounted(async () => {
 }
 
 .sidebar-nav-btn:hover {
-  color: #e2e2e5;
-  background: #18181c;
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .sidebar-nav-btn.active {
-  color: #ffffff;
-  background: #202025;
+  color: var(--text-primary);
+  background: var(--bg-hover);
   font-weight: 600;
 }
 
@@ -1437,8 +1438,8 @@ onMounted(async () => {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
   font-weight: 700;
-  background: #2a2a32;
-  color: #e2e2e5;
+  background: var(--border-color);
+  color: var(--text-primary);
   padding: 1px 6px;
   border-radius: 999px;
 }
@@ -1447,7 +1448,7 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  color: #6b7280;
+  color: var(--text-muted);
   letter-spacing: 0.08em;
   margin-bottom: 8px;
   padding-left: 12px;
@@ -1462,7 +1463,7 @@ onMounted(async () => {
 .sub-nav-link {
   display: block;
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--text-secondary);
   padding: 6px 12px;
   border-radius: 6px;
   text-decoration: none;
@@ -1470,14 +1471,14 @@ onMounted(async () => {
 }
 
 .sub-nav-link:hover {
-  color: #e2e2e5;
-  background: #18181c;
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 /* Stitch's iconic soft pink active pill */
 .sub-nav-link.active-pill {
-  background: #fce7f3;
-  color: #18181b;
+  background: var(--stitch-active-pill-bg);
+  color: var(--on-primary);
   font-weight: 600;
   border-radius: 6px;
 }
@@ -1487,7 +1488,7 @@ onMounted(async () => {
   flex: 1;
   padding: 44px 56px;
   overflow-y: auto;
-  background: #0d0d0f;
+  background: var(--bg-primary);
 }
 
 .canvas-content-flow {
@@ -1503,13 +1504,13 @@ onMounted(async () => {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: #f472b6;
+  color: var(--text-primary);
 }
 
 .canvas-title {
   font-size: 38px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   letter-spacing: -0.03em;
   line-height: 1.15;
   margin: 0;
@@ -1517,7 +1518,7 @@ onMounted(async () => {
 
 .canvas-subtitle {
   font-size: 17px;
-  color: #9ca3af;
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.5;
   font-weight: 400;
@@ -1525,8 +1526,8 @@ onMounted(async () => {
 
 /* Preview Canvas Card (Sleek container without fake OS dots) */
 .preview-canvas-card {
-  background: #121215;
-  border: 1px solid #1f1f23;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
   position: relative;
@@ -1556,7 +1557,7 @@ onMounted(async () => {
   gap: 5px;
   font-size: 11.5px;
   font-weight: 500;
-  color: #d1d5db;
+  color: var(--text-secondary);
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
@@ -1566,12 +1567,12 @@ onMounted(async () => {
 
 .toolbar-chip:hover {
   background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .toolbar-chip.active {
   background: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1581,7 +1582,7 @@ onMounted(async () => {
 
 .chip-caret {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--text-secondary);
 }
 
 .toolbar-sep {
@@ -1607,7 +1608,7 @@ onMounted(async () => {
 
 .cinema-viewport {
   height: 320px;
-  background: radial-gradient(circle at 50% 40%, #1e3a5f 0%, #0c1a2c 50%, #060911 100%);
+  background: #0a0a0a;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1660,19 +1661,19 @@ onMounted(async () => {
 .section-heading {
   font-size: 18px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .section-lead {
   font-size: 13px;
-  color: #808086;
+  color: var(--text-muted);
   margin: 0;
 }
 
 .stitch-rows-container {
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -1682,7 +1683,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #1f1f23;
+  border-bottom: 1px solid var(--border-color);
   gap: 20px;
 }
 
@@ -1706,12 +1707,12 @@ onMounted(async () => {
 .row-title {
   font-size: 13.5px;
   font-weight: 600;
-  color: #e2e2e5;
+  color: var(--text-primary);
 }
 
 .row-desc {
   font-size: 12px;
-  color: #808086;
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
@@ -1734,7 +1735,7 @@ onMounted(async () => {
 .row-control.color-control input[type='color'] {
   width: 28px;
   height: 28px;
-  border: 1px solid #282830;
+  border: 1px solid var(--border-light);
   border-radius: 4px;
   padding: 0;
   background: transparent;
@@ -1756,9 +1757,9 @@ onMounted(async () => {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: #e2e2e5;
-  background: #0d0d0f;
-  border: 1px solid #232328;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 3px 8px;
   min-width: 48px;
@@ -1776,9 +1777,9 @@ onMounted(async () => {
 }
 
 .stitch-select {
-  background: #0d0d0f;
-  border: 1px solid #232328;
-  color: #e2e2e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 12.5px;
   padding: 6px 12px;
   border-radius: 4px;
@@ -1788,13 +1789,13 @@ onMounted(async () => {
 }
 
 .stitch-select:hover {
-  border-color: #3b3b44;
+  border-color: var(--border-light);
 }
 
 .stitch-input {
-  background: #0d0d0f;
-  border: 1px solid #232328;
-  color: #e2e2e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 12.5px;
   padding: 6px 12px;
   border-radius: 4px;
@@ -1803,7 +1804,7 @@ onMounted(async () => {
 }
 
 .stitch-input:focus {
-  border-color: #3b3b44;
+  border-color: var(--border-light);
 }
 
 .textarea-wrapper {
@@ -1815,9 +1816,9 @@ onMounted(async () => {
 
 .stitch-textarea {
   width: 100%;
-  background: #0d0d0f;
-  border: 1px solid #232328;
-  color: #e2e2e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 12.5px;
   padding: 10px 12px;
   border-radius: 4px;
@@ -1827,7 +1828,7 @@ onMounted(async () => {
 }
 
 .stitch-textarea:focus {
-  border-color: #3b3b44;
+  border-color: var(--border-light);
 }
 
 .textarea-actions {
@@ -1844,8 +1845,8 @@ onMounted(async () => {
 }
 
 .diag-card {
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px 16px;
   display: flex;
@@ -1856,17 +1857,17 @@ onMounted(async () => {
 .diag-label {
   font-size: 11px;
   font-weight: 600;
-  color: #808086;
+  color: var(--text-muted);
 }
 
 .diag-value {
   font-size: 13px;
   font-family: var(--font-mono, monospace);
-  color: #e2e2e5;
+  color: var(--text-primary);
 }
 
 .diag-value.highlight {
-  color: #f472b6;
+  color: var(--text-primary);
 }
 
 /* Hotkey Grid */
@@ -1877,8 +1878,8 @@ onMounted(async () => {
 }
 
 .hotkey-card {
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px 16px;
   display: flex;
@@ -1894,13 +1895,13 @@ onMounted(async () => {
 
 .hk-desc {
   font-size: 12px;
-  color: #808086;
+  color: var(--text-muted);
 }
 
 kbd {
-  background: #0d0d0f;
-  border: 1px solid #232328;
-  color: #e2e2e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   padding: 2px 7px;
   border-radius: 4px;
   font-size: 11px;
@@ -1910,8 +1911,8 @@ kbd {
 
 /* Buttons */
 .btn-stitch-accent {
-  background: #e2e2e5;
-  color: #101012;
+  background: var(--primary-accent);
+  color: var(--on-primary);
   font-size: 12px;
   font-weight: 700;
   padding: 6px 14px;
@@ -1923,32 +1924,32 @@ kbd {
 }
 
 .btn-stitch-accent:hover {
-  background: #ffffff;
+  background: var(--primary-hover);
 }
 
 .btn-stitch-secondary {
-  background: #1c1c20;
-  color: #e2e2e5;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 14px;
   border-radius: 4px;
-  border: 1px solid #27272b;
+  border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
 
 .btn-stitch-secondary:hover {
-  background: #25252a;
-  border-color: #35353d;
+  background: var(--border-color);
+  border-color: var(--border-light);
 }
 
 /* ── 2C. Right Sidebar ("On this page") ─────────────────────────── */
 .stitch-sidebar-right {
   width: 230px;
-  background: #0d0d0f;
-  border-left: 1px solid #1f1f23;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-color);
   padding: 36px 20px;
   flex-shrink: 0;
   position: sticky;
@@ -1966,7 +1967,7 @@ kbd {
 .toc-title {
   font-size: 12px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   letter-spacing: 0.02em;
 }
 
@@ -1978,7 +1979,7 @@ kbd {
 
 .toc-anchor-link {
   font-size: 12.5px;
-  color: #808086;
+  color: var(--text-muted);
   text-decoration: none;
   padding: 4px 0;
   transition: color 0.15s ease;
@@ -1986,11 +1987,11 @@ kbd {
 }
 
 .toc-anchor-link:hover {
-  color: #e2e2e5;
+  color: var(--text-primary);
 }
 
 .toc-anchor-link.active {
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1998,8 +1999,8 @@ kbd {
 .stitch-status-widget {
   margin-top: 24px;
   padding: 14px;
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
@@ -2010,9 +2011,9 @@ kbd {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
   font-weight: 700;
-  color: #6b7280;
+  color: var(--text-muted);
   letter-spacing: 0.08em;
-  border-bottom: 1px dashed #232328;
+  border-bottom: 1px dashed var(--border-color);
   padding-bottom: 6px;
 }
 
@@ -2024,16 +2025,16 @@ kbd {
 }
 
 .m-label {
-  color: #808086;
+  color: var(--text-muted);
 }
 
 .m-val {
-  color: #e2e2e5;
+  color: var(--text-primary);
   font-weight: 600;
   font-family: var(--font-mono, monospace);
 }
 
 .m-val.highlight {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 </style>

@@ -106,46 +106,47 @@ export function renderBilingualBlock(
 
   const style = doc.createElement('style');
   style.textContent = `
+    /* \`all: initial\` must come first: it would otherwise reset display/color.
+       Text colour is inherited from the page, so the translation is readable
+       on both light and dark sites; chrome (rule, fill, border) is a
+       translucent grey that works on either. */
     :host {
-      display: block;
       all: initial;
+      display: block;
+      color: inherit;
     }
     .owt-block {
       margin: 2px 0 10px 0;
       padding: 8px 14px;
-      border-left: 3px solid #475569;
-      background: rgba(255, 255, 255, 0.04);
+      border-left: 2px solid rgba(128, 128, 128, 0.7);
+      background: rgba(128, 128, 128, 0.08);
       border-radius: 0 2px 2px 0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.5;
     }
     .owt-translated {
       font-weight: 600;
-      color: #e2e2e5;
+      color: inherit;
       font-size: 14px;
     }
     .owt-toggle-btn {
       display: inline-block;
       margin-top: 6px;
       background: transparent;
-      border: 1px solid #334155;
-      color: #94a3b8;
+      border: 1px solid rgba(128, 128, 128, 0.6);
+      color: inherit;
+      opacity: 0.75;
       padding: 2px 8px;
       border-radius: 2px;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
-      transition: background 0.2s, color 0.2s;
+      transition: background 0.2s, opacity 0.2s;
     }
     .owt-toggle-btn:hover, .owt-toggle-btn:focus {
-      background: rgba(255, 255, 255, 0.08);
-      color: #ffffff;
+      background: rgba(128, 128, 128, 0.18);
+      opacity: 1;
       outline: none;
-    }
-    @media (prefers-color-scheme: dark) {
-      .owt-translated { color: #e2e2e5; }
-      .owt-block { background: rgba(255, 255, 255, 0.04); border-left-color: #475569; }
-      .owt-toggle-btn { color: #94a3b8; border-color: #334155; }
     }
   `;
   shadow.appendChild(style);
@@ -236,27 +237,22 @@ export function renderInlineHost(
   const style = doc.createElement('style');
   style.textContent = `
     :host {
-      display: inline-block;
       all: initial;
+      display: inline-block;
+      color: inherit;
+      font-size: inherit;
     }
     .owt-inline-badge {
       display: inline-block;
       margin-left: 6px;
       padding: 1px 6px;
-      background: rgba(255, 255, 255, 0.06);
-      color: #e2e2e5;
-      border: 1px solid #334155;
+      background: rgba(128, 128, 128, 0.12);
+      color: inherit;
+      border: 1px solid rgba(128, 128, 128, 0.5);
       border-radius: 2px;
       font-size: 0.9em;
       font-weight: 500;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    @media (prefers-color-scheme: dark) {
-      .owt-inline-badge {
-        background: rgba(255, 255, 255, 0.06);
-        color: #e2e2e5;
-        border-color: #334155;
-      }
     }
   `;
   shadow.appendChild(style);

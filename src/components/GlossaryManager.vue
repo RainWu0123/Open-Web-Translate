@@ -407,7 +407,7 @@ function onExportCsv() {
 .due-badge {
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #f87171;
+  color: var(--danger-text);
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
@@ -442,55 +442,55 @@ function onExportCsv() {
 }
 
 .btn-review {
-  background: var(--bg-hover, #19191c);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-hover, var(--bg-hover));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   border-radius: 2px;
 }
 
 .btn-review:hover:not(:disabled) {
-  background-color: var(--border-light, #2e2e33);
+  background-color: var(--border-light, var(--border-color));
 }
 
 .btn-save {
-  background-color: var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background-color: var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   border-radius: 2px;
   font-weight: 600;
 }
 
 .btn-save:hover:not(:disabled) {
   opacity: 0.95;
-  background-color: #ffffff;
+  background-color: var(--primary-hover);
 }
 
 .btn-outline {
   background: none;
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   border-radius: 2px;
 }
 
 .btn-outline:hover:not(:disabled) {
-  background: var(--bg-hover, #19191c);
+  background: var(--bg-hover, var(--bg-hover));
 }
 
 .btn-clear {
   background: none;
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-muted, #808086);
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-muted, var(--text-muted));
   border-radius: 2px;
 }
 
 .btn-clear:hover:not(:disabled) {
-  color: #ef4444;
+  color: var(--danger-text);
   background: rgba(239, 68, 68, 0.08);
 }
 
 /* Add term card */
 .card {
-  background-color: var(--bg-card, #141416);
-  border: 1px solid var(--border-color, #222225);
+  background-color: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 16px;
 }
@@ -503,16 +503,16 @@ function onExportCsv() {
 .term-input {
   flex: 1;
   padding: 8px 12px;
-  background-color: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  background-color: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   font-size: 13px;
 }
 
 .term-input:focus {
   outline: none;
-  border-color: var(--border-light, #2e2e33);
+  border-color: var(--border-light, var(--border-light));
 }
 
 .btn-add {
@@ -529,16 +529,16 @@ function onExportCsv() {
 .search-input {
   width: 100%;
   padding: 8px 32px 8px 12px;
-  background-color: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  background-color: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   font-size: 13px;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--border-light, #2e2e33);
+  border-color: var(--border-light, var(--border-light));
 }
 
 .clear-search-btn {
@@ -546,7 +546,7 @@ function onExportCsv() {
   right: 10px;
   background: none;
   border: none;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   cursor: pointer;
   font-size: 16px;
 }
@@ -563,15 +563,15 @@ function onExportCsv() {
   justify-content: space-between;
   align-items: flex-start;
   padding: 12px;
-  border: 1px solid var(--border-color, #222225);
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
-  background: var(--bg-card, #141416);
+  background: var(--bg-card, var(--bg-card));
   gap: 12px;
   transition: border-color 0.15s ease;
 }
 
 .vocab-row:hover {
-  border-color: var(--border-light, #2e2e33);
+  border-color: var(--border-light, var(--border-light));
 }
 
 .vocab-main {
@@ -591,12 +591,12 @@ function onExportCsv() {
 .vocab-word {
   font-size: 15px;
   font-weight: 700;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .vocab-phonetic {
   font-size: 12px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   font-family: var(--font-mono, monospace);
 }
 
@@ -607,19 +607,19 @@ function onExportCsv() {
   font-size: 13px;
   padding: 1px 4px;
   opacity: 0.7;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   transition: opacity 0.15s ease;
 }
 
 .vocab-audio-btn:hover {
   opacity: 1;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .vocab-badge-pos {
-  background: #19191c;
-  border: 1px solid #28282c;
-  color: #a0a0a6;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   font-size: 10.5px;
   padding: 1px 5px;
   border-radius: 2px;
@@ -627,7 +627,7 @@ function onExportCsv() {
 }
 
 .vocab-lemma {
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
   font-size: 11.5px;
   font-style: italic;
 }
@@ -635,7 +635,7 @@ function onExportCsv() {
 .vocab-translation {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
   margin-left: 6px;
 }
 
@@ -643,9 +643,9 @@ function onExportCsv() {
   margin-left: auto;
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted, #808086);
-  background: #1c1c1f;
-  border: 1px solid #26262a;
+  color: var(--text-muted, var(--text-muted));
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
   padding: 2px 6px;
   border-radius: 2px;
   font-family: var(--font-mono, monospace);
@@ -653,19 +653,19 @@ function onExportCsv() {
 
 .vocab-context {
   font-size: 12.5px;
-  color: var(--text-secondary, #b0b0b6);
+  color: var(--text-secondary, var(--text-secondary));
   line-height: 1.4;
   margin-top: 2px;
 }
 
 .vocab-context-trans {
   font-size: 12px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
 }
 
 .vocab-link {
   font-size: 11px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   text-decoration: underline;
   margin-top: 2px;
   width: fit-content;
@@ -674,20 +674,20 @@ function onExportCsv() {
 .btn-delete-item {
   background: none;
   border: none;
-  color: var(--text-dim, #4c4c52);
+  color: var(--text-dim, var(--text-dim));
   font-size: 18px;
   cursor: pointer;
   padding: 0 4px;
 }
 
 .btn-delete-item:hover {
-  color: #ef4444;
+  color: var(--danger-text);
 }
 
 .empty-state {
   text-align: center;
   padding: 32px 16px;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   font-size: 13.5px;
 }
 </style>

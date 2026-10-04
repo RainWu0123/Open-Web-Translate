@@ -219,7 +219,7 @@ const localSettings = computed(() => {
     subtitleOriginalFontSize: props.settings?.subtitleOriginalFontSize || 18,
     subtitleTranslatedFontSize: props.settings?.subtitleTranslatedFontSize || 22,
     subtitleOriginalColor: props.settings?.subtitleOriginalColor || '#ffffff',
-    subtitleTranslatedColor: props.settings?.subtitleTranslatedColor || '#818cf8',
+    subtitleTranslatedColor: props.settings?.subtitleTranslatedColor || '#d4d4d4',
   };
 });
 

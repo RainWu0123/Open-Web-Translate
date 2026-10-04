@@ -19,7 +19,7 @@ export const DEFAULT_CAPTION_SETTINGS = {
   subtitleOriginalFontSize: DEFAULT_SETTINGS.subtitleOriginalFontSize ?? 18,
   subtitleTranslatedFontSize: DEFAULT_SETTINGS.subtitleTranslatedFontSize ?? 22,
   subtitleOriginalColor: DEFAULT_SETTINGS.subtitleOriginalColor ?? '#ffffff',
-  subtitleTranslatedColor: DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#818cf8',
+  subtitleTranslatedColor: DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#d4d4d4',
 } as const;
 
 export abstract class CaptionAdapterBase {

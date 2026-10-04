@@ -326,12 +326,11 @@ export class DictionaryPopover {
     el.style.minWidth = '260px';
     el.style.maxWidth = '380px';
     el.style.padding = '12px 14px';
-    el.style.borderRadius = '12px';
-    el.style.background = 'rgba(17, 17, 22, 0.97)';
-    el.style.border = '1px solid rgba(139, 92, 246, 0.4)';
-    el.style.boxShadow = '0 10px 32px rgba(0, 0, 0, 0.65)';
-    el.style.backdropFilter = 'blur(12px)';
-    el.style.color = '#f1f5f9';
+    el.style.borderRadius = '4px';
+    el.style.background = '#0a0a0a';
+    el.style.border = '1px solid #404040';
+    el.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.5)';
+    el.style.color = '#fafafa';
     el.style.fontFamily = 'system-ui, -apple-system, sans-serif';
     el.style.fontSize = '13px';
     el.style.lineHeight = '1.5';
@@ -348,33 +347,33 @@ export class DictionaryPopover {
     style.textContent = `
 #${POPOVER_ID} .owt-dp-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 #${POPOVER_ID} .owt-dp-word-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-#${POPOVER_ID} .owt-dp-word { font-size: 18px; font-weight: 700; color: #c4b5fd; }
-#${POPOVER_ID} .owt-dp-phonetic { font-size: 12px; color: #94a3b8; font-family: monospace; }
-#${POPOVER_ID} .owt-dp-icon-btn { background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; color: #a78bfa; padding: 3px 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-#${POPOVER_ID} .owt-dp-icon-btn:hover { background: rgba(139, 92, 246, 0.35); color: #f1f5f9; }
-#${POPOVER_ID} .owt-dp-close { background: none; border: none; color: #94a3b8; font-size: 13px; cursor: pointer; padding: 2px 4px; }
-#${POPOVER_ID} .owt-dp-close:hover { color: #f1f5f9; }
+#${POPOVER_ID} .owt-dp-word { font-size: 18px; font-weight: 700; color: #fafafa; }
+#${POPOVER_ID} .owt-dp-phonetic { font-size: 12px; color: #a3a3a3; font-family: monospace; }
+#${POPOVER_ID} .owt-dp-icon-btn { background: transparent; border: 1px solid #404040; border-radius: 2px; color: #d4d4d4; padding: 3px 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+#${POPOVER_ID} .owt-dp-icon-btn:hover { background: #262626; color: #ffffff; }
+#${POPOVER_ID} .owt-dp-close { background: none; border: none; color: #a3a3a3; font-size: 13px; cursor: pointer; padding: 2px 4px; }
+#${POPOVER_ID} .owt-dp-close:hover { color: #fafafa; }
 #${POPOVER_ID} .owt-dp-morph { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; }
-#${POPOVER_ID} .owt-dp-badge { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #93c5fd; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
-#${POPOVER_ID} .owt-dp-lemma { color: #94a3b8; font-style: italic; }
-#${POPOVER_ID} .owt-dp-gloss { font-size: 13.5px; font-weight: 600; color: #e2e8f0; margin-bottom: 8px; white-space: pre-wrap; }
-#${POPOVER_ID} .owt-dp-sentence { font-size: 12px; color: #cbd5e1; border-left: 2px solid rgba(139, 92, 246, 0.5); padding-left: 8px; margin-bottom: 4px; }
-#${POPOVER_ID} .owt-dp-translation { font-size: 12px; color: #94a3b8; border-left: 2px solid rgba(148, 163, 184, 0.4); padding-left: 8px; margin-bottom: 8px; }
-#${POPOVER_ID} .owt-dp-grammar-container { border-top: 1px solid rgba(139, 92, 246, 0.2); margin-top: 6px; padding-top: 6px; margin-bottom: 8px; }
-#${POPOVER_ID} .owt-dp-grammar-toggle { width: 100%; background: rgba(139, 92, 246, 0.12); border: 1px dashed rgba(139, 92, 246, 0.35); border-radius: 6px; color: #c4b5fd; font-size: 11.5px; font-weight: 600; padding: 4px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-#${POPOVER_ID} .owt-dp-grammar-toggle:hover { background: rgba(139, 92, 246, 0.22); }
-#${POPOVER_ID} .owt-dp-grammar-body { margin-top: 6px; font-size: 11.5px; color: #e2e8f0; background: rgba(0, 0, 0, 0.3); padding: 8px; border-radius: 6px; max-height: 180px; overflow-y: auto; }
+#${POPOVER_ID} .owt-dp-badge { background: transparent; border: 1px solid #404040; color: #d4d4d4; padding: 1px 6px; border-radius: 2px; font-weight: 600; }
+#${POPOVER_ID} .owt-dp-lemma { color: #a3a3a3; font-style: italic; }
+#${POPOVER_ID} .owt-dp-gloss { font-size: 13.5px; font-weight: 600; color: #e5e5e5; margin-bottom: 8px; white-space: pre-wrap; }
+#${POPOVER_ID} .owt-dp-sentence { font-size: 12px; color: #d4d4d4; border-left: 2px solid #737373; padding-left: 8px; margin-bottom: 4px; }
+#${POPOVER_ID} .owt-dp-translation { font-size: 12px; color: #a3a3a3; border-left: 2px solid #404040; padding-left: 8px; margin-bottom: 8px; }
+#${POPOVER_ID} .owt-dp-grammar-container { border-top: 1px solid #262626; margin-top: 6px; padding-top: 6px; margin-bottom: 8px; }
+#${POPOVER_ID} .owt-dp-grammar-toggle { width: 100%; background: #141414; border: 1px dashed #525252; border-radius: 2px; color: #d4d4d4; font-size: 11.5px; font-weight: 600; padding: 4px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+#${POPOVER_ID} .owt-dp-grammar-toggle:hover { background: #1f1f1f; }
+#${POPOVER_ID} .owt-dp-grammar-body { margin-top: 6px; font-size: 11.5px; color: #e5e5e5; background: #000000; border: 1px solid #262626; padding: 8px; border-radius: 2px; max-height: 180px; overflow-y: auto; }
 #${POPOVER_ID} .owt-dp-grammar-meta { display: flex; gap: 6px; margin-bottom: 6px; }
-#${POPOVER_ID} .owt-dp-badge-level { background: #059669; color: #ecfdf5; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
-#${POPOVER_ID} .owt-dp-badge-tone { background: #475569; color: #f8fafc; font-size: 10px; padding: 1px 5px; border-radius: 4px; }
-#${POPOVER_ID} .owt-dp-breakdown-row { margin-bottom: 5px; line-height: 1.4; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 4px; }
-#${POPOVER_ID} .seg-name { color: #a5b4fc; }
-#${POPOVER_ID} .seg-role { color: #94a3b8; font-size: 10.5px; margin-left: 4px; }
-#${POPOVER_ID} .seg-desc { color: #cbd5e1; font-size: 11px; margin-top: 1px; }
-#${POPOVER_ID} .owt-dp-keypoints { margin-top: 6px; color: #cbd5e1; font-size: 11px; }
+#${POPOVER_ID} .owt-dp-badge-level { background: #fafafa; color: #0a0a0a; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 2px; }
+#${POPOVER_ID} .owt-dp-badge-tone { background: #333333; color: #fafafa; font-size: 10px; padding: 1px 5px; border-radius: 2px; }
+#${POPOVER_ID} .owt-dp-breakdown-row { margin-bottom: 5px; line-height: 1.4; border-bottom: 1px solid #262626; padding-bottom: 4px; }
+#${POPOVER_ID} .seg-name { color: #fafafa; }
+#${POPOVER_ID} .seg-role { color: #a3a3a3; font-size: 10.5px; margin-left: 4px; }
+#${POPOVER_ID} .seg-desc { color: #d4d4d4; font-size: 11px; margin-top: 1px; }
+#${POPOVER_ID} .owt-dp-keypoints { margin-top: 6px; color: #d4d4d4; font-size: 11px; }
 #${POPOVER_ID} .owt-dp-actions { display: flex; justify-content: flex-end; }
-#${POPOVER_ID} .owt-dp-save { background: rgba(139, 92, 246, 0.25); border: 1px solid rgba(139, 92, 246, 0.5); color: #ddd6fe; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px; cursor: pointer; }
-#${POPOVER_ID} .owt-dp-save:hover { background: rgba(139, 92, 246, 0.4); }
+#${POPOVER_ID} .owt-dp-save { background: #fafafa; border: 1px solid #fafafa; color: #0a0a0a; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 2px; cursor: pointer; }
+#${POPOVER_ID} .owt-dp-save:hover { background: #d4d4d4; border-color: #d4d4d4; }
 #${POPOVER_ID} .owt-dp-save:disabled { opacity: 0.6; cursor: default; }
 `;
     (document.head || document.documentElement).appendChild(style);

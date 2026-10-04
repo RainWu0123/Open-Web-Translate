@@ -168,20 +168,20 @@ async function onConfigChange() {
 }
 
 .status-badge.active {
-  background: #181d19;
-  color: #7d9b85;
-  border: 1px solid #212c24;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
 }
 
 .status-badge.inactive {
-  background: #241a1a;
-  color: #b07070;
-  border: 1px solid #362222;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .toggle-btn {
-  background: var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background: var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   border: 1px solid transparent;
   padding: 6px 14px;
   border-radius: 2px;
@@ -193,19 +193,19 @@ async function onConfigChange() {
 }
 
 .toggle-btn:hover:not(.active) {
-  background: #ffffff;
+  background: var(--primary-hover);
 }
 
 .toggle-btn.active {
-  background: #241a1a;
-  color: #b07070;
-  border-color: #362222;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border-color: rgba(239, 68, 68, 0.3);
   box-shadow: none;
 }
 
 .diagnostic-hud {
-  background: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 12px 14px;
   font-size: 12px;
@@ -294,9 +294,9 @@ async function onConfigChange() {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--text-primary, #e2e2e5);
-  background: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  color: var(--text-primary, var(--text-primary));
+  background: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 2px 6px;
   min-width: 46px;
@@ -320,7 +320,7 @@ async function onConfigChange() {
 }
 
 .checkbox-label input[type='checkbox'] {
-  accent-color: var(--primary-accent, #e2e2e5);
+  accent-color: var(--primary-accent, var(--primary-accent));
   width: 15px;
   height: 15px;
   cursor: pointer;
@@ -329,13 +329,13 @@ async function onConfigChange() {
 .hotkeys-guide {
   margin-top: 6px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color, #222225);
+  border-top: 1px solid var(--border-color, var(--border-color));
 }
 
 .hotkeys-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   margin-bottom: 8px;
 }
 
@@ -347,16 +347,16 @@ async function onConfigChange() {
 
 .hotkey-item {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b6);
+  color: var(--text-secondary, var(--text-secondary));
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 kbd {
-  background: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
-  color: var(--text-primary, #e2e2e5);
+  background: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
+  color: var(--text-primary, var(--text-primary));
   padding: 2px 6px;
   border-radius: 2px;
   font-size: 11px;

@@ -318,7 +318,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     origSize = 18,
     transSize = 22,
     origColor = '#ffffff',
-    transColor = '#818cf8',
+    transColor = '#d4d4d4',
   ) {
     if (targetLang) this.targetLang = targetLang;
     if (displayMode) this.displayMode = displayMode;

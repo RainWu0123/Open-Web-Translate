@@ -187,7 +187,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     origSize: number = DEFAULT_SETTINGS.subtitleOriginalFontSize ?? 18,
     transSize: number = DEFAULT_SETTINGS.subtitleTranslatedFontSize ?? 22,
     origColor: string = DEFAULT_SETTINGS.subtitleOriginalColor ?? '#ffffff',
-    transColor: string = DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#818cf8',
+    transColor: string = DEFAULT_SETTINGS.subtitleTranslatedColor ?? '#d4d4d4',
   ) {
     if (targetLang) this.targetLang = targetLang;
     if (displayMode) this.displayMode = displayMode;
@@ -543,7 +543,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
         originalFontSize: `${this.subtitleOriginalFontSize}px`,
         translatedFontSize: `${this.subtitleTranslatedFontSize}px`,
         originalColor: this.subtitleOriginalColor || '#ffffff',
-        translatedColor: this.subtitleTranslatedColor || '#818cf8',
+        translatedColor: this.subtitleTranslatedColor || '#d4d4d4',
       },
     );
 

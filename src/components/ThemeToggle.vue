@@ -117,8 +117,8 @@ onMounted(() => {
 
 .theme-options {
   display: inline-flex;
-  background: var(--bg-input, #0a0a0c);
-  border: 1px solid var(--border-color, #222225);
+  background: var(--bg-input, var(--bg-input));
+  border: 1px solid var(--border-color, var(--border-color));
   border-radius: 2px;
   padding: 2px;
   gap: 2px;
@@ -127,7 +127,7 @@ onMounted(() => {
 .theme-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted, #808086);
+  color: var(--text-muted, var(--text-muted));
   padding: 4px 8px;
   border-radius: 1px;
   font-size: 11.5px;
@@ -146,12 +146,12 @@ onMounted(() => {
 }
 
 .theme-btn:hover {
-  color: var(--text-primary, #e2e2e5);
+  color: var(--text-primary, var(--text-primary));
 }
 
 .theme-btn.active {
-  background: var(--primary-accent, #e2e2e5);
-  color: var(--on-primary, #101012);
+  background: var(--primary-accent, var(--primary-accent));
+  color: var(--on-primary, var(--on-primary));
   font-weight: 700;
   box-shadow: none;
 }

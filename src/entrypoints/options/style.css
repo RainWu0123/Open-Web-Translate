@@ -7,8 +7,8 @@
 }
 
 body {
-  background-color: var(--bg-primary, #0e0e11);
-  color: var(--text-primary, #e2e2e5);
+  background-color: var(--bg-primary, #000000);
+  color: var(--text-primary, #fafafa);
   min-height: 100vh;
   font-family: var(--font-ui, system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif);
 }
@@ -32,7 +32,7 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #222225;
+  background: var(--border-color);
   border-radius: 1px;
 }
 

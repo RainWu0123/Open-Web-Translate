@@ -302,7 +302,10 @@ describe('Tier 3: Cross-Feature Combinations E2E Suite', () => {
     const shadowHost = renderBilingualBlock(p, 'seg-theme', 'Theme test element', '主題測試譯文');
 
     const shadowStyle = shadowHost.shadowRoot?.querySelector('style')?.textContent;
-    expect(shadowStyle).toContain('@media (prefers-color-scheme: dark)');
+    // Text colour is inherited from the host page, so the translation is
+    // readable on light and dark sites alike (no hard-coded light-on-dark text).
+    expect(shadowStyle).toContain('color: inherit');
+    expect(shadowStyle).not.toMatch(/color:\s*#(?:e2e2e5|fff(?:fff)?)\b/i);
 
     hostUI.remove();
   });

@@ -38,17 +38,14 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
     width: 28px;
     height: 28px;
     border-radius: 2px;
-    border: 1px solid #2e2e33;
-    background: #141416;
-    color: #e2e2e5;
+    border: 1px solid #525252;
+    background: #000000;
+    color: #fafafa;
     font-size: 12px;
     font-weight: 700;
     font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
     cursor: pointer;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 2px 6px rgba(0, 0, 0, 0.4),
-      0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
     padding: 0;
     line-height: 1;
     transition: transform 0.15s ease, filter 0.15s ease;

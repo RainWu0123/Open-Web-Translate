@@ -692,8 +692,8 @@ function openOptions() {
 /* ── Main Popup Container ───────────────────────────────────────── */
 .popup-container {
   width: 360px;
-  background-color: #0d0d0f;
-  color: #e2e2e5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
   overflow: hidden;
   display: flex;
@@ -707,8 +707,8 @@ function openOptions() {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  border-bottom: 1px solid #1f1f23;
-  background: #0d0d0f;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .header-left {
@@ -728,7 +728,7 @@ function openOptions() {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .brand-badge {
@@ -737,8 +737,8 @@ function openOptions() {
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 999px;
-  border: 1px solid #333338;
-  color: #94949e;
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
   letter-spacing: 0.05em;
 }
 
@@ -749,9 +749,9 @@ function openOptions() {
 }
 
 .stitch-theme-select {
-  background: #161619;
-  border: 1px solid #232328;
-  color: #a1a1aa;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 4px;
@@ -761,8 +761,8 @@ function openOptions() {
 }
 
 .stitch-theme-select:hover {
-  border-color: #3b3b44;
-  color: #ffffff;
+  border-color: var(--border-light);
+  color: var(--text-primary);
 }
 
 /* ── Popup Body ─────────────────────────────────────────────────── */
@@ -775,8 +775,8 @@ function openOptions() {
 
 /* ── Stitch Rows Container ──────────────────────────────────────── */
 .stitch-rows-container {
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -786,7 +786,7 @@ function openOptions() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #1f1f23;
+  border-bottom: 1px solid var(--border-color);
   gap: 12px;
 }
 
@@ -804,16 +804,16 @@ function openOptions() {
 .row-title {
   font-size: 12.5px;
   font-weight: 600;
-  color: #e2e2e5;
+  color: var(--text-primary);
 }
 
 .row-title.highlight {
-  color: #f472b6;
+  color: var(--text-primary);
 }
 
 .row-desc {
   font-size: 11px;
-  color: #808086;
+  color: var(--text-muted);
   line-height: 1.3;
 }
 
@@ -829,9 +829,9 @@ function openOptions() {
 
 /* ── Custom Controls ────────────────────────────────────────────── */
 .stitch-select {
-  background: #0d0d0f;
-  border: 1px solid #232328;
-  color: #e2e2e5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 12px;
   padding: 5px 10px;
   border-radius: 4px;
@@ -843,7 +843,7 @@ function openOptions() {
 }
 
 .stitch-select:hover {
-  border-color: #3b3b44;
+  border-color: var(--border-light);
 }
 
 /* Range Slider */
@@ -852,7 +852,7 @@ input[type='range'] {
   appearance: none;
   width: 100%;
   height: 4px;
-  background: #27272a;
+  background: var(--border-color);
   border-radius: 2px;
   outline: none;
 }
@@ -863,7 +863,7 @@ input[type='range']::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--primary-accent);
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
@@ -890,7 +890,7 @@ input[type='range']::-webkit-slider-thumb {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #27272a;
+  background-color: var(--border-color);
   transition: 0.2s;
   border-radius: 20px;
 }
@@ -902,23 +902,23 @@ input[type='range']::-webkit-slider-thumb {
   width: 14px;
   left: 3px;
   bottom: 3px;
-  background-color: #ffffff;
+  background-color: var(--text-muted);
   transition: 0.2s;
   border-radius: 50%;
 }
 
 input:checked + .slider {
-  background-color: #f472b6;
+  background-color: var(--primary-accent);
 }
 
 input:checked + .slider:before {
   transform: translateX(18px);
-  background-color: #ffffff;
+  background-color: var(--on-primary);
 }
 
 /* ── Subtitle Head Row & Pill ───────────────────────────────────── */
 .subtitle-head-row {
-  background: #161619;
+  background: var(--bg-hover);
 }
 
 .sub-state-pill {
@@ -930,13 +930,13 @@ input:checked + .slider:before {
 }
 
 .sub-state-pill.active {
-  background: #fce7f3;
-  color: #18181b;
+  background: var(--stitch-active-pill-bg);
+  color: var(--on-primary);
 }
 
 .sub-state-pill.inactive {
-  background: #202025;
-  color: #808086;
+  background: var(--bg-hover);
+  color: var(--text-muted);
 }
 
 .toggle-btn-wrapper {
@@ -951,19 +951,19 @@ input:checked + .slider:before {
   font-weight: 700;
   cursor: pointer;
   border: none;
-  background: #e2e2e5;
-  color: #101012;
+  background: var(--primary-accent);
+  color: var(--on-primary);
   transition: all 0.15s ease;
 }
 
 .btn-main-toggle:hover {
-  background: #ffffff;
+  background: var(--primary-hover);
 }
 
 .btn-main-toggle.active {
-  background: #1c1c20;
-  border: 1px solid #27272b;
-  color: #e2e2e5;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 /* ── Status Indicator Bar ───────────────────────────────────────── */
@@ -972,11 +972,11 @@ input:checked + .slider:before {
   align-items: center;
   justify-content: space-between;
   padding: 6px 14px;
-  background: #111113;
-  border-top: 1px solid #1f1f23;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
   font-size: 11px;
   font-family: var(--font-mono, monospace);
-  color: #808086;
+  color: var(--text-muted);
 }
 
 .status-left {
@@ -989,22 +989,22 @@ input:checked + .slider:before {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #e2e2e5;
+  background: var(--primary-accent);
 }
 
 .pulse-dot.warn {
-  background: #f59e0b;
+  background: var(--text-secondary);
 }
 
 .status-badge {
-  color: #e2e2e5;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .provider-config-btn {
   background: transparent;
   border: none;
-  color: #f472b6;
+  color: var(--text-primary);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -1014,12 +1014,12 @@ input:checked + .slider:before {
 
 /* ── Callout Tip ────────────────────────────────────────────────── */
 .stitch-callout {
-  background: #141416;
-  border: 1px solid #1f1f23;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 11.5px;
-  color: #808086;
+  color: var(--text-muted);
   line-height: 1.45;
   display: flex;
   gap: 8px;
@@ -1040,8 +1040,8 @@ input:checked + .slider:before {
 
 .btn-stitch-accent {
   flex: 1;
-  background: #e2e2e5;
-  color: #101012;
+  background: var(--primary-accent);
+  color: var(--on-primary);
   font-size: 12.5px;
   font-weight: 700;
   padding: 8px 12px;
@@ -1056,7 +1056,7 @@ input:checked + .slider:before {
 }
 
 .btn-stitch-accent:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--primary-hover);
 }
 
 .btn-stitch-accent:disabled {
@@ -1066,13 +1066,13 @@ input:checked + .slider:before {
 
 .btn-stitch-secondary {
   flex: 1;
-  background: #141416;
-  color: #e2e2e5;
+  background: var(--bg-card);
+  color: var(--text-primary);
   font-size: 12.5px;
   font-weight: 600;
   padding: 8px 12px;
   border-radius: 4px;
-  border: 1px solid #232328;
+  border: 1px solid var(--border-color);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1082,8 +1082,8 @@ input:checked + .slider:before {
 }
 
 .btn-stitch-secondary:hover:not(:disabled) {
-  background: #1c1c20;
-  border-color: #3b3b44;
+  background: var(--bg-hover);
+  border-color: var(--border-light);
 }
 
 .btn-stitch-secondary:disabled {
@@ -1121,27 +1121,27 @@ input:checked + .slider:before {
 }
 
 .stitch-warning-banner {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  color: #fbbf24;
+  background: var(--warning-bg);
+  border: 1px solid var(--border-light);
+  color: var(--warning-text);
 }
 
 .stitch-error-banner {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #f87171;
+  color: var(--danger-text);
 }
 
 .stitch-status-banner {
-  background: #161619;
-  border: 1px solid #27272b;
-  color: #e2e2e5;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .banner-link-btn {
   background: none;
   border: none;
-  color: #fbbf24;
+  color: var(--warning-text);
   font-size: 11.5px;
   font-weight: 700;
   cursor: pointer;
@@ -1153,17 +1153,17 @@ input:checked + .slider:before {
 /* ── Footer ─────────────────────────────────────────────────────── */
 .popup-footer {
   padding: 10px 16px;
-  border-top: 1px solid #1f1f23;
-  background: #0d0d0f;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary);
 }
 
 .footer-btn {
   width: 100%;
   background: transparent;
-  border: 1px solid #1f1f23;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 7px 0;
-  color: #9ca3af;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -1175,9 +1175,9 @@ input:checked + .slider:before {
 }
 
 .footer-btn:hover {
-  color: #ffffff;
-  background: #141416;
-  border-color: #2e2e33;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border-color: var(--border-light);
 }
 
 .footer-icon {

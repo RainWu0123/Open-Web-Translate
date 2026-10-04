@@ -116,7 +116,7 @@ export class SubtitleOverlayRenderer {
       originalFontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
       translatedFontSize: `${this.settings.subtitleTranslatedFontSize || 22}px`,
       originalColor: this.settings.subtitleOriginalColor || '#ffffff',
-      translatedColor: this.settings.subtitleTranslatedColor || '#c084fc',
+      translatedColor: this.settings.subtitleTranslatedColor || '#d4d4d4',
     }).filter((line) => (line.kind === 'original' ? this.lineVisibility.original : this.lineVisibility.translated));
 
     // Tokens carry whole-text offsets; locate each original line inside
@@ -219,7 +219,7 @@ export class SubtitleOverlayRenderer {
     span.style.borderRadius = '3px';
     span.style.transition = 'background 0.12s ease';
     span.addEventListener('mouseenter', () => {
-      span.style.background = 'rgba(139, 92, 246, 0.35)';
+      span.style.background = 'rgba(255, 255, 255, 0.28)';
     });
     span.addEventListener('mouseleave', () => {
       span.style.background = 'transparent';
