@@ -45,6 +45,26 @@ export default defineBackground(() => {
     return true;
   });
 
+  // ── SET_API_KEY ────────────────────────────────────────────────
+  messageRouter.registerHandler('SET_API_KEY' as any, async (msg: any) => {
+    if (msg.provider === 'gemini') {
+      await SettingsStorage.saveGeminiApiKey(msg.apiKey);
+    } else if (msg.provider === 'deepl') {
+      await SettingsStorage.saveDeeplApiKey(msg.apiKey);
+    }
+    return true;
+  });
+
+  // ── CLEAR_API_KEY ──────────────────────────────────────────────
+  messageRouter.registerHandler('CLEAR_API_KEY' as any, async (msg: any) => {
+    if (msg.provider === 'gemini') {
+      await SettingsStorage.clearGeminiApiKey();
+    } else if (msg.provider === 'deepl') {
+      await SettingsStorage.clearDeeplApiKey();
+    }
+    return true;
+  });
+
   // ── Helper: Relay active tab commands ───────────────────────────
   async function relayCommandToActiveTab(
     commandType: 'EXECUTE_PAGE_TRANSLATION' | 'RESTORE_PAGE_TRANSLATION',

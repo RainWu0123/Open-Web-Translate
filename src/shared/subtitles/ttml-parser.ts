@@ -228,6 +228,26 @@ export function parseNetflixTtmlDetailed(xmlText: string): TtmlParseResult {
   }
 
   const sorted = cues.sort((a, b) => a.startMs - b.startMs);
+
+  // Smooth micro-gaps and ensure human-readable continuity ("連段")
+  // Short cues (< 1000ms) flash too quickly for reading; extend them smoothly up to the next cue
+  for (let i = 0; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const next = sorted[i + 1];
+    const duration = cur.endMs - cur.startMs;
+
+    const maxAllowedEnd = next ? Math.max(cur.startMs + 500, next.startMs - 30) : cur.startMs + 2500;
+
+    if (duration < 1000) {
+      cur.endMs = Math.min(cur.startMs + 1200, Math.max(cur.endMs, maxAllowedEnd));
+    }
+
+    // Bridge small micro-gaps (<= 250ms) between adjacent cues to prevent visual flickering / strobing
+    if (next && next.startMs > cur.endMs && (next.startMs - cur.endMs) <= 250) {
+      cur.endMs = next.startMs - 20;
+    }
+  }
+
   diagnostics.cueCount = sorted.length;
   diagnostics.firstCueMs = sorted[0]?.startMs ?? null;
   diagnostics.lastCueMs = sorted.at(-1)?.endMs ?? null;

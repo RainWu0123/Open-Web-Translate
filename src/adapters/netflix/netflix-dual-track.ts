@@ -41,6 +41,10 @@ export class NetflixDualTrackController {
   private pairings: CuePairing<DualCue, DualCue>[] = [];
   private pairingByPrimary = new Map<DualCue, CuePairing<DualCue, DualCue>>();
   private primaryLang = 'auto';
+  private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly clearGraceMs = 1200;
+  private activeCue: DualCue | null = null;
+  private lastRenderedSecondaryText = '';
 
   constructor(
     private host: DualTrackHost,
@@ -70,6 +74,12 @@ export class NetflixDualTrackController {
 
   public stop(): void {
     this.active = false;
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
+    }
+    this.activeCue = null;
+    this.lastRenderedSecondaryText = '';
     this.syncEngine.stop();
   }
 
@@ -172,18 +182,44 @@ export class NetflixDualTrackController {
     this.syncEngine.start((rawCue) => {
       const cue = rawCue ? byIdentity.get(rawCue) ?? (rawCue as DualCue) : null;
       if (!this.host.isActive() || !this.active) return;
+
       if (!cue) {
-        if (this.host.getCueText() !== '') {
-          this.host.setCueText('');
-          this.host.clearLine();
+        this.activeCue = null;
+        // Hold the subtitle during natural pauses/micro-gaps between lines to prevent
+        // sudden drop-out (持續不超過0.5秒) and ensure smooth continuous subtitles ("連段")
+        if (this.clearGraceTimer === null && this.host.getCueText() !== '') {
+          this.clearGraceTimer = setTimeout(() => {
+            this.clearGraceTimer = null;
+            if (!this.activeCue && this.host.getCueText() !== '') {
+              this.host.setCueText('');
+              this.lastRenderedSecondaryText = '';
+              this.host.clearLine();
+            }
+          }, this.clearGraceMs);
         }
         return;
       }
+
+      // Cue active: cancel any pending clear timer
+      if (this.clearGraceTimer !== null) {
+        clearTimeout(this.clearGraceTimer);
+        this.clearGraceTimer = null;
+      }
+      this.activeCue = cue;
+
       const pairing = this.pairingByPrimary.get(cue);
       const secondaryText = pairing?.secondary?.text ?? '';
-      if (cue.text === this.host.getCueText()) return;
+
+      // If both lines are identical to what is currently rendered, skip re-rendering
+      if (cue.text === this.host.getCueText() && secondaryText === this.lastRenderedSecondaryText) {
+        return;
+      }
+
       this.host.setCueText(cue.text);
+      this.lastRenderedSecondaryText = secondaryText;
+
       if (!cue.text && !secondaryText) return;
+
       if (secondaryText) {
         this.host.renderCueLine(cue.text, secondaryText);
       } else {

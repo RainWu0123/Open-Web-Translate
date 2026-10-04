@@ -176,7 +176,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       if (!styleEl) {
         styleEl = document.createElement('style');
         styleEl.id = styleId;
-        styleEl.textContent = `.player-timedtext, .player-timed-text-image-container, [data-uia="player-timedtext"], [data-uia="watch-video--timed-text"] { visibility: hidden !important; display: none !important; opacity: 0 !important; }`;
+        styleEl.textContent = `.player-timedtext, .player-timed-text-image-container, [data-uia="player-timedtext"], [data-uia="watch-video--timed-text"] { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }`;
         (document.head || document.documentElement).appendChild(styleEl);
       }
     } else {
@@ -528,7 +528,6 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (this.lastProcessedText === cleanText) return;
 
     this.lastProcessedText = cleanText;
-    this.clearOverlay();
 
     if (this.selectedTrackId !== 'ai-translate' && this.secondaryCues.length > 0) {
       this.renderSecondaryCueForTime(cleanText);
@@ -540,11 +539,11 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private renderSecondaryCueForTime(primaryText: string) {
     const video = document.querySelector('video') as HTMLVideoElement | null;
     const currentMs = video ? Math.round(video.currentTime * 1000) : 0;
+    // Allow a 400ms tolerance window to match cues across natural timing discrepancies
     const activeCue = this.secondaryCues.find(
-      (cue) => currentMs >= cue.startMs && currentMs <= cue.endMs,
+      (cue) => currentMs >= cue.startMs - 300 && currentMs <= cue.endMs + 400,
     );
-    if (!activeCue?.text) return;
-    this.renderOverlay(primaryText, activeCue.text);
+    this.renderOverlay(primaryText, activeCue?.text || '');
   }
 
   private async fetchAndRenderOverlay(text: string, generation: number) {
@@ -671,7 +670,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         // original language) exists, download BOTH tracks and pair cues by
         // maximum time overlap — the LR dual-subtitle layout.
         const original = await this.dualTrack.selectPrimary(this.discoveredTracks, native, this.targetLang);
-        if (original && this.learningMode.isEnabled()) {
+        if (original) {
           await this.dualTrack.load(original, native);
         } else {
           await this.loadSecondaryTrack(native, { manual: false });

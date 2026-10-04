@@ -41,7 +41,7 @@ export function alignCueTracks<P extends AlignableCue, S extends AlignableCue>(
   secondary: S[],
   options: AlignOptions = {},
 ): CuePairing<P, S>[] {
-  const minOverlapMs = options.minOverlapMs ?? 150;
+  const minOverlapMs = options.minOverlapMs ?? 50;
   const sortedPrimary = [...primary].sort((a, b) => a.startMs - b.startMs);
   const sortedSecondary = [...secondary].sort((a, b) => a.startMs - b.startMs);
 

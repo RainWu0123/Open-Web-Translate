@@ -547,7 +547,9 @@
                       placeholder="Enter Gemini API Key..."
                       class="stitch-input"
                     />
-                    <button class="btn-stitch-accent" @click="saveApiKey(geminiKeyInput)">儲存</button>
+                    <button class="btn-stitch-accent" @click="saveApiKey(geminiKeyInput)">
+                      {{ saveApiKeyStatus === 'success' ? '已儲存 ✓' : saveApiKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
                     <button class="btn-stitch-secondary" @click="clearApiKey" v-if="settings.hasGeminiApiKey">清除</button>
                   </div>
                 </div>
@@ -565,7 +567,9 @@
                       placeholder="Enter DeepL API Key..."
                       class="stitch-input"
                     />
-                    <button class="btn-stitch-accent" @click="saveDeeplKey(deeplKeyInput)">儲存</button>
+                    <button class="btn-stitch-accent" @click="saveDeeplKey(deeplKeyInput)">
+                      {{ saveDeeplKeyStatus === 'success' ? '已儲存 ✓' : saveDeeplKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
                     <button class="btn-stitch-secondary" @click="clearDeeplKey" v-if="settings.hasDeeplApiKey">清除</button>
                   </div>
                 </div>
@@ -768,6 +772,8 @@ const mainCanvasRef = ref<HTMLElement | null>(null);
 
 const geminiKeyInput = ref('');
 const deeplKeyInput = ref('');
+const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
+const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 
 const settings = ref({
   enabled: true,
@@ -1019,8 +1025,6 @@ function onThemeChange(e: Event) {
 
 async function loadVocabulary() {
   try {
-    const gChrome = typeof window !== 'undefined' ? (window as any).chrome : undefined;
-    if (!gChrome?.runtime?.sendMessage) return;
     vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' as any } as any) as any) || [];
   } catch (e) {
     console.error('Failed to load vocabulary items', e);
@@ -1091,8 +1095,6 @@ async function recordSrsReview(id: string, grade: SrsGrade) {
 
 async function loadSettings() {
   try {
-    const gChrome = typeof window !== 'undefined' ? (window as any).chrome : undefined;
-    if (!gChrome?.storage) return;
     const s = await SettingsStorage.get();
     if (s) {
       settings.value.enabled = s.enabled ?? true;
@@ -1147,17 +1149,28 @@ async function saveNetflix() {
 
 async function saveApiKey(key: string) {
   try {
-    await messageRouter.sendMessage({ type: 'SET_API_KEY' as any, provider: 'gemini', apiKey: key } as any);
-    await loadSettings();
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await SettingsStorage.saveGeminiApiKey(trimmed);
+    settings.value.hasGeminiApiKey = true;
+    settings.value.geminiApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
     geminiKeyInput.value = '';
+    saveApiKeyStatus.value = 'success';
+    setTimeout(() => {
+      saveApiKeyStatus.value = 'idle';
+    }, 2500);
+    await loadSettings();
   } catch (e) {
     console.error('Failed to save Gemini key', e);
+    saveApiKeyStatus.value = 'error';
   }
 }
 
 async function clearApiKey() {
   try {
-    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY' as any, provider: 'gemini' } as any);
+    await SettingsStorage.clearGeminiApiKey();
+    settings.value.hasGeminiApiKey = false;
+    settings.value.geminiApiKeyMasked = '';
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear Gemini key', e);
@@ -1166,17 +1179,28 @@ async function clearApiKey() {
 
 async function saveDeeplKey(key: string) {
   try {
-    await messageRouter.sendMessage({ type: 'SET_API_KEY' as any, provider: 'deepl', apiKey: key } as any);
-    await loadSettings();
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await SettingsStorage.saveDeeplApiKey(trimmed);
+    settings.value.hasDeeplApiKey = true;
+    settings.value.deeplApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
     deeplKeyInput.value = '';
+    saveDeeplKeyStatus.value = 'success';
+    setTimeout(() => {
+      saveDeeplKeyStatus.value = 'idle';
+    }, 2500);
+    await loadSettings();
   } catch (e) {
     console.error('Failed to save DeepL key', e);
+    saveDeeplKeyStatus.value = 'error';
   }
 }
 
 async function clearDeeplKey() {
   try {
-    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY' as any, provider: 'deepl' } as any);
+    await SettingsStorage.clearDeeplApiKey();
+    settings.value.hasDeeplApiKey = false;
+    settings.value.deeplApiKeyMasked = '';
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear DeepL key', e);
