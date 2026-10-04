@@ -346,21 +346,35 @@ function playAudio() {
   void ttsPlayer.speak(currentCard.value.word, currentCard.value.sourceLang || 'auto');
 }
 
+// Saved sentences originate from arbitrary web pages / subtitles and are
+// rendered with v-html below, so they must be HTML-escaped before any
+// markup is added.
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function wordRegex(word: string): RegExp {
+  const escaped = escapeHtml(word).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(${escaped})`, 'gi');
+}
+
 function clozeSentence(sentence: string, word: string): string {
-  if (!sentence || !word) return sentence;
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
-  return sentence.replace(
-    regex,
-    '<span class="cloze-blank">[ ______ ]</span>'
-  );
+  if (!sentence) return '';
+  const safe = escapeHtml(sentence);
+  if (!word) return safe;
+  return safe.replace(wordRegex(word), '<span class="cloze-blank">[ ______ ]</span>');
 }
 
 function highlightKeyword(sentence: string, word: string): string {
-  if (!sentence || !word) return sentence;
-  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`(${escaped})`, 'gi');
-  return sentence.replace(regex, '<strong class="highlight-word">$1</strong>');
+  if (!sentence) return '';
+  const safe = escapeHtml(sentence);
+  if (!word) return safe;
+  return safe.replace(wordRegex(word), '<strong class="highlight-word">$1</strong>');
 }
 
 function submitGrade(grade: SrsGrade) {

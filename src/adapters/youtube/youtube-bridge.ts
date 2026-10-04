@@ -43,7 +43,7 @@ export function postToContent(type: string, payload: Record<string, unknown> = {
   const msg = { ...payload, type, source: YT_BRIDGE.MAIN_SOURCE, revision: contentRevision };
 
   try {
-    window.postMessage(msg, '*');
+    window.postMessage(msg, location.origin);
   } catch (err) {
     logger.debug('postToContent postMessage failed', err);
   }
@@ -60,7 +60,7 @@ export function postToMain(type: string, payload: Record<string, unknown> = {}):
   const msg = { ...payload, type, source: YT_BRIDGE.CONTENT_SOURCE };
 
   try {
-    window.postMessage(msg, '*');
+    window.postMessage(msg, location.origin);
   } catch (err) {
     logger.debug('postToMain postMessage failed', err);
   }
@@ -92,6 +92,8 @@ export function subscribeToYouTubeBridge(
   };
 
   const onWindowMessage = (event: MessageEvent) => {
+    // Ignore messages posted by other frames (embedded ads/iframes).
+    if (event.source !== window) return;
     handleMessage(event.data);
   };
 

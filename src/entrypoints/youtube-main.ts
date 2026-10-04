@@ -164,6 +164,8 @@ export default defineUnlistedScript({
     };
 
     window.addEventListener('message', (event) => {
+      // Ignore messages posted by other frames (embedded ads/iframes).
+      if (event.source !== window) return;
       handleCommand(event.data);
     });
 

@@ -254,37 +254,49 @@ export class DictionaryPopover {
   private renderGrammarBody(container: HTMLElement, exp: GrammarExplanation): void {
     container.innerHTML = '';
 
+    // All values below come from an AI model / custom endpoint, so they are
+    // inserted with textContent only — never as markup.
+    const el = (tag: string, className?: string, text?: string): HTMLElement => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+
     if (exp.difficultyLevel || exp.nuanceOrTone) {
-      const metaRow = document.createElement('div');
-      metaRow.className = 'owt-dp-grammar-meta';
+      const metaRow = el('div', 'owt-dp-grammar-meta');
       if (exp.difficultyLevel) {
-        metaRow.innerHTML += `<span class="owt-dp-badge-level">${exp.difficultyLevel}</span>`;
+        metaRow.appendChild(el('span', 'owt-dp-badge-level', String(exp.difficultyLevel)));
       }
       if (exp.nuanceOrTone) {
-        metaRow.innerHTML += `<span class="owt-dp-badge-tone">${exp.nuanceOrTone}</span>`;
+        metaRow.appendChild(el('span', 'owt-dp-badge-tone', String(exp.nuanceOrTone)));
       }
       container.appendChild(metaRow);
     }
 
     if (exp.breakdown && exp.breakdown.length > 0) {
-      const list = document.createElement('div');
-      list.className = 'owt-dp-breakdown-list';
+      const list = el('div', 'owt-dp-breakdown-list');
       for (const item of exp.breakdown) {
-        const row = document.createElement('div');
-        row.className = 'owt-dp-breakdown-row';
-        row.innerHTML = `
-          <div class="seg-name"><b>${item.segment}</b> <span class="seg-role">${item.role}</span></div>
-          <div class="seg-desc">${item.explanation}</div>
-        `;
+        const row = el('div', 'owt-dp-breakdown-row');
+
+        const name = el('div', 'seg-name');
+        name.appendChild(el('b', undefined, String(item.segment)));
+        name.appendChild(document.createTextNode(' '));
+        name.appendChild(el('span', 'seg-role', String(item.role)));
+        row.appendChild(name);
+
+        row.appendChild(el('div', 'seg-desc', String(item.explanation)));
         list.appendChild(row);
       }
       container.appendChild(list);
     }
 
     if (exp.keyPoints && exp.keyPoints.length > 0) {
-      const kp = document.createElement('div');
-      kp.className = 'owt-dp-keypoints';
-      kp.innerHTML = '<b>重點總結：</b>' + exp.keyPoints.map((k) => `<span>• ${k}</span>`).join('');
+      const kp = el('div', 'owt-dp-keypoints');
+      kp.appendChild(el('b', undefined, '重點總結：'));
+      for (const k of exp.keyPoints) {
+        kp.appendChild(el('span', undefined, `• ${String(k)}`));
+      }
       container.appendChild(kp);
     }
   }
