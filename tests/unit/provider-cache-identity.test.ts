@@ -41,6 +41,20 @@ describe('provider cache identity', () => {
     expect(changedInstructions.fingerprint).not.toBe(base.fingerprint);
   });
 
+  it('distinguishes remote Custom HTTP endpoints and models', () => {
+    const first = getProviderCacheIdentity('custom-http-provider', {
+      customHttpEndpoint: 'https://api.example.com',
+      customHttpModel: 'model-a',
+    });
+    const second = getProviderCacheIdentity('custom-http-provider', {
+      customHttpEndpoint: 'https://proxy.example.net',
+      customHttpModel: 'model-b',
+    });
+
+    expect(first.providerId).toBe('custom-http-provider');
+    expect(second.fingerprint).not.toBe(first.fingerprint);
+  });
+
   it('distinguishes Local HTTP endpoints and models', () => {
     const first = getProviderCacheIdentity('local-http-provider', {
       localHttpEndpoint: 'http://127.0.0.1:8080',
