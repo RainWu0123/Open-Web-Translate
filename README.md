@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌐 Open Web Translate (v3)
+# 🌐 Open Web Translate
 
 **次世代在地化、隱私優先、AI 驅動的開源網頁與串流影音雙語翻譯神器**  
 *An open-source, Local-first, AI-extensible translation and language learning workbench.*
@@ -44,8 +44,8 @@
 
 ### 🌐 3. 全網頁雙語對照與劃詞翻譯
 - **非破壞性排版**：採用智慧 DOM 區塊擷取與 Shadow DOM 樣式隔離，保留網頁原有排版與行內樣式。
-- **質感漸層懸浮球（Draggable Floating Ball）**：
-  - 具備「閒置（半透明） / 翻譯中（微光旋轉） / 已完成（青綠徽章）」三態指示。
+- **可拖曳懸浮按鈕（Draggable Floating Button）**：
+  - 具備「閒置 / 翻譯中 / 已完成」三態指示，使用高對比圖示與旋轉進度回饋。
   - 支援自由拖曳並自動記憶於本機端位置，點擊即開關翻譯。
 - **快捷劃詞翻譯**：選取網頁任何段落即浮現快捷翻譯膠囊與右鍵選單。
 
@@ -145,7 +145,9 @@ pnpm zip:firefox
 
 - **Local-first（本機優先）**：所有使用者設定、自訂字典、劃詞翻譯快取與生詞本卡片均儲存在本地 `IndexedDB` 與 `browser.storage.local`。只有在使用者明確選擇雲端或 Custom HTTP provider 時，待翻譯內容才會傳送至對應服務。
 - **無追蹤與零遙測**：程式碼中不含 Google Analytics、Sentry 或任何第三方遙測代碼，保證您的閱讀習慣完全私密。
-- **金鑰嚴密隔離**：您的 API Key 僅儲存於本機擴充套件沙盒中，在網路請求時僅傳送給該 AI 官方端點，絕不寫入構建產物或環境變數。
+- **金鑰嚴密隔離**：API Key 僅儲存於本機擴充套件沙盒；一般設定與 content script 只取得遮罩/是否已設定狀態，raw key 僅由 background/provider 在發出對應請求時讀取。
+- **Local 與 Remote 邊界**：Ollama / Local HTTP 僅允許 loopback；Custom HTTP 明確視為 remote provider，遠端端點必須使用 HTTPS。
+- 詳細資料處理方式請見 [`PRIVACY.md`](./PRIVACY.md)。
 
 ---
 
@@ -156,7 +158,7 @@ graph TD
     subgraph UI ["使用者介面層 (Vue 3)"]
         Popup["Popup 彈窗 (360px 快速操作)"]
         Options["Options 設定儀表板 (完整控制)"]
-        Badge["Floating Badge (網頁漸層懸浮球)"]
+        Badge["Floating Badge (可拖曳翻譯按鈕)"]
     end
 
     subgraph Adapters ["適配器層 (Platform Adapters)"]
@@ -166,7 +168,7 @@ graph TD
     end
 
     subgraph Core ["核心引擎 (Core Engine)"]
-        Pipeline["TranslationPipeline (快取、降級、熔斷)"]
+        Pipeline["TranslationPipeline (快取、分批、上下文隔離)"]
         Aligner["CueAligner (Netflix 字幕時間二分搜尋)"]
         Lines["composeBilingualLines (雙語行合成規則)"]
     end

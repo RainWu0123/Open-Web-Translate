@@ -1,29 +1,22 @@
-# E2E Test Suite Ready
+# Scenario Test Suite
 
 ## Test Runner
 - Command: `pnpm test`
-- Environment: JSDOM (`vitest run --environment jsdom`)
-- Expected: All 51 E2E tests pass cleanly with exit code 0
+- Environment: Vitest + JSDOM
+- Purpose: deterministic unit, integration, boundary, and user-scenario coverage.
 
-## Coverage Summary
-| Tier | Count | Description |
-|------|------:|-------------|
-| 1. Feature Coverage | 20 | 5 test cases per feature across 4 primary feature areas |
-| 2. Boundary & Corner | 20 | 5 test cases per feature across 4 boundary & corner condition areas |
-| 3. Cross-Feature | 6 | Cross-feature interactions & pairwise combinations |
-| 4. Real-World Application | 5 | Realistic end-to-end user application scenarios |
-| **Total** | **51** | Requirement-driven 4-tier E2E test suite |
+> The files under `tests/e2e/tier*.test.ts` are historical scenario suites executed in JSDOM. They are not browser-driving E2E tests. The directory name is retained for compatibility; documentation should refer to them as scenario tests.
 
-## Feature Checklist
-| Feature | Tier 1 | Tier 2 | Tier 3 | Tier 4 |
-|---------|:------:|:------:|:------:|:------:|
-| Shared Logger (variadic args `...args: any[]`) | 5 | 5 | ✓ | ✓ |
-| Decomposed Vue 3 UI Components (`ProviderConfigCard`, `DisplaySettings`, `GlossaryManager`, `ThemeToggle`) | 5 | 5 | ✓ | ✓ |
-| Web Page DOM Translation Engine (`DomExtractor`, `ShadowRenderer`, `InlineHost`, `BlockHost`) | 5 | 5 | ✓ | ✓ |
-| Local Private AI Providers (`OllamaProvider`, `LocalHttpProvider`, `ChromeBuiltInAIProvider`) | 5 | 5 | ✓ | ✓ |
+## Scenario Coverage
+| Tier | Description |
+|------|-------------|
+| 1. Feature Coverage | Primary feature behavior |
+| 2. Boundary & Corner | Input and failure boundaries |
+| 3. Cross-Feature | Cross-module interactions |
+| 4. Application Scenarios | Representative user workflows |
 
-## Test File Locations
-- `tests/e2e/tier1-features.test.ts`: Tier 1 Feature Coverage (20 tests)
-- `tests/e2e/tier2-boundary.test.ts`: Tier 2 Boundary & Corner Cases (20 tests)
-- `tests/e2e/tier3-combinations.test.ts`: Tier 3 Cross-Feature Combinations (6 tests)
-- `tests/e2e/tier4-application.test.ts`: Tier 4 Real-World Application Scenarios (5 tests)
+## Additional Regression Coverage
+The suite also contains focused unit/integration tests for provider batching, context-aware cache identity, secret isolation, endpoint privacy, strict response parsing/repair, IndexedDB lifecycle, and DOM rendering/restoration.
+
+## Browser E2E Status
+A true browser-driving extension E2E suite is still a separate concern. CI currently guarantees typecheck, Vitest scenarios, and Chrome/Firefox production builds; do not describe JSDOM scenarios as browser E2E.
