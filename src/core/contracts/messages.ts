@@ -67,6 +67,10 @@ export interface ExtensionSettings {
   localHttpApiKeyMasked?: string;
   hasLocalHttpApiKey?: boolean;
   localHttpModel?: string;
+  customHttpEndpoint?: string;
+  customHttpApiKeyMasked?: string;
+  hasCustomHttpApiKey?: boolean;
+  customHttpModel?: string;
   smartBlurSubtitles?: boolean;
   /** Netflix subtitle card settings; persisted inside the single settings store. */
   netflix?: NetflixConfig;
@@ -76,10 +80,11 @@ export interface SecretSettings {
   geminiApiKey?: string;
   deeplApiKey?: string;
   localHttpApiKey?: string;
+  customHttpApiKey?: string;
 }
 
 export type InternalExtensionSettings = ExtensionSettings & SecretSettings;
-export type ApiKeyProvider = 'gemini' | 'deepl' | 'local-http';
+export type ApiKeyProvider = 'gemini' | 'deepl' | 'local-http' | 'custom-http';
 
 export interface NetflixConfig {
   enabled: boolean;
