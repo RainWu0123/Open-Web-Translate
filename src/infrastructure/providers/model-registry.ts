@@ -32,7 +32,7 @@ export interface ProviderRegistration {
 export const REGISTERED_PROVIDERS: Record<string, ProviderRegistration> = {
   'ollama-provider': {
     providerId: 'ollama-provider',
-    displayName: 'Ollama Local AI',
+    displayName: 'Ollama Local AI (Loopback)',
     isLocal: true,
     supportedModels: ['llama3', 'llama3.1', 'mistral', 'qwen2.5', 'gemma2'],
   },
@@ -62,7 +62,7 @@ export const REGISTERED_PROVIDERS: Record<string, ProviderRegistration> = {
   },
   'local-http-provider': {
     providerId: 'local-http-provider',
-    displayName: 'Local HTTP Provider',
+    displayName: 'Local HTTP Provider (Loopback)',
     isLocal: true,
     supportedModels: ['default'],
   },
