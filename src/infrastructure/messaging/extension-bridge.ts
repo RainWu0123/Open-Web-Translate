@@ -49,11 +49,16 @@ class ExtensionBridgeImpl implements ExtensionBridge {
     }
   }
 
+  private async sendTabMessageStrict<T = any>(tabId: number, message: any): Promise<T> {
+    if (typeof browser === 'undefined' || !browser?.tabs?.sendMessage) {
+      throw new Error('tabs.sendMessage is unavailable');
+    }
+    return await browser.tabs.sendMessage(tabId, message) as T;
+  }
+
   async sendTabMessage<T = any>(tabId: number, message: any): Promise<T | null> {
     try {
-      if (typeof browser === 'undefined' || !browser?.tabs?.sendMessage) return null;
-      const res = await browser.tabs.sendMessage(tabId, message);
-      return res as T;
+      return await this.sendTabMessageStrict<T>(tabId, message);
     } catch (err) {
       logger.debug(`Failed to send tab message to tab ${tabId}`, err);
       return null;
@@ -71,14 +76,12 @@ class ExtensionBridgeImpl implements ExtensionBridge {
     message: any,
     opts: { injectIfNeeded?: boolean } = {},
   ): Promise<T | null> {
-    const send = () => this.sendTabMessage<T>(tabId, message);
+    const send = () => this.sendTabMessageStrict<T>(tabId, message);
 
     let firstError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const res = await send();
-        if (res !== null) return res;
-        return res; // content script answered (possibly undefined payload)
+        return await send();
       } catch (err) {
         firstError = firstError ?? err;
         if (attempt === 0 && opts.injectIfNeeded) {
@@ -95,13 +98,16 @@ class ExtensionBridgeImpl implements ExtensionBridge {
             } else {
               break;
             }
-            continue; // retry right after injection
+            continue; // retry immediately after successful injection
           } catch (injectErr) {
             logger.debug(`Tab command injection failed for tab ${tabId}`, injectErr);
             throw firstError;
           }
         }
-        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
       }
     }
     throw firstError ?? new Error('content script unavailable');
