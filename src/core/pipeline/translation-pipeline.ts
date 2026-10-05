@@ -110,49 +110,81 @@ export class TranslationPipeline {
       `Cache miss for ${segmentsToTranslate.length}/${msg.segments.length} segments, calling provider ${activeProviderId}`,
     );
 
-    const request = {
-      segments: segmentsToTranslate.map((s) => ({ id: s.id as any, text: s.text })),
-      sourceLanguage: msg.sourceLanguage as any,
-      targetLanguage: msg.targetLanguage as any,
-      mode: settings.defaultTranslationMode || 'fast',
-      ...(settings.aiTranslationInstructions?.trim()
-        ? { instructions: settings.aiTranslationInstructions.trim().slice(0, 2000) }
-        : {}),
-      ...(msg.context?.previous?.length ? { context: msg.context } : {}),
-    };
+    const configuredMaxSegments = provider.capabilities?.maxSegments;
+    const maxSegmentsPerRequest =
+      Number.isFinite(configuredMaxSegments) && configuredMaxSegments > 0
+        ? Math.floor(configuredMaxSegments)
+        : segmentsToTranslate.length;
 
-    // A failed service is an error, never a successful echo of the source.
-    // Keep the selected provider and its privacy boundary explicit.
-    const providerResult = await provider.translate(request);
-    if (segmentsToTranslate.some(segment => !providerResult.segments.some(result => result.id === segment.id && result.text.trim()))) {
-      throw new Error('翻譯服務未回傳完整譯文，請重試或更換服務。');
+    const batches: Array<typeof segmentsToTranslate> = [];
+    for (let offset = 0; offset < segmentsToTranslate.length; offset += maxSegmentsPerRequest) {
+      batches.push(segmentsToTranslate.slice(offset, offset + maxSegmentsPerRequest));
     }
 
-    // 4. Persist new translations (concurrent writes; Map lookup instead of
-    //    the previous O(n*m) find-per-result loop)
-    const sourceById = new Map(segmentsToTranslate.map((s) => [s.id as string, s]));
-    if (providerResult.cacheable) {
-      await Promise.all(
-        providerResult.segments.map((resSeg: { id: unknown; text: string }) => {
-          const originalSeg = sourceById.get(resSeg.id as string);
-          if (!originalSeg) return Promise.resolve();
-          return this.cacheRepo.set({
-            sourceText: originalSeg.text,
-            translatedText: resSeg.text,
+    if (batches.length > 1) {
+      logger.info(
+        `Splitting ${segmentsToTranslate.length} segments into ${batches.length} batches (provider limit: ${maxSegmentsPerRequest})`,
+      );
+    }
+
+    const translatedForCache: Array<{
+      source: { id: string; text: string };
+      translatedText: string;
+      cacheable: boolean;
+    }> = [];
+
+    // A failed service is an error, never a successful echo of the source.
+    // Keep the selected provider and its privacy boundary explicit. Batches
+    // are executed sequentially so local providers are not overloaded and
+    // result ordering remains deterministic.
+    for (const batch of batches) {
+      const request = {
+        segments: batch.map((s) => ({ id: s.id as any, text: s.text })),
+        sourceLanguage: msg.sourceLanguage as any,
+        targetLanguage: msg.targetLanguage as any,
+        mode: settings.defaultTranslationMode || 'fast',
+        ...(settings.aiTranslationInstructions?.trim()
+          ? { instructions: settings.aiTranslationInstructions.trim().slice(0, 2000) }
+          : {}),
+        ...(msg.context?.previous?.length ? { context: msg.context } : {}),
+      };
+
+      const providerResult = await provider.translate(request);
+      const resultById = new Map(
+        providerResult.segments.map((result) => [result.id as string, result.text]),
+      );
+
+      if (batch.some((segment) => !resultById.get(segment.id)?.trim())) {
+        throw new Error('翻譯服務未回傳完整譯文，請重試或更換服務。');
+      }
+
+      for (const segment of batch) {
+        const translatedText = resultById.get(segment.id)!;
+        resultsMap.set(segment.id, translatedText);
+        translatedForCache.push({
+          source: segment,
+          translatedText,
+          cacheable: providerResult.cacheable,
+        });
+      }
+    }
+
+    // 4. Persist new translations only after every provider batch succeeded.
+    // This avoids leaving a partially-cached page when a later batch fails.
+    await Promise.all(
+      translatedForCache
+        .filter((entry) => entry.cacheable)
+        .map((entry) =>
+          this.cacheRepo.set({
+            sourceText: entry.source.text,
+            translatedText: entry.translatedText,
             sourceLanguage: msg.sourceLanguage,
             targetLanguage: msg.targetLanguage,
             providerId: activeProviderId,
             providerFingerprint,
-          });
-        }),
-      );
-    }
-    for (const resSeg of providerResult.segments) {
-      const originalSeg = sourceById.get(resSeg.id as string);
-      if (originalSeg) {
-        resultsMap.set(originalSeg.id, resSeg.text);
-      }
-    }
+          }),
+        ),
+    );
 
     return {
       segments: msg.segments.map((s) => ({
