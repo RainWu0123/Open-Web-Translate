@@ -1,7 +1,7 @@
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { getProvider } from '@/infrastructure/providers';
 import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-identity';
-import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
+import { CacheRepository, sha256 } from '@/infrastructure/storage/repositories/cache-repository';
 import { createLogger } from '@/shared/logger';
 import type { ExtensionSettings } from '@/core/contracts/messages';
 
@@ -63,7 +63,19 @@ export class TranslationPipeline {
 
     const cacheIdentity = getProviderCacheIdentity(activeProviderId, settings);
     const cacheProviderId = cacheIdentity.providerId;
-    const providerFingerprint = cacheIdentity.fingerprint;
+    const contextPairs =
+      provider.capabilities?.context && msg.context?.previous?.length
+        ? msg.context.previous.map((pair) => ({
+            source: pair.source.trim().replace(/\s+/g, ' '),
+            translation: pair.translation.trim().replace(/\s+/g, ' '),
+          }))
+        : [];
+    const contextFingerprint =
+      contextPairs.length > 0
+        ? await sha256(JSON.stringify(contextPairs))
+        : 'none';
+    const providerFingerprint =
+      `${cacheIdentity.fingerprint};context=${contextFingerprint}`;
 
     // 1. Concurrent cache lookups (were N sequential IndexedDB roundtrips)
     const cacheHits = await Promise.all(
@@ -140,7 +152,9 @@ export class TranslationPipeline {
         ...(settings.aiTranslationInstructions?.trim()
           ? { instructions: settings.aiTranslationInstructions.trim().slice(0, 2000) }
           : {}),
-        ...(msg.context?.previous?.length ? { context: msg.context } : {}),
+        ...(provider.capabilities?.context && msg.context?.previous?.length
+          ? { context: msg.context }
+          : {}),
       };
 
       const providerResult = await provider.translate(request);
