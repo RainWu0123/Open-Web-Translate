@@ -77,6 +77,22 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
       expect(result.segments[0].text).toBe('段落甲');
       expect(result.segments[1].text).toBe('段落乙');
     });
+
+    it('rejects an empty response instead of echoing the source text', async () => {
+      const provider = new LocalHttpProvider({ endpoint: 'http://127.0.0.1:8080' });
+
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '' } }] }),
+      }));
+
+      await expect(provider.translate({
+        segments: [{ id: 'seg-1' as SegmentId, text: 'Source text' }],
+        sourceLanguage: 'en' as LanguageCode,
+        targetLanguage: 'zh-Hant' as LanguageCode,
+        mode: 'fast',
+      })).rejects.toThrow('empty translation');
+    });
   });
 
   describe('ChromeBuiltInAIProvider Service Worker & globalThis Support', () => {

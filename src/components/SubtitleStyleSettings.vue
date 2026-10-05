@@ -157,9 +157,9 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   flex-direction: column;
   gap: 16px;
   padding: 20px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
 }
 
 .card-header {
@@ -167,13 +167,13 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   align-items: center;
   gap: 10px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, var(--border-color));
+  border-bottom: 1px solid var(--border-color);
 }
 
 .card-icon {
   width: 18px;
   height: 18px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -181,13 +181,13 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   display: block;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .card-desc {
   display: block;
   font-size: 12px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   margin-top: 1px;
 }
 
@@ -208,12 +208,12 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
 .title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .desc {
   font-size: 11.5px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
@@ -234,10 +234,10 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--text-primary, var(--text-primary));
-  background: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 3px 6px;
   min-width: 48px;
   text-align: center;
@@ -252,8 +252,8 @@ function onColorChange(key: keyof ExtensionSettings, event: Event) {
 .color-control input[type='color'] {
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 0;
   cursor: pointer;
   background: transparent;

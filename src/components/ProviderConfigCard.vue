@@ -577,23 +577,19 @@ function onTestConnection() {
   testing.value = true;
   connectionStatus.value = null;
   emit('test-connection', props.provider);
-  setTimeout(() => {
-    testing.value = false;
-    if (!props.provider?.endpoint && !props.provider?.isLocal) {
-      connectionStatus.value = { type: 'error', message: 'Missing endpoint URL' };
-    } else {
-      connectionStatus.value = { type: 'success', message: 'Connection successful!' };
-    }
-  }, 50);
+  testing.value = false;
+  connectionStatus.value = { type: 'error', message: !props.provider.endpoint && !props.provider.isLocal
+    ? 'Missing endpoint URL：請填入服務位址。'
+    : '尚未取得連線測試結果，請以實際翻譯確認。' };
 }
 </script>
 
 <style scoped>
 .owt-provider-config-card {
-  background-color: var(--bg-card, var(--bg-card));
-  border-radius: 2px;
+  background-color: var(--bg-card);
+  border-radius: var(--radius-sm);
   padding: 24px;
-  border: 1px solid var(--border-color, var(--border-color));
+  border: 1px solid var(--border-color);
 }
 
 .setting-item,
@@ -613,22 +609,22 @@ function onTestConnection() {
 .setting-label .title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .setting-label .desc {
   font-size: 12px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
 .verified-tag {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   background: var(--bg-hover);
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   display: inline-block;
   width: fit-content;
   border: 1px solid var(--border-color);
@@ -642,10 +638,10 @@ function onTestConnection() {
 }
 
 .key-input {
-  background-color: var(--bg-input, var(--bg-input));
-  color: var(--text-primary, var(--text-primary));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 13px;
   width: 100%;
@@ -655,11 +651,11 @@ function onTestConnection() {
 
 .key-input:focus {
   outline: none;
-  border-color: var(--border-light, var(--border-light));
+  border-color: var(--border-light);
 }
 
 .provider-key-section {
-  border-top: 1px solid var(--border-color, var(--border-color));
+  border-top: 1px solid var(--border-color);
   padding-top: 18px;
   margin-top: 18px;
 }
@@ -674,7 +670,7 @@ function onTestConnection() {
 .badge {
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
@@ -698,7 +694,7 @@ function onTestConnection() {
 
 .btn {
   padding: 8px 16px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -715,8 +711,8 @@ function onTestConnection() {
 }
 
 .btn-save {
-  background-color: var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
+  background-color: var(--primary-accent);
+  color: var(--on-primary);
   font-weight: 700;
 }
 
@@ -726,9 +722,9 @@ function onTestConnection() {
 
 .btn-clear {
   background-color: transparent;
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-secondary, var(--text-secondary));
-  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
 }
 
 .btn-clear:hover:not(:disabled) {

@@ -84,6 +84,7 @@ function injectYouTubeMainWorldScript(): void {
 // ─── Badge State Machine ─────────────────────────────────────────
 type BadgeState = 'idle' | 'translating' | 'translated';
 let badgeState: BadgeState = 'idle';
+let translationEnabled = false;
 let badgeHost: HTMLElement | null = null;
 let badgeButton: HTMLButtonElement | null = null;
 
@@ -179,17 +180,20 @@ export default defineContentScript({
 
     // 2b. Selection translate (劃詞翻譯) pill
     setupSelectionTranslate(async (selection) => {
-      await executeSelectionTranslation(selection);
-    });
+      const result = await executeSelectionTranslation(selection);
+      if (!result.success) showTranslationError(result.error?.message || '翻譯失敗，請重試。');
+    }, () => translationEnabled);
 
     // 3. Listen for settings changes to dynamically show/hide badge
     setupSettingsListener();
+
+    translationEnabled = (await SettingsStorage.get()).enabled !== false;
 
     // 4. Read settings and conditionally add badge (suppressed on Netflix)
     if (!isVideoSite) {
       try {
         const settings = await SettingsStorage.get().catch(() => null);
-        if (settings?.showFloatingButton !== false) {
+        if (translationEnabled && settings?.showFloatingButton !== false) {
           addFloatingBadge();
         }
       } catch {
@@ -235,7 +239,8 @@ function setupSettingsListener(): void {
   // fired. The single Settings seam replaces it.
   try {
     SettingsStorage.watch((s) => {
-      if (s.showFloatingButton === false) {
+      translationEnabled = s.enabled !== false;
+      if (!translationEnabled || s.showFloatingButton === false) {
         removeFloatingBadge();
       } else if (
         !window.location.hostname.includes('netflix.com') &&
@@ -304,11 +309,11 @@ function addFloatingBadge(): void {
       .owt-badge {
         width: 44px;
         height: 44px;
-        border-radius: 4px;
-        background: #000000;
+        border-radius: 10px;
+        background: #0c0d10;
         color: #fafafa;
-        border: 1px solid #525252;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -384,6 +389,7 @@ function addFloatingBadge(): void {
           updateBadgeUI('translated');
         } else {
           updateBadgeUI('idle');
+          showTranslationError(res.error?.message || '翻譯失敗，請重試。');
         }
       } else if (badgeState === 'translated') {
         await executePageRestore();
@@ -538,6 +544,7 @@ function removeFloatingBadge(): void {
 async function executePageTranslation(): Promise<{ success: boolean; translatedCount?: number; error?: ErrorPayload }> {
   try {
     const settings = await SettingsStorage.get();
+    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: '網頁翻譯已關閉，請先在擴充功能中開啟。' } };
     const targetLanguage = settings.targetLanguage || 'zh-Hant';
     const sourceLanguage = settings.sourceLanguage || 'auto';
 
@@ -554,7 +561,7 @@ async function executePageTranslation(): Promise<{ success: boolean; translatedC
         return response.segments;
       },
     });
-    return { success: result.success, translatedCount: result.translatedCount };
+    return { success: result.success, translatedCount: result.translatedCount, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: '這個頁面沒有可翻譯的文字。請在一般文章網頁使用。' } } : {}) };
   } catch (err: any) {
     logger.error('Page translation failed:', err);
     return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Page translation failed' } };
@@ -575,11 +582,12 @@ async function executeSelectionTranslation(
   selection: Selection,
 ): Promise<{ success: boolean; error?: ErrorPayload }> {
   try {
-    const settings = await SettingsStorage.get().catch(() => null);
+    const settings = await SettingsStorage.get();
+    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: '網頁翻譯已關閉，請先在擴充功能中開啟。' } };
     const targetLanguage = settings?.targetLanguage || 'zh-Hant';
     const sourceLanguage = settings?.sourceLanguage || 'auto';
 
-    await genericDomAdapter.translateSelection(selection, document, {
+    const result = await genericDomAdapter.translateSelection(selection, document, {
       targetLanguage,
       displayMode: settings?.displayMode || 'bilingual',
       translateFn: async (segments) => {
@@ -592,9 +600,20 @@ async function executeSelectionTranslation(
         return response.segments;
       },
     });
-    return { success: true };
+    return { success: result.success, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: '請先選取可翻譯的文字。' } } : {}) };
   } catch (err: any) {
     logger.error('Selection translation failed:', err);
     return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Selection translation failed' } };
   }
+}
+
+function showTranslationError(message: string): void {
+  document.getElementById('owt-translation-notice')?.remove();
+  const notice = document.createElement('div');
+  notice.id = 'owt-translation-notice';
+  notice.setAttribute('role', 'alert');
+  notice.textContent = message;
+  notice.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483647;max-width:min(360px,80vw);padding:16px;border-radius:10px;background:#18181b;color:#fff;font:14px/1.6 system-ui;box-shadow:0 4px 20px #0004';
+  (document.body || document.documentElement).appendChild(notice);
+  setTimeout(() => notice.remove(), 6000);
 }

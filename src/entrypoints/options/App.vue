@@ -5,9 +5,9 @@
     <!-- ================================================================= -->
     <header class="stitch-header">
       <div class="header-left">
-        <div class="stitch-brand" @click="switchTab('subtitles')">
+        <button type="button" class="stitch-brand" @click="switchTab('subtitles')">
           <span class="brand-name">Open Web Translate</span>
-        </div>
+        </button>
       </div>
 
       <div class="header-center">
@@ -18,26 +18,28 @@
           <input
             type="text"
             v-model="globalSearchQuery"
-            placeholder="Search..."
+            placeholder="搜尋設定…" aria-label="搜尋設定"
             class="search-input"
-            @keydown.slash.prevent="focusSearch"
+            @keydown.enter.prevent="openFirstSearchResult" @keydown.esc="globalSearchQuery = ''"
             ref="searchInputRef"
           />
           <kbd class="search-kbd">Ctrl K</kbd>
         </div>
+        <div v-if="globalSearchQuery.trim()" class="search-results" aria-label="搜尋結果">
+          <button v-for="item in searchResults" :key="item.tab" type="button" @click="selectSearchResult(item.tab)">
+            <span>{{ item.label }}</span><span aria-hidden="true">↗</span>
+          </button>
+          <p v-if="!searchResults.length" role="status">沒有符合的設定，試試「字幕」或「翻譯」。</p>
+        </div>
       </div>
 
       <div class="header-right">
-        <button class="header-icon-btn" @click="closeWindow" title="Close">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+
         <div class="theme-select-box">
-          <select v-model="theme" @change="onThemeChange" class="stitch-theme-select">
-            <option value="system">Auto ▾</option>
-            <option value="dark">Dark ▾</option>
-            <option value="light">Light ▾</option>
+          <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" aria-label="介面主題">
+            <option value="system">自動</option>
+            <option value="dark">深色</option>
+            <option value="light">淺色</option>
           </select>
         </div>
       </div>
@@ -52,67 +54,51 @@
         <!-- Top flat items -->
         <div class="sidebar-group flat-nav">
           <button
+            :class="['sidebar-nav-btn', { active: activeTab === 'general' }]"
+            @click="switchTab('general')"
+            data-testid="tab-general"
+          >
+            <span>閱讀設定</span>
+          </button>
+          <button
             :class="['sidebar-nav-btn', { active: activeTab === 'subtitles' }]"
             @click="switchTab('subtitles')"
             data-testid="tab-subtitles"
           >
-            <span>Subtitles</span>
+            <span>字幕設定</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'learning' }]"
             @click="switchTab('learning')"
             data-testid="tab-learning"
           >
-            <span>Learning Studio</span>
-            <span v-if="dueCardsCount > 0" class="sidebar-count-chip">{{ dueCardsCount }}</span>
+            <span>複習單字</span>
+            <span v-if="vocabItems.length && dueCardsCount > 0" class="sidebar-count-chip">{{ dueCardsCount }}</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'vocabulary' }]"
             @click="switchTab('vocabulary')"
             data-testid="tab-vocabulary"
           >
-            <span>Vocabulary</span>
+            <span>我的單字</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'models' }]"
             @click="switchTab('models')"
             data-testid="tab-providers"
           >
-            <span>AI Providers</span>
+            <span>翻譯服務</span>
           </button>
-          <button
-            :class="['sidebar-nav-btn', { active: activeTab === 'general' }]"
-            @click="switchTab('general')"
-            data-testid="tab-general"
-          >
-            <span>General Settings</span>
-          </button>
+
         </div>
 
-        <!-- Section Group with Stitch-style active pill -->
-        <div class="sidebar-group section-nav">
-          <div class="section-nav-header">
-            <span>{{ currentSectionTitle }} ˅</span>
-          </div>
-          <div class="section-nav-items">
-            <a
-              v-for="(sub, idx) in currentSubNavItems"
-              :key="sub.id"
-              :href="'#' + sub.id"
-              :class="['sub-nav-link', { 'active-pill': activeAnchor === sub.id || (idx === 0 && !activeAnchor) }]"
-              @click.prevent="scrollToAnchor(sub.id)"
-            >
-              {{ sub.label }}
-            </a>
-          </div>
-        </div>
       </aside>
 
       <!-- 2B. CENTER MAIN CANVAS -->
       <main class="stitch-main" ref="mainCanvasRef">
         <div class="canvas-content-flow">
-          <!-- Kicker -->
-          <div class="canvas-kicker">{{ currentKicker }}</div>
+          <p v-if="feedback" :role="feedbackError ? 'alert' : 'status'" :class="['feedback', { error: feedbackError }]">{{ feedback }}</p>
+
 
           <!-- Main Title -->
           <h1 class="canvas-title">{{ currentHeadline }}</h1>
@@ -127,29 +113,13 @@
             <!-- Live Subtitle Video Preview Canvas (NO MAC DOTS) -->
             <!-- The mock video frame is always dark, whatever the page theme: scope the dark tokens to it. -->
             <div id="sub-preview" class="preview-canvas-card" data-theme="dark">
-              <!-- Floating Glass Toolbar like Stitch -->
+              <!-- Clean Cinema Preview Toolbar -->
               <div class="canvas-toolbar">
-                <div class="toolbar-chip">
-                  <span class="chip-icon">✨</span>
-                  <span>Generate</span>
-                  <span class="chip-caret">▾</span>
-                </div>
-                <div class="toolbar-chip">
-                  <span class="chip-icon">✏️</span>
-                  <span>Edit</span>
-                  <span class="chip-caret">▾</span>
-                </div>
                 <div class="toolbar-chip active">
-                  <span class="chip-icon">👁️</span>
-                  <span>Preview</span>
-                  <span class="chip-caret">▾</span>
-                </div>
-                <div class="toolbar-chip">
-                  <span>⋯ More</span>
+                  <span>Netflix 外觀預覽</span>
                 </div>
                 <div class="toolbar-sep"></div>
-                <button class="toolbar-reaction" title="Helpful">👍</button>
-                <button class="toolbar-reaction" title="Issues">👎</button>
+                <span class="preview-hint">僅示意外觀，不代表影片已連線</span>
               </div>
 
               <!-- Movie scene backdrop with live dynamic subtitles -->
@@ -165,7 +135,7 @@
                   <div
                     class="rendered-sub primary"
                     :style="{
-                      fontSize: (settings.subtitleOriginalFontSize || 18) + 'px',
+                      fontSize: (netflixConfig.primarySize || 18) + 'px',
                       color: settings.subtitleOriginalColor || '#ffffff',
                     }"
                   >
@@ -174,7 +144,7 @@
                   <div
                     class="rendered-sub secondary"
                     :style="{
-                      fontSize: (settings.subtitleTranslatedFontSize || 22) + 'px',
+                      fontSize: (netflixConfig.secondarySize || 22) + 'px',
                       color: settings.subtitleTranslatedColor || '#d4d4d4',
                     }"
                   >
@@ -187,8 +157,8 @@
             <!-- Netflix Configuration Section -->
             <section id="sub-netflix" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">Netflix Dual Subtitles</h2>
-                <p class="section-lead">配置 Netflix 雙語字幕對齊、字體排版、位置與逐句學習模式。</p>
+                <h2 class="section-heading">Netflix 雙語字幕</h2>
+                <p class="section-lead">調整原文、譯文的大小與位置。影片必須有可用的文字字幕。</p>
               </div>
 
               <div class="stitch-rows-container">
@@ -196,11 +166,11 @@
                 <div class="stitch-row">
                   <div class="row-info">
                     <span class="row-title">啟用 Netflix 雙語字幕</span>
-                    <span class="row-desc">在 Netflix 播放器中自動偵測並注入雙語字幕軌道。</span>
+                    <span class="row-desc">允許使用雙語字幕。在 Netflix 播放影片後，從擴充功能按「開啟雙語字幕」。</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input
+                      <input aria-label="啟用 Netflix 雙語字幕"
                         type="checkbox"
                         v-model="netflixConfig.enabled"
                         @change="saveNetflix"
@@ -214,16 +184,16 @@
                 <!-- Primary Subtitle Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">主字幕大小 (Primary Size)</span>
+                    <span class="row-title">Netflix 原文大小</span>
                     <span class="row-desc">影片原生字幕字體大小 (12px – 48px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="Netflix 原文大小"
                       type="range"
                       min="12"
                       max="48"
                       v-model.number="netflixConfig.primarySize"
-                      @input="saveNetflix"
+                      @change="saveNetflix"
                     />
                     <span class="row-val-badge">{{ netflixConfig.primarySize }}px</span>
                   </div>
@@ -232,16 +202,16 @@
                 <!-- Secondary Subtitle Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">副字幕大小 (Secondary Size)</span>
+                    <span class="row-title">Netflix 譯文大小</span>
                     <span class="row-desc">雙語翻譯字幕字體大小 (12px – 48px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="Netflix 譯文大小"
                       type="range"
                       min="12"
                       max="48"
                       v-model.number="netflixConfig.secondarySize"
-                      @input="saveNetflix"
+                      @change="saveNetflix"
                     />
                     <span class="row-val-badge">{{ netflixConfig.secondarySize }}px</span>
                   </div>
@@ -250,16 +220,16 @@
                 <!-- Bottom Position -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">字幕垂直位置 (Bottom Position)</span>
+                    <span class="row-title">距離畫面底部</span>
                     <span class="row-desc">字幕距離畫面底部的邊距高度 (20px – 300px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="距離畫面底部"
                       type="range"
                       min="20"
                       max="300"
                       v-model.number="netflixConfig.bottomPosition"
-                      @input="saveNetflix"
+                      @change="saveNetflix"
                     />
                     <span class="row-val-badge">{{ netflixConfig.bottomPosition }}px</span>
                   </div>
@@ -268,36 +238,18 @@
                 <!-- Line Spacing -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">字幕行間距 (Line Spacing)</span>
+                    <span class="row-title">兩行字幕的間距</span>
                     <span class="row-desc">主字幕與副字幕之間的垂直間隙 (0px – 40px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="兩行字幕的間距"
                       type="range"
                       min="0"
                       max="40"
                       v-model.number="netflixConfig.lineSpacing"
-                      @input="saveNetflix"
+                      @change="saveNetflix"
                     />
                     <span class="row-val-badge">{{ netflixConfig.lineSpacing }}px</span>
-                  </div>
-                </div>
-
-                <!-- Bitmap Rescue -->
-                <div class="stitch-row">
-                  <div class="row-info">
-                    <span class="row-title">圖片字幕自動救援 (Bitmap Rescue)</span>
-                    <span class="row-desc">若 Netflix 使用圖片格式字幕，自動啟用救援機制。</span>
-                  </div>
-                  <div class="row-control">
-                    <label class="toggle">
-                      <input
-                        type="checkbox"
-                        v-model="netflixConfig.enableBitmapRescue"
-                        @change="saveNetflix"
-                      />
-                      <span class="slider"></span>
-                    </label>
                   </div>
                 </div>
 
@@ -309,7 +261,7 @@
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input
+                      <input aria-label="學習模式（單字逐詞點擊）"
                         type="checkbox"
                         v-model="netflixConfig.learningMode"
                         @change="saveNetflix"
@@ -321,10 +273,10 @@
               </div>
             </section>
 
-            <!-- YouTube Typography Section -->
+            <!-- YouTube 字幕樣式 Section -->
             <section id="sub-youtube" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">YouTube & Global Subtitle Typography</h2>
+                <h2 class="section-heading">YouTube 字幕外觀</h2>
                 <p class="section-lead">自訂 YouTube 原文字幕與譯文字幕的字體大小、顯示色彩與對比度。</p>
               </div>
 
@@ -336,12 +288,12 @@
                     <span class="row-desc">設定影片原文字幕字體大小 (12px – 32px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="YouTube 原文字幕大小"
                       type="range"
                       min="12"
                       max="32"
                       v-model.number="settings.subtitleOriginalFontSize"
-                      @input="save"
+                      @change="save"
                     />
                     <span class="row-val-badge">{{ settings.subtitleOriginalFontSize }}px</span>
                   </div>
@@ -354,12 +306,12 @@
                     <span class="row-desc">設定翻譯字幕字體大小 (14px – 40px)。</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input
+                    <input aria-label="YouTube 譯文字幕大小"
                       type="range"
                       min="14"
                       max="40"
                       v-model.number="settings.subtitleTranslatedFontSize"
-                      @input="save"
+                      @change="save"
                     />
                     <span class="row-val-badge">{{ settings.subtitleTranslatedFontSize }}px</span>
                   </div>
@@ -372,10 +324,10 @@
                     <span class="row-desc">設定影片原文字幕文字色彩。</span>
                   </div>
                   <div class="row-control color-control">
-                    <input
+                    <input aria-label="YouTube 原文字幕顏色"
                       type="color"
                       v-model="settings.subtitleOriginalColor"
-                      @input="save"
+                      @change="save"
                     />
                     <span class="row-val-badge monospace">{{ settings.subtitleOriginalColor }}</span>
                   </div>
@@ -388,10 +340,10 @@
                     <span class="row-desc">設定翻譯字幕文字色彩。</span>
                   </div>
                   <div class="row-control color-control">
-                    <input
+                    <input aria-label="YouTube 譯文字幕顏色"
                       type="color"
                       v-model="settings.subtitleTranslatedColor"
-                      @input="save"
+                      @change="save"
                     />
                     <span class="row-val-badge monospace">{{ settings.subtitleTranslatedColor }}</span>
                   </div>
@@ -399,33 +351,10 @@
               </div>
             </section>
 
-            <!-- Diagnostic HUD Section -->
-            <section id="sub-diagnostics" class="stitch-section">
-              <div class="section-header-block">
-                <h2 class="section-heading">Diagnostic HUD & Modes</h2>
-                <p class="section-lead">串流媒體字幕即時驗收診斷與音訊軌道監控。</p>
-              </div>
-
-              <div class="diagnostic-grid">
-                <div class="diag-card">
-                  <span class="diag-label">主軌 (Primary)</span>
-                  <span class="diag-value">未載入 (No Track)</span>
-                </div>
-                <div class="diag-card">
-                  <span class="diag-label">副軌 (Secondary)</span>
-                  <span class="diag-value">未載入 (No Track)</span>
-                </div>
-                <div class="diag-card">
-                  <span class="diag-label">運作模式 (Mode)</span>
-                  <span class="diag-value highlight">原生播放器模式 (Native Only)</span>
-                </div>
-              </div>
-            </section>
-
             <!-- Hotkeys Guide Section -->
             <section id="sub-hotkeys" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">Controls & Hotkeys</h2>
+                <h2 class="section-heading">操作與快捷鍵</h2>
                 <p class="section-lead">觀看影視雙語字幕時的專屬鍵盤快捷鍵。</p>
               </div>
 
@@ -456,19 +385,18 @@
           <template v-else-if="activeTab === 'learning'">
             <div id="learn-stage" class="learning-container">
               <FlashcardWorkbench
-                :cards="learningCards"
-                :t="t"
-                @review="recordSrsReview"
+                :cards="learningCards" :save-review="recordSrsReview"
+
                 @close="switchTab('vocabulary')"
               />
             </div>
 
             <section id="learn-anki" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">Export to Anki</h2>
-                <p class="section-lead">將已儲存生詞與克漏字卡片匯出為 Anki 牌組 (.txt)。</p>
+                <h2 class="section-heading">匯出至 Anki</h2>
+                <p class="section-lead">匯出單字、釋義與例句。在 Anki 匯入時選擇 Tab 分隔與「允許 HTML」。</p>
               </div>
-              <button @click="onExportAnki" class="btn-stitch-accent">
+              <button :disabled="!learningCards.length" @click="onExportAnki" class="btn-stitch-accent">
                 匯出 Anki 牌組 (.txt)
               </button>
             </section>
@@ -480,9 +408,8 @@
           <template v-else-if="activeTab === 'vocabulary'">
             <div id="vocab-stage" class="vocab-container">
               <GlossaryManager
-                :items="vocabItems"
+                :items="vocabItems" :save-review="recordSrsReview" :save-term="addVocabItem"
                 :t="t"
-                @addTerm="addVocabItem"
                 @deleteItem="deleteVocabItem"
                 @clearAll="clearVocabulary"
                 @exportCsv="exportVocabulary"
@@ -497,7 +424,7 @@
           <template v-else-if="activeTab === 'models'">
             <section id="models-provider" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">Translation Engine</h2>
+                <h2 class="section-heading">選擇翻譯服務</h2>
                 <p class="section-lead">選擇預設翻譯提供商與進階模型配置。</p>
               </div>
 
@@ -505,17 +432,17 @@
                 <!-- Provider Select -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">預設翻譯引擎 (Provider)</span>
+                    <span class="row-title">使用的服務</span>
                     <span class="row-desc">選擇翻譯服務提供商。</span>
                   </div>
                   <div class="row-control">
-                    <select v-model="settings.activeProviderId" @change="save" class="stitch-select">
+                    <select aria-label="使用的服務" v-model="settings.activeProviderId" @change="save" class="stitch-select">
                       <option value="google-provider">Google Translate (Free)</option>
                       <option value="gemini-provider">Google Gemini API</option>
                       <option value="deepl-provider">DeepL Translate API</option>
                       <option value="ollama-provider">Local Ollama AI</option>
                       <option value="local-http-provider">Local Custom HTTP AI</option>
-                      <option value="chrome-ai-provider">Chrome Built-in AI (Prompt API)</option>
+                      <option value="chrome-builtin-ai-provider" disabled>Chrome Built-in AI（暫不提供）</option>
                     </select>
                   </div>
                 </div>
@@ -527,7 +454,7 @@
                     <span class="row-desc">選擇官方驗證模型或輸入自訂模型 ID。</span>
                   </div>
                   <div class="row-control">
-                    <select v-model="settings.geminiModel" @change="save" class="stitch-select">
+                    <select aria-label="Gemini 模型名稱" v-model="settings.geminiModel" @change="save" class="stitch-select">
                       <option v-for="m in activeModels" :key="m.id" :value="m.id">
                         {{ m.displayName }}{{ m.isDefaultCandidate ? ' (Recommended)' : '' }}
                       </option>
@@ -542,10 +469,10 @@
                     <span class="row-desc">目前狀態：{{ settings.hasGeminiApiKey ? settings.geminiApiKeyMasked : '未設定' }}</span>
                   </div>
                   <div class="row-control input-group">
-                    <input
+                    <input aria-label="Gemini API 金鑰"
                       type="password"
                       v-model="geminiKeyInput"
-                      placeholder="Enter Gemini API Key..."
+                      placeholder="貼上 Gemini 金鑰"
                       class="stitch-input"
                     />
                     <button class="btn-stitch-accent" @click="saveApiKey(geminiKeyInput)">
@@ -562,10 +489,10 @@
                     <span class="row-desc">目前狀態：{{ settings.hasDeeplApiKey ? settings.deeplApiKeyMasked : '未設定' }}</span>
                   </div>
                   <div class="row-control input-group">
-                    <input
+                    <input aria-label="DeepL API 金鑰"
                       type="password"
                       v-model="deeplKeyInput"
-                      placeholder="Enter DeepL API Key..."
+                      placeholder="貼上 DeepL 金鑰"
                       class="stitch-input"
                     />
                     <button class="btn-stitch-accent" @click="saveDeeplKey(deeplKeyInput)">
@@ -575,10 +502,39 @@
                   </div>
                 </div>
 
-                <!-- AI Translation Instructions -->
+
+                <div v-if="settings.activeProviderId === 'ollama-provider'" class="stitch-row vertical-row">
+                  <label for="ollama-url" class="row-title">Ollama 位址</label>
+                  <p class="row-desc">請先啟動本機 Ollama，並下載要使用的模型。</p>
+                  <input id="ollama-url" class="stitch-input" type="url" v-model="settings.ollamaEndpoint" @change="save" />
+                  <label for="ollama-model" class="row-title">模型名稱</label>
+                  <input id="ollama-model" class="stitch-input" v-model="settings.ollamaModel" @change="save" />
+                </div>
+                <div v-if="settings.activeProviderId === 'local-http-provider'" class="stitch-row vertical-row">
+                  <label for="http-url" class="row-title">本機翻譯服務位址</label>
+                  <p class="row-desc">需使用相容 OpenAI 的本機服務。填入根位址，擴充功能會呼叫 /v1/chat/completions。</p>
+                  <input id="http-url" class="stitch-input" type="url" v-model="settings.localHttpEndpoint" @change="save" />
+                  <label for="http-model" class="row-title">模型名稱</label>
+                  <input id="http-model" class="stitch-input" v-model="settings.localHttpModel" @change="save" />
+                  <label for="http-key" class="row-title">服務金鑰（選填）</label>
+                  <input id="http-key" class="stitch-input" type="password" v-model="settings.localHttpApiKey" @change="save" />
+                </div>
+                <div v-if="settings.activeProviderId === 'deepl-provider'" class="stitch-row">
+                  <label for="deepl-plan" class="row-title">DeepL API 方案</label>
+                  <select id="deepl-plan" v-model="settings.deeplApiIsPro" @change="save"><option :value="false">API Free</option><option :value="true">API Pro</option></select>
+                </div>
+                <p v-if="['chrome-ai-provider', 'chrome-builtin-ai-provider'].includes(settings.activeProviderId)" class="stitch-row row-desc">Chrome 內建 AI 的整合尚未完成實機驗證，目前暫不提供。請改選其他翻譯服務。</p>
+
                 <div class="stitch-row vertical-row">
+                  <span class="row-title">確認服務是否可用</span>
+                  <p class="row-desc">將「Hello」送到目前選擇的服務試譯。付費服務可能計入用量。</p>
+                  <button type="button" class="btn-stitch-secondary" :disabled="testingProvider" @click="testProvider">{{ testingProvider ? '正在試譯…' : '試譯一句' }}</button>
+                  <p v-if="providerTestResult" role="status">{{ providerTestResult }}</p>
+                </div>
+                <!-- AI Translation Instructions -->
+                <div v-if="['gemini-provider', 'ollama-provider', 'local-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
                   <div class="row-info">
-                    <span class="row-title">AI 翻譯指示 (System Prompt Guidance)</span>
+                    <span class="row-title">翻譯偏好</span>
                     <span class="row-desc">提供給 Gemini、Ollama 等 AI 模型的風格與術語指引。</span>
                   </div>
                   <div class="textarea-wrapper">
@@ -604,10 +560,6 @@
           <!-- ========================================================= -->
           <template v-else>
             <section id="gen-settings" class="stitch-section">
-              <div class="section-header-block">
-                <h2 class="section-heading">General Preferences</h2>
-                <p class="section-lead">網頁翻譯、語言配對與沉浸式閱讀設定。</p>
-              </div>
 
               <div class="stitch-rows-container">
                 <!-- Enable Translation -->
@@ -618,7 +570,7 @@
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input
+                      <input aria-label="啟用網頁翻譯功能"
                         type="checkbox"
                         v-model="settings.enabled"
                         @change="save"
@@ -631,12 +583,12 @@
                 <!-- Source Language -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">來源語言 (Source Language)</span>
+                    <span class="row-title">原文語言</span>
                     <span class="row-desc">網頁與影片字幕共用的原始語言。</span>
                   </div>
                   <div class="row-control">
-                    <select v-model="settings.sourceLanguage" @change="save" class="stitch-select">
-                      <option value="auto">自動偵測 (Auto Detect)</option>
+                    <select aria-label="原文語言" v-model="settings.sourceLanguage" @change="save" class="stitch-select">
+                      <option value="auto">自動辨識</option>
                       <option value="en">English</option>
                       <option value="zh-Hant">繁體中文</option>
                       <option value="zh-Hans">簡體中文</option>
@@ -650,11 +602,11 @@
                 <!-- Target Language -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">目標翻譯語言 (Target Language)</span>
+                    <span class="row-title">翻譯成</span>
                     <span class="row-desc">網頁與影片字幕共用的翻譯目標語言。</span>
                   </div>
                   <div class="row-control">
-                    <select v-model="settings.targetLanguage" @change="save" class="stitch-select">
+                    <select aria-label="翻譯成" v-model="settings.targetLanguage" @change="save" class="stitch-select">
                       <option value="zh-Hant">繁體中文</option>
                       <option value="zh-Hans">簡體中文</option>
                       <option value="en">English</option>
@@ -668,14 +620,14 @@
                 <!-- Display Mode -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">雙語對照佈局模式 (Display Mode)</span>
-                    <span class="row-desc">雙語對照 = 左右/上下對齊，譯文優先 = 淡化原文，沉浸模式 = 點擊切換。</span>
+                    <span class="row-title">閱讀方式</span>
+                    <span class="row-desc">選擇同時看原文與譯文，或以譯文為主。</span>
                   </div>
                   <div class="row-control">
-                    <select v-model="settings.displayMode" @change="save" class="stitch-select">
-                      <option value="bilingual">雙語對照 (Bilingual)</option>
-                      <option value="translation-first">譯文優先 (Translation First)</option>
-                      <option value="immersive">沉浸模式 (Immersive)</option>
+                    <select aria-label="閱讀方式" v-model="settings.displayMode" @change="save" class="stitch-select">
+                      <option value="bilingual">原文與譯文並列</option>
+                      <option value="translation-first">先看譯文</option>
+                      <option value="immersive">只看譯文，點擊看原文</option>
                     </select>
                   </div>
                 </div>
@@ -683,12 +635,12 @@
                 <!-- Floating Button -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">顯示懸浮翻譯按鈕 (Floating Button)</span>
+                    <span class="row-title">網頁上的翻譯按鈕</span>
                     <span class="row-desc">在網頁右下角顯示快速劃詞與翻譯按鈕。</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input
+                      <input aria-label="網頁上的翻譯按鈕"
                         type="checkbox"
                         v-model="settings.showFloatingButton"
                         @change="save"
@@ -703,80 +655,49 @@
         </div>
       </main>
 
-      <!-- 2C. RIGHT SIDEBAR ("On this page") -->
-      <aside class="stitch-sidebar-right">
-        <div class="toc-wrapper">
-          <div class="toc-title">On this page</div>
-          <nav class="toc-links">
-            <a
-              v-for="anchor in currentAnchors"
-              :key="anchor.id"
-              :href="'#' + anchor.id"
-              :class="['toc-anchor-link', { active: activeAnchor === anchor.id }]"
-              @click.prevent="scrollToAnchor(anchor.id)"
-            >
-              {{ anchor.label }}
-            </a>
-          </nav>
 
-          <!-- Stitch-style Status Widget -->
-          <div class="stitch-status-widget">
-            <div class="widget-head">SYSTEM METRICS</div>
-            <div class="metric-row">
-              <span class="m-label">AI Engine</span>
-              <span class="m-val">{{ activeEngineLabel }}</span>
-            </div>
-            <div class="metric-row">
-              <span class="m-label">Latency</span>
-              <span class="m-val highlight">418ms</span>
-            </div>
-            <div class="metric-row">
-              <span class="m-label">SM-2 Retention</span>
-              <span class="m-val">96.4%</span>
-            </div>
-            <div class="metric-row">
-              <span class="m-label">Today's Due</span>
-              <span class="m-val">{{ dueCardsCount }} cards</span>
-            </div>
-          </div>
-        </div>
-      </aside>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { VocabularyExporter } from '@/infrastructure/storage/repositories/vocabulary-exporter';
+import { LearningRepository } from '@/infrastructure/storage/repositories/learning-repository';
+import { useUiTheme } from '@/shared/ui/use-ui-theme';
 import {
   getActiveVerifiedModels,
   getDeprecatedButFunctionalModels,
   DEFAULT_MODEL_ID,
 } from '@/infrastructure/providers/gemini/model-registry';
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
-import { SrsEngine } from '@/core/learning/srs-engine';
-import { type ThemeMode } from '@/components/ThemeToggle.vue';
 import GlossaryManager from '@/components/GlossaryManager.vue';
 import FlashcardWorkbench from '@/components/learning/FlashcardWorkbench.vue';
 
 const activeModels = getActiveVerifiedModels();
 const deprecatedModels = getDeprecatedButFunctionalModels();
 
-const activeTab = ref('subtitles');
+const activeTab = ref('general');
 const activeAnchor = ref('');
-const theme = ref<ThemeMode>('system');
+
 const globalSearchQuery = ref('');
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const mainCanvasRef = ref<HTMLElement | null>(null);
 
 const geminiKeyInput = ref('');
 const deeplKeyInput = ref('');
+const testingProvider = ref(false);
+const providerTestResult = ref('');
 const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 
 const settings = ref({
+  ollamaEndpoint: 'http://localhost:11434',
+  ollamaModel: 'llama3',
+  localHttpEndpoint: 'http://localhost:8080',
+  localHttpApiKey: '',
+  localHttpModel: 'local-model',
   enabled: true,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',
@@ -808,177 +729,76 @@ const netflixConfig = ref({
   learningMode: true,
 });
 
-const vocabItems = ref<any[]>([]);
+const vocabItems = ref<LearningCard[]>([]);
+const feedback = ref('');
+const feedbackError = ref(false);
+function reportError(message: string) { feedback.value = message; feedbackError.value = true; }
+const { theme, onThemeChange } = useUiTheme(reportError);
+watch(() => [settings.value.activeProviderId, settings.value.targetLanguage], () => { providerTestResult.value = ''; });
 
-// Sample flashcards for learning stage
-const sampleCards: LearningCard[] = [
-  {
-    id: 'sample-1',
-    word: '儚い',
-    lemma: '儚い',
-    pos: 'い形容詞 (i-adj)',
-    phonetic: 'はかない · hakanai',
-    meaning: '短暫無常的、虛幻的、飄渺的 (fleeting, ephemeral)',
-    contextSentence: '桜の花のように儚い命だからこそ、今この瞬間が美しいのだ。',
-    contextTranslation: '正因為生命如同櫻花般短暫無常，此時此刻才顯得無比美麗。',
-    sourceLang: 'ja',
-    targetLang: 'zh-Hant',
-    tags: ['JLPT N1', '形容詞'],
-    srs: { interval: 3, repetition: 2, easeFactor: 2.5, nextReviewDate: Date.now() - 1000 },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'sample-2',
-    word: '切り開く',
-    lemma: '切り開く',
-    pos: '五段動詞 (v5k)',
-    phonetic: 'きりひらく · kirihiraku',
-    meaning: '開闢、開創新局、突破困境',
-    contextSentence: '運命なんて信じない。自分で道を切り開くんだ。',
-    contextTranslation: '我不相信命運。我會靠自己開創道路。',
-    sourceLang: 'ja',
-    targetLang: 'zh-Hant',
-    tags: ['JLPT N2', '動詞'],
-    srs: { interval: 7, repetition: 4, easeFactor: 2.5, nextReviewDate: Date.now() - 1000 },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
-    id: 'sample-3',
-    word: 'Serendipity',
-    lemma: 'serendipity',
-    pos: '名詞 (n. [U])',
-    phonetic: '/ˌser.ənˈdɪp.ə.ti/',
-    meaning: '意外發現美好事物或珍貴事物的機緣與運氣',
-    contextSentence: 'Finding this book in an old bookstore was pure serendipity.',
-    contextTranslation: '在舊書店邂逅這本書，完全是一場純粹的美好機緣。',
-    sourceLang: 'en',
-    targetLang: 'zh-Hant',
-    tags: ['CEFR C1', '名詞'],
-    srs: { interval: 1, repetition: 1, easeFactor: 2.5, nextReviewDate: Date.now() - 1000 },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-];
-
-const learningCards = computed<LearningCard[]>(() => {
-  if (vocabItems.value.length === 0) return sampleCards;
-  return vocabItems.value.map((v) => ({
-    id: v.id || v.word,
-    word: v.word || v.source || '',
-    lemma: v.lemma || v.word || v.source || '',
-    pos: v.pos || '單詞',
-    phonetic: v.phonetic || '',
-    meaning: v.meaning || v.translation || v.target || '',
-    contextSentence: v.contextSentence || v.context || '',
-    contextTranslation: v.contextTranslation || '',
-    sourceLang: v.sourceLang || 'en',
-    targetLang: v.targetLang || 'zh-Hant',
-    tags: v.tags || ['生詞庫'],
-    srs: v.srs || SrsEngine.createInitialState(),
-    createdAt: v.timestamp || Date.now(),
-    updatedAt: v.timestamp || Date.now(),
-  }));
-});
+const learningCards = computed(() => vocabItems.value);
 
 const dueCardsCount = computed(() => {
   const now = Date.now();
   return learningCards.value.filter((c) => (c.srs?.nextReviewDate || 0) <= now).length;
 });
 
-const activeEngineLabel = computed(() => {
-  const id = settings.value.activeProviderId;
-  if (id === 'gemini-provider') return 'Gemini 2.5 Flash';
-  if (id === 'google-provider') return 'Google Translate (Free)';
-  if (id === 'deepl-provider') return 'DeepL API';
-  if (id === 'ollama-provider') return 'Ollama Local';
-  return 'Gemini 2.5 Flash';
-});
 
-// Stitch-specific computed headings
-const currentKicker = computed(() => {
-  switch (activeTab.value) {
-    case 'subtitles': return 'ESSENTIALS';
-    case 'learning': return 'SRS STUDIO';
-    case 'vocabulary': return 'LEXICAL ARCHIVE';
-    case 'models': return 'AI ENGINE';
-    case 'general': return 'PREFERENCES';
-    default: return 'ESSENTIALS';
-  }
-});
 
 const currentHeadline = computed(() => {
   switch (activeTab.value) {
-    case 'subtitles': return 'Everything you need to know about Subtitles & Streaming';
-    case 'learning': return 'Everything you need to know about SRS Flashcards';
-    case 'vocabulary': return 'Everything you need to know about your Vocabulary Archive';
-    case 'models': return 'Everything you need to know about AI Translation Engines';
-    case 'general': return 'Everything you need to know about Preferences';
-    default: return 'Everything you need to know about Open Web Translate';
+    case 'subtitles': return '字幕設定';
+    case 'learning': return '複習單字';
+    case 'vocabulary': return '我的單字';
+    case 'models': return '翻譯服務';
+    case 'general': return '閱讀設定';
+    default: return 'Open Web Translate';
   }
 });
 
 const currentSubtitle = computed(() => {
   switch (activeTab.value) {
-    case 'subtitles': return 'A subtly opinionated walkthrough for dual streaming subtitles, typography, and learning mode.';
-    case 'learning': return 'A subtly opinionated walkthrough for SuperMemo SM-2 spaced repetition and retention.';
-    case 'vocabulary': return 'A subtly opinionated walkthrough for collected vocabulary, context sentences, and Anki exports.';
-    case 'models': return 'A subtly opinionated walkthrough for high-speed AI translation engines and prompt guidance.';
-    case 'general': return 'A subtly opinionated walkthrough for interface and browsing options.';
-    default: return 'A subtly opinionated walkthrough for Open Web Translate.';
+    case 'subtitles': return '先在影片頁面開啟擴充功能，再按「開啟雙語字幕」。這裡可以調整字幕外觀。';
+    case 'learning': return '翻開卡片查看意思，再依記憶程度評分。我們會安排下次複習。';
+    case 'vocabulary': return '收藏的單字和例句都在這裡，也可以手動新增或匯出。';
+    case 'models': return 'Google 翻譯可直接使用。其他服務需先設定金鑰，或啟動本機模型。';
+    case 'general': return '選擇要翻成的語言，以及網頁上原文與譯文的顯示方式。';
+    default: return '次世代在地化、隱私優先、AI 驅動的開源網頁與影音翻譯工具。';
   }
 });
 
-const currentSectionTitle = computed(() => {
-  switch (activeTab.value) {
-    case 'subtitles': return 'SUBTITLES';
-    case 'learning': return 'SRS WORKBENCH';
-    case 'vocabulary': return 'VOCABULARY';
-    case 'models': return 'AI ENGINES';
-    case 'general': return 'GENERAL';
-    default: return 'NAVIGATION';
-  }
-});
 
 const currentSubNavItems = computed(() => {
   switch (activeTab.value) {
     case 'subtitles':
       return [
-        { id: 'sub-preview', label: 'Everything you need to know' },
-        { id: 'sub-netflix', label: 'Netflix Dual Subtitles' },
-        { id: 'sub-youtube', label: 'YouTube Typography' },
-        { id: 'sub-diagnostics', label: 'Diagnostic HUD & Modes' },
-        { id: 'sub-hotkeys', label: 'Controls & Hotkeys' },
+        { id: 'sub-preview', label: '總覽' },
+        { id: 'sub-netflix', label: 'Netflix 雙語字幕' },
+        { id: 'sub-youtube', label: 'YouTube 字幕樣式' },
+        { id: 'sub-hotkeys', label: '操作與快捷鍵' },
       ];
     case 'learning':
       return [
-        { id: 'learn-stage', label: 'Everything you need to know' },
-        { id: 'learn-anki', label: 'Export to Anki' },
+        { id: 'learn-stage', label: '總覽' },
+        { id: 'learn-anki', label: '匯出至 Anki' },
       ];
     case 'vocabulary':
       return [
-        { id: 'vocab-stage', label: 'Everything you need to know' },
+        { id: 'vocab-stage', label: '總覽' },
       ];
     case 'models':
       return [
-        { id: 'models-provider', label: 'Everything you need to know' },
+        { id: 'models-provider', label: '總覽' },
       ];
     case 'general':
       return [
-        { id: 'gen-settings', label: 'Everything you need to know' },
+        { id: 'gen-settings', label: '總覽' },
       ];
     default:
-      return [{ id: 'sub-preview', label: 'Everything you need to know' }];
+      return [{ id: 'sub-preview', label: '總覽' }];
   }
 });
 
-const currentAnchors = computed(() => {
-  return currentSubNavItems.value.map((item, idx) => ({
-    id: item.id,
-    label: idx === 0 ? 'Overview' : item.label,
-  }));
-});
 
 function t(key: string): string {
   const dict: Record<string, string> = {
@@ -991,7 +811,8 @@ function switchTab(tab: string) {
   activeTab.value = tab;
   activeAnchor.value = currentSubNavItems.value[0]?.id || '';
   if (mainCanvasRef.value) {
-    mainCanvasRef.value.scrollTo({ top: 0, behavior: 'smooth' });
+    mainCanvasRef.value.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
   }
 }
 
@@ -1003,32 +824,47 @@ function scrollToAnchor(id: string) {
   }
 }
 
+const searchablePages = [
+  { tab: 'subtitles', label: '字幕設定', keywords: 'Netflix YouTube 字幕 字級 色彩 快捷鍵 subtitles typography' },
+  { tab: 'learning', label: '複習單字', keywords: '複習 學習 記憶 卡片 Anki SRS learning' },
+  { tab: 'vocabulary', label: '我的單字', keywords: '單字 生詞 術語 glossary vocabulary' },
+  { tab: 'models', label: '翻譯服務', keywords: '翻譯 金鑰 模型 Gemini Google DeepL Ollama AI API providers' },
+  { tab: 'general', label: '閱讀設定', keywords: '語言 外觀 主題 懸浮 general preferences language' },
+];
+const searchResults = computed(() => {
+  const query = globalSearchQuery.value.trim().toLocaleLowerCase();
+  return searchablePages.filter(item => (item.label + ' ' + item.keywords).toLocaleLowerCase().includes(query));
+});
+function selectSearchResult(tab: string) {
+  switchTab(tab);
+  globalSearchQuery.value = '';
+}
+function openFirstSearchResult() {
+  const result = searchResults.value[0];
+  if (result) selectSearchResult(result.tab);
+}
+function handleSearchShortcut(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    focusSearch();
+  }
+}
+onMounted(() => window.addEventListener('keydown', handleSearchShortcut));
+onUnmounted(() => window.removeEventListener('keydown', handleSearchShortcut));
+
 function focusSearch() {
   if (searchInputRef.value) {
     searchInputRef.value.focus();
   }
 }
 
-function closeWindow() {
-  if (typeof window !== 'undefined') {
-    window.close();
-  }
-}
 
-function onThemeChange(e: Event) {
-  const select = e.target as HTMLSelectElement;
-  const mode = select.value as ThemeMode;
-  theme.value = mode;
-  if (typeof document !== 'undefined' && document.documentElement) {
-    document.documentElement.setAttribute('data-theme', mode);
-  }
-}
 
 async function loadVocabulary() {
   try {
-    vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' as any } as any) as any) || [];
+    vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' })) || [];
   } catch (e) {
-    console.error('Failed to load vocabulary items', e);
+    reportError('無法載入單字，請重新開啟設定頁。');
   }
 }
 
@@ -1038,11 +874,14 @@ async function addVocabItem(term: any) {
       type: 'SAVE_VOCAB_ITEM' as any,
       word: term.word || term.source || '',
       translation: term.translation || term.target || '',
-      context: term.context || 'Custom term entry',
+      context: term.context || '',
+      sourceLang: settings.value.sourceLanguage,
+      targetLang: settings.value.targetLanguage,
     } as any);
     await loadVocabulary();
   } catch (e) {
-    console.error('Failed to save vocabulary item', e);
+    reportError('單字未儲存，請再試一次。');
+    throw e;
   }
 }
 
@@ -1051,46 +890,41 @@ async function deleteVocabItem(id: string) {
     await messageRouter.sendMessage({ type: 'DELETE_VOCAB_ITEM' as any, id } as any);
     await loadVocabulary();
   } catch (e) {
-    console.error('Failed to delete vocabulary item', e);
+    reportError('刪除失敗，單字仍保留。請再試一次。');
   }
 }
 
 async function clearVocabulary() {
-  if (confirm('Are you sure you want to clear all vocabulary items?')) {
+  if (confirm('確定清空所有單字與複習紀錄？此操作無法復原。')) {
     try {
       await messageRouter.sendMessage({ type: 'CLEAR_VOCAB_ITEMS' as any } as any);
       await loadVocabulary();
     } catch (e) {
-      console.error('Failed to clear vocabulary items', e);
+      reportError('清空失敗，請再試一次。');
     }
   }
 }
 
+function downloadText(content: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement('a');
+  link.href = url; link.download = filename; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 function exportVocabulary() {
-  VocabularyExporter.downloadCSV(vocabItems.value);
+  downloadText(LearningRepository.exportToCSV(learningCards.value), 'my-vocabulary.csv', 'text/csv;charset=utf-8');
 }
-
 function onExportAnki() {
-  const lines = learningCards.value.map((c) => {
-    const cloze = c.contextSentence ? c.contextSentence.replace(c.word, `{{c1::${c.word}}}`) : c.word;
-    return `${c.word}\t${c.phonetic || ''}\t${c.meaning}\t${cloze}`;
-  });
-  const content = "# Anki Deck Generated by Open Web Translate\n" + lines.join('\n');
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = "open-web-translate-anki.txt";
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!learningCards.value.length) return;
+  downloadText(LearningRepository.exportToAnki(learningCards.value), 'my-vocabulary-anki.txt', 'text/plain;charset=utf-8');
 }
-
 async function recordSrsReview(id: string, grade: SrsGrade) {
   try {
     await messageRouter.sendMessage({ type: 'RECORD_SRS_REVIEW', id, grade });
     await loadVocabulary();
   } catch (e) {
-    console.error('Failed to record SRS review', e);
+    reportError('複習紀錄未儲存，請重試。');
+    throw e;
   }
 }
 
@@ -1098,6 +932,11 @@ async function loadSettings() {
   try {
     const s = await SettingsStorage.get();
     if (s) {
+      settings.value.ollamaEndpoint = s.ollamaEndpoint || 'http://localhost:11434';
+      settings.value.ollamaModel = s.ollamaModel || 'llama3';
+      settings.value.localHttpEndpoint = s.localHttpEndpoint || 'http://localhost:8080';
+      settings.value.localHttpApiKey = s.localHttpApiKey || '';
+      settings.value.localHttpModel = s.localHttpModel || 'local-model';
       settings.value.enabled = s.enabled ?? true;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage || 'zh-Hant';
@@ -1123,7 +962,7 @@ async function loadSettings() {
         netflixConfig.value.primarySize = s.netflix.primarySize || 18;
         netflixConfig.value.secondarySize = s.netflix.secondarySize || 22;
         netflixConfig.value.bottomPosition = s.netflix.bottomPosition || 80;
-        netflixConfig.value.lineSpacing = s.netflix.lineSpacing || 4;
+        netflixConfig.value.lineSpacing = s.netflix.lineSpacing ?? 4;
         netflixConfig.value.enableBitmapRescue = s.netflix.enableBitmapRescue ?? true;
         netflixConfig.value.learningMode = s.netflix.learningMode ?? true;
       }
@@ -1133,14 +972,36 @@ async function loadSettings() {
   }
 }
 
+async function testProvider() {
+  testingProvider.value = true;
+  providerTestResult.value = '';
+  try {
+    if (!await save()) return;
+    const result = await messageRouter.sendMessage({
+      type: 'TRANSLATE_REQUEST',
+      bypassCache: true,
+      segments: [{ id: 'connection-check', text: 'Hello' }],
+      sourceLanguage: 'en', targetLanguage: settings.value.targetLanguage,
+      forceProvider: settings.value.activeProviderId,
+    });
+    const translation = result.segments[0]?.translatedText;
+    if (!translation?.trim()) throw new Error('服務未回傳譯文');
+    providerTestResult.value = '收到譯文：' + translation;
+  } catch (error) {
+    providerTestResult.value = '試譯失敗：' + (error instanceof Error ? error.message : '請檢查金鑰、服務位址與網路。');
+  } finally { testingProvider.value = false; }
+}
 async function save() {
   try {
     await SettingsStorage.set({
       ...settings.value,
       netflix: netflixConfig.value,
     });
+    feedback.value = '設定已儲存'; feedbackError.value = false;
+    return true;
   } catch (e) {
-    console.error('Failed to save settings', e);
+    reportError('設定未儲存，請重試。');
+    return false;
   }
 }
 
@@ -1232,7 +1093,7 @@ onMounted(async () => {
 
 /* ── Top Header ─────────────────────────────────────────────────── */
 .stitch-header {
-  height: 52px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1322,7 +1183,7 @@ onMounted(async () => {
   color: var(--text-muted);
   background: var(--bg-hover);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-light);
   white-space: nowrap;
 }
@@ -1343,7 +1204,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: all 0.15s ease;
 }
 
@@ -1367,7 +1228,7 @@ onMounted(async () => {
   color: var(--text-secondary);
   font-size: 12px;
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
 }
@@ -1381,12 +1242,12 @@ onMounted(async () => {
 .stitch-body {
   display: flex;
   flex: 1;
-  min-height: calc(100vh - 52px);
+  min-height: calc(100vh - 64px);
 }
 
 /* ── 2A. Left Sidebar ───────────────────────────────────────────── */
 .stitch-sidebar-left {
-  width: 240px;
+  width: 216px;
   background: var(--bg-primary);
   border-right: 1px solid var(--border-color);
   padding: 24px 16px;
@@ -1395,8 +1256,8 @@ onMounted(async () => {
   gap: 28px;
   flex-shrink: 0;
   position: sticky;
-  top: 52px;
-  height: calc(100vh - 52px);
+  top: 64px;
+  height: calc(100vh - 64px);
   overflow-y: auto;
 }
 
@@ -1464,7 +1325,7 @@ onMounted(async () => {
   display: block;
   font-size: 13px;
   color: var(--text-secondary);
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-radius: 6px;
   text-decoration: none;
   transition: all 0.15s ease;
@@ -1486,7 +1347,8 @@ onMounted(async () => {
 /* ── 2B. Center Main Canvas ─────────────────────────────────────── */
 .stitch-main {
   flex: 1;
-  padding: 44px 56px;
+  padding: 52px clamp(24px, 4vw, 64px) 80px;
+  min-width: 0;
   overflow-y: auto;
   background: var(--bg-primary);
 }
@@ -1496,7 +1358,7 @@ onMounted(async () => {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .canvas-kicker {
@@ -1508,16 +1370,16 @@ onMounted(async () => {
 }
 
 .canvas-title {
-  font-size: 38px;
+  font-size: clamp(26px, 2.8vw, 36px);
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.6;
   margin: 0;
 }
 
 .canvas-subtitle {
-  font-size: 17px;
+  font-size: 15px;
   color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.5;
@@ -1528,10 +1390,10 @@ onMounted(async () => {
 .preview-canvas-card {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   position: relative;
-  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--card-shadow);
 }
 
 .canvas-toolbar {
@@ -1541,12 +1403,12 @@ onMounted(async () => {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  background: rgba(20, 20, 24, 0.85);
+  background: rgba(12, 13, 16, 0.88);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 4px 8px;
-  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-sm, 6px);
+  padding: 4px 10px;
+  gap: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   z-index: 10;
 }
@@ -1558,57 +1420,31 @@ onMounted(async () => {
   font-size: 11.5px;
   font-weight: 500;
   color: var(--text-secondary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
   user-select: none;
-  transition: all 0.15s ease;
-}
-
-.toolbar-chip:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
 }
 
 .toolbar-chip.active {
-  background: rgba(255, 255, 255, 0.14);
   color: var(--text-primary);
   font-weight: 600;
 }
 
-.chip-icon {
-  font-size: 12px;
-}
-
-.chip-caret {
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
 .toolbar-sep {
   width: 1px;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.12);
-  margin: 0 4px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.toolbar-reaction {
-  background: transparent;
-  border: none;
-  font-size: 12px;
-  padding: 3px 6px;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.15s ease;
-}
-
-.toolbar-reaction:hover {
-  background: rgba(255, 255, 255, 0.1);
+.preview-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-ui, sans-serif);
 }
 
 .cinema-viewport {
-  height: 320px;
-  background: #0a0a0a;
+  height: 220px;
+  background: radial-gradient(circle at 50% 30%, #161822 0%, #0d0e14 60%, #08080b 100%);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1639,7 +1475,7 @@ onMounted(async () => {
 
 .rendered-sub {
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.6;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.7);
   transition: font-size 0.15s ease, color 0.15s ease;
 }
@@ -1674,7 +1510,7 @@ onMounted(async () => {
 .stitch-rows-container {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
@@ -1682,7 +1518,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border-color);
   gap: 20px;
 }
@@ -1713,7 +1549,7 @@ onMounted(async () => {
 .row-desc {
   font-size: 12px;
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.6;
 }
 
 .row-control {
@@ -1736,7 +1572,7 @@ onMounted(async () => {
   width: 28px;
   height: 28px;
   border: 1px solid var(--border-light);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0;
   background: transparent;
   cursor: pointer;
@@ -1760,7 +1596,7 @@ onMounted(async () => {
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 3px 8px;
   min-width: 48px;
   text-align: center;
@@ -1781,8 +1617,8 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   font-size: 12.5px;
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
   min-width: 180px;
@@ -1797,8 +1633,8 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   font-size: 12.5px;
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
   outline: none;
   width: 100%;
 }
@@ -1821,7 +1657,7 @@ onMounted(async () => {
   color: var(--text-primary);
   font-size: 12.5px;
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   outline: none;
   font-family: inherit;
   resize: vertical;
@@ -1847,7 +1683,7 @@ onMounted(async () => {
 .diag-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -1880,7 +1716,7 @@ onMounted(async () => {
 .hotkey-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -1903,7 +1739,7 @@ kbd {
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 2px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
@@ -1916,7 +1752,7 @@ kbd {
   font-size: 12px;
   font-weight: 700;
   padding: 6px 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -1933,7 +1769,7 @@ kbd {
   font-size: 12px;
   font-weight: 600;
   padding: 6px 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1945,16 +1781,16 @@ kbd {
   border-color: var(--border-light);
 }
 
-/* ── 2C. Right Sidebar ("On this page") ─────────────────────────── */
+/* ── 2C. Right Sidebar ("本頁內容") ─────────────────────────── */
 .stitch-sidebar-right {
-  width: 230px;
+  width: 200px;
   background: var(--bg-primary);
   border-left: 1px solid var(--border-color);
   padding: 36px 20px;
   flex-shrink: 0;
   position: sticky;
-  top: 52px;
-  height: calc(100vh - 52px);
+  top: 64px;
+  height: calc(100vh - 64px);
   overflow-y: auto;
 }
 
@@ -1983,7 +1819,7 @@ kbd {
   text-decoration: none;
   padding: 4px 0;
   transition: color 0.15s ease;
-  line-height: 1.4;
+  line-height: 1.6;
 }
 
 .toc-anchor-link:hover {
@@ -2037,4 +1873,77 @@ kbd {
 .m-val.highlight {
   color: var(--text-primary);
 }
+
+.stitch-brand { border: 0; background: transparent; padding: 0; color: inherit; }
+.header-center { position: relative; }
+.search-input { min-width: 0; }
+.search-results {
+  position: absolute; inset: calc(100% + 8px) 0 auto;
+  background: var(--bg-card); border: 1px solid var(--border-light);
+  border-radius: var(--radius-md); padding: 6px; box-shadow: var(--card-shadow);
+}
+.search-results button {
+  display: flex; justify-content: space-between; width: 100%;
+  padding: 12px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-primary); cursor: pointer; text-align: left;
+}
+.search-results button:hover { background: var(--bg-hover); }
+.search-results p { padding: 12px; font-size: 13px; color: var(--text-secondary); }
+.stitch-select, .stitch-theme-select {
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='1.5'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-position: right 10px center; background-repeat: no-repeat; background-size: 14px;
+  max-width: 100%;
+}
+.stitch-section, .preview-canvas-card { scroll-margin-top: 88px; }
+.canvas-kicker { color: var(--text-muted); margin-bottom: -12px; }
+.canvas-title { text-wrap: balance; }
+.row-info, .row-control { min-width: 0; }
+.row-desc { max-width: 48ch; }
+.metric-row { gap: 12px; align-items: flex-start; }
+.m-label { flex-shrink: 0; }
+.m-val { text-align: right; overflow-wrap: anywhere; font-family: var(--font-ui); }
+.sidebar-nav-btn { padding: 10px 12px; }
+.sidebar-nav-btn.active { background: var(--nav-active-bg); color: var(--nav-active-text); }
+.sub-nav-link.active-pill { background: var(--bg-hover); color: var(--text-primary); }
+@media (max-width: 1200px) {
+  .stitch-sidebar-right { display: none; }
+}
+@media (max-width: 760px) {
+  .stitch-header { height: auto; min-height: 64px; flex-wrap: wrap; gap: 12px; padding: 16px 20px; }
+  .header-center { order: 3; flex-basis: 100%; max-width: none; margin: 0; }
+  .search-kbd { display: none; }
+  .stitch-body { flex-direction: column; }
+  .stitch-sidebar-left { position: static; width: 100%; height: auto; padding: 12px 20px; border-right: 0; border-bottom: 1px solid var(--border-color); }
+  .flat-nav { flex-direction: row; overflow-x: auto; gap: 6px; }
+  .sidebar-nav-btn { width: auto; flex-shrink: 0; gap: 8px; white-space: nowrap; }
+  .section-nav { display: none; }
+  .stitch-main { padding: 32px 20px 56px; overflow: visible; }
+  .canvas-content-flow { gap: 20px; }
+  .stitch-row { flex-wrap: wrap; gap: 12px; padding: 18px; }
+  .row-info { max-width: none; flex: 1 1 180px; }
+  .row-control { flex: 1 1 180px; }
+  .row-control.slider-control { max-width: none; }
+  .stitch-select, .input-group { width: 100%; max-width: none; min-width: 0; }
+  .diagnostic-grid { grid-template-columns: 1fr; }
+  .canvas-toolbar { width: max-content; max-width: calc(100% - 24px); }
+  .preview-hint, .toolbar-sep { display: none; }
+  .cinema-viewport { height: 240px; }
+}
+@media (max-width: 400px) {
+  .brand-name { font-size: 14px; }
+  .header-right { gap: 6px; }
+  .hotkey-grid { grid-template-columns: 1fr; }
+}
+
+.feedback { padding: 12px 16px; background: var(--bg-hover); border-radius: var(--radius-sm); font-size: 14px; }
+.feedback.error { color: var(--danger-text); background: var(--danger-bg); }
+.canvas-title { font-size: 28px; }
+.canvas-subtitle { margin-bottom: 0; }
+.row-title { font-size: 14px; }
+.row-desc, .section-lead { font-size: 13px; color: var(--text-secondary); }
+.stitch-main { padding-top: 32px; }
+.stitch-sidebar-left { width: 200px; }
+.btn-stitch-accent:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 760px) { .stitch-sidebar-left { width: 100%; } }
 </style>

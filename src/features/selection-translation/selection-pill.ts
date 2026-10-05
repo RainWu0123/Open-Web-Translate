@@ -35,17 +35,17 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
   pill.style.cssText = `
     position: fixed;
     z-index: 2147483600;
-    width: 28px;
-    height: 28px;
-    border-radius: 2px;
-    border: 1px solid #525252;
-    background: #000000;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #0c0d10;
     color: #fafafa;
     font-size: 12px;
     font-weight: 700;
     font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     padding: 0;
     line-height: 1;
     transition: transform 0.15s ease, filter 0.15s ease;
@@ -53,14 +53,14 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
   `;
 
   pill.addEventListener('pointerenter', () => {
-    pill.style.transform = 'scale(1.08)';
+    pill.style.transform = 'scale(1.03)';
   });
   pill.addEventListener('pointerleave', () => {
     pill.style.transform = '';
   });
 
-  const x = Math.min(Math.max(8, rect.left + rect.width / 2 - 15), window.innerWidth - 38);
-  const y = rect.top > 40 ? rect.top - 36 : rect.bottom + 6;
+  const x = Math.min(Math.max(8, rect.left + rect.width / 2 - 16), window.innerWidth - 40);
+  const y = rect.top > 40 ? rect.top - 40 : rect.bottom + 6;
   pill.style.left = `${x}px`;
   pill.style.top = `${y}px`;
 
@@ -78,12 +78,13 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
   selectionPill = pill;
 }
 
-export function setupSelectionTranslate(onTranslate: (selection: Selection) => Promise<void> | void): () => void {
+export function setupSelectionTranslate(onTranslate: (selection: Selection) => Promise<void> | void, isEnabled: () => boolean = () => true): () => void {
   const onPointerUp = () => {
     if (selectionHideTimer) clearTimeout(selectionHideTimer);
     selectionHideTimer = setTimeout(() => {
       const selection = window.getSelection();
       if (
+        !isEnabled() ||
         !selection ||
         selection.isCollapsed ||
         isInsideOwnUi(selection.anchorNode) ||

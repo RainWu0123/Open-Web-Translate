@@ -13,12 +13,13 @@ body {
   font-family: var(--font-ui, system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif);
 }
 
-:where(button, select, input, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+:where(button, a, select, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+  box-shadow: none;
 }
 
-/* Sharp right-angle micro-radii globally for options */
+/* Shared control geometry. */
 .card, button, input, select, textarea, kbd, .badge {
   border-radius: var(--radius-sm, 2px);
 }

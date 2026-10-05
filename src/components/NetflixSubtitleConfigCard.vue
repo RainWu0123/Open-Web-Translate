@@ -164,7 +164,7 @@ async function onConfigChange() {
   font-size: 12px;
   font-weight: 600;
   padding: 3px 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .status-badge.active {
@@ -180,11 +180,11 @@ async function onConfigChange() {
 }
 
 .toggle-btn {
-  background: var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
+  background: var(--primary-accent);
+  color: var(--on-primary);
   border: 1px solid transparent;
   padding: 6px 14px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
@@ -204,9 +204,9 @@ async function onConfigChange() {
 }
 
 .diagnostic-hud {
-  background: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 12px 14px;
   font-size: 12px;
   display: flex;
@@ -294,10 +294,10 @@ async function onConfigChange() {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 600;
-  color: var(--text-primary, var(--text-primary));
-  background: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 2px 6px;
   min-width: 46px;
   text-align: center;
@@ -320,7 +320,7 @@ async function onConfigChange() {
 }
 
 .checkbox-label input[type='checkbox'] {
-  accent-color: var(--primary-accent, var(--primary-accent));
+  accent-color: var(--primary-accent);
   width: 15px;
   height: 15px;
   cursor: pointer;
@@ -329,13 +329,13 @@ async function onConfigChange() {
 .hotkeys-guide {
   margin-top: 6px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color, var(--border-color));
+  border-top: 1px solid var(--border-color);
 }
 
 .hotkeys-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 
@@ -347,18 +347,18 @@ async function onConfigChange() {
 
 .hotkey-item {
   font-size: 12px;
-  color: var(--text-secondary, var(--text-secondary));
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 kbd {
-  background: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-family: var(--font-mono, monospace);
   font-weight: 500;

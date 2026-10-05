@@ -117,9 +117,9 @@ onMounted(() => {
 
 .theme-options {
   display: inline-flex;
-  background: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
   padding: 2px;
   gap: 2px;
 }
@@ -127,9 +127,9 @@ onMounted(() => {
 .theme-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   padding: 4px 8px;
-  border-radius: 1px;
+  border-radius: var(--radius-xs, 4px);
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
@@ -146,12 +146,12 @@ onMounted(() => {
 }
 
 .theme-btn:hover {
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .theme-btn.active {
-  background: var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
+  background: var(--primary-accent);
+  color: var(--on-primary);
   font-weight: 700;
   box-shadow: none;
 }

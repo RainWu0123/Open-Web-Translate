@@ -1,9 +1,10 @@
 <template>
   <div class="owt-glossary-manager" data-testid="glossary-manager">
+    <p v-if="formError" role="alert">{{ formError }}</p>
     <!-- Active SRS Review Session Mode -->
     <div v-if="isReviewMode" class="review-mode-wrapper">
       <FlashcardWorkbench
-        :cards="learningCards"
+        :cards="learningCards" :save-review="saveReview"
         :t="t"
         @review="onRecordReview"
         @close="isReviewMode = false"
@@ -15,7 +16,7 @@
       <div class="panel-header">
         <div class="title-group">
           <h1 class="panel-title">{{ translate('vocabularyWorkbench') }}</h1>
-          <span class="count-badge" data-testid="item-count">{{ safeItems.length }} items</span>
+          <span class="count-badge" data-testid="item-count">{{ safeItems.length }} 個單字</span>
           <span v-if="dueCardsCount > 0" class="due-badge">{{ dueCardsCount }} 待複習</span>
         </div>
         <div class="header-actions">
@@ -25,7 +26,7 @@
             :disabled="safeItems.length === 0"
             data-testid="start-review-btn"
           >
-            🚀 開始生詞複習 (Flashcards)
+            複習單字
           </button>
           <button
             class="btn btn-save btn-sm"
@@ -34,7 +35,7 @@
             data-testid="export-anki-btn"
             title="匯出至 Anki 牌組 (.txt)"
           >
-            📥 匯出 Anki
+            匯出 Anki
           </button>
           <button
             class="btn btn-outline btn-sm"
@@ -61,24 +62,24 @@
           <input
             type="text"
             v-model="newSource"
-            placeholder="Source term (e.g. Agent)"
+            placeholder="單字，例如 apple"
             class="term-input"
             data-testid="input-source-term"
           />
           <input
             type="text"
             v-model="newTarget"
-            placeholder="Target translation (e.g. 智能體)"
+            placeholder="意思，例如 蘋果"
             class="term-input"
             data-testid="input-target-term"
           />
           <button
             class="btn btn-save btn-add"
             @click="onAddTerm"
-            :disabled="!newSource.trim() || !newTarget.trim()"
+            :disabled="isAdding || !newSource.trim() || !newTarget.trim()"
             data-testid="add-term-btn"
           >
-            Add Term
+            新增單字
           </button>
         </div>
       </div>
@@ -88,7 +89,7 @@
         <input
           type="text"
           v-model="searchQuery"
-          placeholder="Search term, translation, or context..."
+          placeholder="搜尋單字、意思或例句…"
           class="search-input"
           data-testid="vocab-search-input"
         />
@@ -99,7 +100,7 @@
         <div class="vocab-container">
           <!-- Empty State -->
           <div v-if="filteredItems.length === 0" class="empty-state" data-testid="empty-state">
-            <p v-if="searchQuery">No vocabulary items match your search "{{ searchQuery }}".</p>
+            <p v-if="searchQuery">找不到符合的單字： "{{ searchQuery }}".</p>
             <p v-else>{{ translate('vocabularyDesc') }}</p>
           </div>
 
@@ -134,7 +135,7 @@
                   </span>
                 </div>
                 <div v-if="item.contextSentence || item.context" class="vocab-context">
-                  Context: "{{ item.contextSentence || item.context }}"
+                  例句： "{{ item.contextSentence || item.context }}"
                 </div>
                 <div v-if="item.contextTranslation" class="vocab-context-trans">
                   譯文: "{{ item.contextTranslation }}"
@@ -147,13 +148,13 @@
                   class="vocab-link"
                   data-testid="vocab-source-link"
                 >
-                  View source context / video
+                  開啟原始網頁
                 </a>
               </div>
               <button
                 class="btn-delete-item"
                 @click="onDeleteItem(item)"
-                title="Delete vocabulary item"
+                title="刪除這個單字"
                 data-testid="delete-vocab-item-btn"
               >
                 &times;
@@ -209,6 +210,8 @@ export interface VocabItem {
 const props = withDefaults(
   defineProps<{
     items?: VocabItem[];
+    saveReview?: (id: string, grade: SrsGrade) => Promise<void>;
+    saveTerm?: (term: VocabItem) => Promise<void>;
     entries?: VocabItem[];
     glossary?: VocabItem[];
     enabled?: boolean;
@@ -239,6 +242,8 @@ const isReviewMode = ref(false);
 const searchQuery = ref('');
 const newSource = ref('');
 const newTarget = ref('');
+const isAdding = ref(false);
+const formError = ref('');
 
 const safeItems = computed(() => {
   if (props.glossary && props.glossary.length > 0) return props.glossary;
@@ -287,9 +292,9 @@ const filteredItems = computed(() => {
 });
 
 function translate(key: string): string {
-  if (props.t) return props.t(key);
+  if (props.t && props.t(key) !== key) return props.t(key);
   const fallbackDict: Record<string, string> = {
-    vocabularyWorkbench: '生字庫與語言學習工作站',
+    vocabularyWorkbench: '收藏清單',
     vocabularyDesc: '目前尚未儲存任何生字。請在瀏覽網頁或觀看影片字幕時點擊單字進行收藏。',
     exportCsv: '匯出 CSV',
     clearAll: '清空字庫',
@@ -299,7 +304,14 @@ function translate(key: string): string {
 
 function playAudio(word: string, lang?: string) {
   if (!word) return;
-  void ttsPlayer.speak(word, lang || 'auto');
+  if (!ttsPlayer.isSupported()) {
+    formError.value = '這個瀏覽器不支援朗讀。';
+    return;
+  }
+  formError.value = '';
+  void ttsPlayer.speak(word, lang || 'auto').catch(() => {
+    formError.value = '朗讀失敗，請檢查系統語音是否可用。';
+  });
 }
 
 function onRecordReview(id: string, grade: SrsGrade) {
@@ -307,7 +319,7 @@ function onRecordReview(id: string, grade: SrsGrade) {
 }
 
 function onExportAnki() {
-  const tsv = LearningRepository.exportToAnki(safeItems.value as any);
+  const tsv = LearningRepository.exportToAnki(learningCards.value);
   const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -318,10 +330,10 @@ function onExportAnki() {
   emit('exportAnki');
 }
 
-function onAddTerm() {
+async function onAddTerm() {
   const s = newSource.value.trim();
   const t = newTarget.value.trim();
-  if (!s || !t) return;
+  if (!s || !t || isAdding.value) return;
 
   const newItem: VocabItem = {
     id: String(Date.now()),
@@ -332,7 +344,15 @@ function onAddTerm() {
     translation: t,
     srs: SrsEngine.createInitialState(),
   };
-  emit('addTerm', newItem);
+  if (props.saveTerm) {
+    isAdding.value = true;
+    formError.value = '';
+    try { await props.saveTerm(newItem); }
+    catch { formError.value = '尚未儲存，輸入的內容已保留。請再試一次。'; return; }
+    finally { isAdding.value = false; }
+  } else {
+    emit('addTerm', newItem);
+  }
 
   const updated = [...safeItems.value, newItem];
   emit('update:glossary', updated);
@@ -423,7 +443,7 @@ function onExportCsv() {
 
 .btn {
   padding: 7px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -442,10 +462,10 @@ function onExportCsv() {
 }
 
 .btn-review {
-  background: var(--bg-hover, var(--bg-hover));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
-  border-radius: 2px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
 }
 
 .btn-review:hover:not(:disabled) {
@@ -453,9 +473,9 @@ function onExportCsv() {
 }
 
 .btn-save {
-  background-color: var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
-  border-radius: 2px;
+  background-color: var(--primary-accent);
+  color: var(--on-primary);
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
@@ -466,20 +486,20 @@ function onExportCsv() {
 
 .btn-outline {
   background: none;
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
-  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
 }
 
 .btn-outline:hover:not(:disabled) {
-  background: var(--bg-hover, var(--bg-hover));
+  background: var(--bg-hover);
 }
 
 .btn-clear {
   background: none;
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-muted, var(--text-muted));
-  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
 }
 
 .btn-clear:hover:not(:disabled) {
@@ -489,9 +509,9 @@ function onExportCsv() {
 
 /* Add term card */
 .card {
-  background-color: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 16px;
 }
 
@@ -503,16 +523,16 @@ function onExportCsv() {
 .term-input {
   flex: 1;
   padding: 8px 12px;
-  background-color: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
-  color: var(--text-primary, var(--text-primary));
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .term-input:focus {
   outline: none;
-  border-color: var(--border-light, var(--border-light));
+  border-color: var(--border-light);
 }
 
 .btn-add {
@@ -529,16 +549,16 @@ function onExportCsv() {
 .search-input {
   width: 100%;
   padding: 8px 32px 8px 12px;
-  background-color: var(--bg-input, var(--bg-input));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
-  color: var(--text-primary, var(--text-primary));
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--border-light, var(--border-light));
+  border-color: var(--border-light);
 }
 
 .clear-search-btn {
@@ -546,7 +566,7 @@ function onExportCsv() {
   right: 10px;
   background: none;
   border: none;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 16px;
 }
@@ -563,15 +583,15 @@ function onExportCsv() {
   justify-content: space-between;
   align-items: flex-start;
   padding: 12px;
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
   gap: 12px;
   transition: border-color 0.15s ease;
 }
 
 .vocab-row:hover {
-  border-color: var(--border-light, var(--border-light));
+  border-color: var(--border-light);
 }
 
 .vocab-main {
@@ -591,12 +611,12 @@ function onExportCsv() {
 .vocab-word {
   font-size: 15px;
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .vocab-phonetic {
   font-size: 12px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
 
@@ -607,13 +627,13 @@ function onExportCsv() {
   font-size: 13px;
   padding: 1px 4px;
   opacity: 0.7;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   transition: opacity 0.15s ease;
 }
 
 .vocab-audio-btn:hover {
   opacity: 1;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .vocab-badge-pos {
@@ -622,12 +642,12 @@ function onExportCsv() {
   color: var(--text-secondary);
   font-size: 10.5px;
   padding: 1px 5px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
 .vocab-lemma {
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
   font-size: 11.5px;
   font-style: italic;
 }
@@ -635,7 +655,7 @@ function onExportCsv() {
 .vocab-translation {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
   margin-left: 6px;
 }
 
@@ -643,29 +663,29 @@ function onExportCsv() {
   margin-left: auto;
   font-size: 10px;
   font-weight: 600;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono, monospace);
 }
 
 .vocab-context {
   font-size: 12.5px;
-  color: var(--text-secondary, var(--text-secondary));
+  color: var(--text-secondary);
   line-height: 1.4;
   margin-top: 2px;
 }
 
 .vocab-context-trans {
   font-size: 12px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .vocab-link {
   font-size: 11px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   text-decoration: underline;
   margin-top: 2px;
   width: fit-content;
@@ -674,7 +694,7 @@ function onExportCsv() {
 .btn-delete-item {
   background: none;
   border: none;
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
   font-size: 18px;
   cursor: pointer;
   padding: 0 4px;
@@ -687,7 +707,7 @@ function onExportCsv() {
 .empty-state {
   text-align: center;
   padding: 32px 16px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   font-size: 13.5px;
 }
 </style>

@@ -20,6 +20,7 @@ import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text'
 const logger = createLogger('LocalHttpProvider');
 
 export interface LocalHttpConfig {
+  model?: string;
   endpoint?: string;
   apiKey?: string;
   instructions?: string;
@@ -37,11 +38,13 @@ export class LocalHttpProvider implements TranslationProvider {
   };
 
   private endpoint: string;
+  private model: string;
   private apiKey?: string;
   private instructions: string;
 
   constructor(config: LocalHttpConfig = {}) {
     this.endpoint = config.endpoint || 'http://127.0.0.1:8080';
+    this.model = config.model || 'local-model';
     this.apiKey = config.apiKey;
     this.instructions = config.instructions?.trim().slice(0, 2000) || '';
   }
@@ -114,7 +117,7 @@ export class LocalHttpProvider implements TranslationProvider {
       url,
       headers,
       body: {
-        model: 'local-model',
+        model: this.model,
         messages: [
           {
             role: 'user',
@@ -131,10 +134,13 @@ export class LocalHttpProvider implements TranslationProvider {
 
     let translatedSegments: TranslatedSegment[];
     if (isSingle) {
+      if (!`${outputText}`.trim()) {
+        throw new ProviderError(this.id, 'Local HTTP server returned an empty translation');
+      }
       translatedSegments = [
         {
           id: request.segments[0].id,
-          text: outputText ? normalizeSubtitleAlternatives(`${outputText}`.trim()) : `[Translated] ${request.segments[0].text}`,
+          text: normalizeSubtitleAlternatives(`${outputText}`.trim()),
         },
       ];
     } else {
@@ -143,12 +149,15 @@ export class LocalHttpProvider implements TranslationProvider {
         const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
         if (matchingLine) {
           const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
+          if (!cleanText) throw new ProviderError(this.id, `Local HTTP response has an empty translation for segment ${idx}`);
           return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
         }
         if (lines[idx]) {
-          return { id: seg.id, text: normalizeSubtitleAlternatives(lines[idx].replace(/^\[\d+\]\s*/, '').trim()) };
+          const cleanText = lines[idx].replace(/^\[\d+\]\s*/, '').trim();
+          if (!cleanText) throw new ProviderError(this.id, `Local HTTP response has an empty translation for segment ${idx}`);
+          return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
         }
-        return { id: seg.id, text: outputText ? normalizeSubtitleAlternatives(outputText) : `[Translated] ${seg.text}` };
+        throw new ProviderError(this.id, `Local HTTP response is missing a translation for segment ${idx}`);
       });
     }
 

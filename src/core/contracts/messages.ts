@@ -39,6 +39,7 @@ export interface ErrorPayload {
 
 /** Extension settings persisted in browser storage */
 export interface ExtensionSettings {
+  theme?: 'light' | 'dark' | 'system';
   sourceLanguage: string;
   targetLanguage: string;
   enabled: boolean;
@@ -109,6 +110,7 @@ export interface NetflixStateInfo {
 
 export interface TranslateRequestMessage {
   type: 'TRANSLATE_REQUEST';
+  bypassCache?: boolean;
   segments: Array<{ id: string; text: string }>;
   sourceLanguage: string;
   targetLanguage: string;

@@ -5,16 +5,21 @@
     <!-- ================================================================= -->
     <header class="popup-header">
       <div class="header-left">
-        <div class="app-brand" @click="openOptions">
+        <button type="button" class="app-brand" @click="openOptions">
+          <svg class="brand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
           <span class="brand-name">Open Web Translate</span>
-        </div>
+        </button>
       </div>
 
       <div class="header-right">
-        <select v-model="theme" @change="onThemeChange" class="stitch-theme-select">
-          <option value="system">Auto ▾</option>
-          <option value="dark">Dark ▾</option>
-          <option value="light">Light ▾</option>
+        <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" aria-label="介面主題">
+          <option value="system">自動</option>
+          <option value="dark">深色</option>
+          <option value="light">淺色</option>
         </select>
       </div>
     </header>
@@ -28,7 +33,7 @@
         <div class="stitch-row">
           <div class="row-info">
             <span class="row-title">啟用網頁翻譯</span>
-            <span class="row-desc">全網頁雙語對照與劃詞即時翻譯</span>
+            <span class="row-desc">開啟後可翻譯網頁與選取的文字</span>
           </div>
           <div class="row-control">
             <label class="toggle">
@@ -36,7 +41,7 @@
                 type="checkbox"
                 :checked="settings.enabled"
                 @change="onToggleEnabled"
-                data-testid="popup-toggle-enabled"
+                data-testid="popup-toggle-enabled" aria-label="啟用網頁翻譯"
               />
               <span class="slider"></span>
             </label>
@@ -46,49 +51,52 @@
 
       <!-- Language & Provider Configuration -->
       <div class="stitch-rows-container" data-testid="translation-language-card">
-        <!-- Source Language -->
-        <div class="stitch-row">
-          <div class="row-info">
-            <span class="row-title">來源語言</span>
-            <span class="row-desc">原始網頁語言</span>
-          </div>
-          <div class="row-control">
+        <!-- Horizontal Capsule Language Selector -->
+        <div class="lang-capsule-row">
+          <div class="lang-select-box">
+            <span class="lang-label">原文語言</span>
             <select
-              class="stitch-select"
+              class="stitch-select lang-dropdown"
               :value="settings.sourceLanguage"
               @change="onSourceLanguageChange"
-              data-testid="source-language-select"
+              data-testid="source-language-select" aria-label="來源語言"
             >
-              <option value="auto">自動偵測 ▾</option>
-              <option value="en">English ▾</option>
-              <option value="zh-Hant">繁體中文 ▾</option>
-              <option value="zh-Hans">简体中文 ▾</option>
-              <option value="ja">日本語 ▾</option>
-              <option value="ko">한국어 ▾</option>
-              <option value="es">Español ▾</option>
+              <option value="auto">自動偵測</option>
+              <option value="en">English</option>
+              <option value="zh-Hant">繁體中文</option>
+              <option value="zh-Hans">简体中文</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="es">Español</option>
             </select>
           </div>
-        </div>
 
-        <!-- Target Language -->
-        <div class="stitch-row">
-          <div class="row-info">
-            <span class="row-title">目標語言</span>
-            <span class="row-desc">翻譯呈現語言</span>
-          </div>
-          <div class="row-control">
+          <button
+            class="lang-swap-btn"
+            @click="swapLanguages"
+            :disabled="settings.sourceLanguage === 'auto'"
+            title="對調語言"
+            type="button"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+          </button>
+
+          <div class="lang-select-box">
+            <span class="lang-label">翻譯成</span>
             <select
-              class="stitch-select"
+              class="stitch-select lang-dropdown"
               :value="settings.targetLanguage"
               @change="onTargetLanguageChange"
-              data-testid="target-language-select"
+              data-testid="target-language-select" aria-label="目標語言"
             >
-              <option value="zh-Hant">繁體中文 ▾</option>
-              <option value="zh-Hans">简体中文 ▾</option>
-              <option value="en">English ▾</option>
-              <option value="ja">日本語 ▾</option>
-              <option value="ko">한국어 ▾</option>
-              <option value="es">Español ▾</option>
+              <option value="zh-Hant">繁體中文</option>
+              <option value="zh-Hans">简体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="es">Español</option>
             </select>
           </div>
         </div>
@@ -97,21 +105,21 @@
         <div class="stitch-row" data-testid="active-provider-card">
           <div class="row-info">
             <span class="row-title">翻譯服務</span>
-            <span class="row-desc">核心翻譯引擎</span>
+            <span class="row-desc">選擇翻譯方式</span>
           </div>
           <div class="row-control">
             <select
               class="stitch-select"
               :value="settings.activeProviderId"
               @change="onProviderChange"
-              data-testid="popup-provider-select"
+              data-testid="popup-provider-select" aria-label="翻譯服務"
             >
-              <option value="google-provider">Google 翻譯 (免金鑰) ▾</option>
-              <option value="gemini-provider">Google Gemini AI ▾</option>
-              <option value="deepl-provider">DeepL 翻譯 ▾</option>
-              <option value="chrome-builtin-ai-provider">Chrome 內建 AI ▾</option>
-              <option value="ollama-provider">Ollama 本機端 ▾</option>
-              <option value="local-http-provider">自訂 HTTP API ▾</option>
+              <option value="google-provider">Google 翻譯 (免金鑰)</option>
+              <option value="gemini-provider">Google Gemini AI</option>
+              <option value="deepl-provider">DeepL 翻譯</option>
+              <option value="chrome-builtin-ai-provider" disabled>Chrome 內建 AI（暫不提供）</option>
+              <option value="ollama-provider">Ollama 本機端</option>
+              <option value="local-http-provider">自訂 HTTP API</option>
             </select>
           </div>
         </div>
@@ -119,13 +127,14 @@
         <!-- Status indicator bar -->
         <div class="status-indicator-row">
           <div class="status-left">
-            <span class="pulse-dot" :class="{ warn: needsApiKeySetup }"></span>
+            <span class="pulse-dot" :class="{ warn: needsApiKeySetup || providerUnavailable }"></span>
             <span>{{ activeProviderDetail }}</span>
           </div>
           <button v-if="needsApiKeySetup" class="provider-config-btn" @click="openOptions">
             設定金鑰 ➔
           </button>
-          <span v-else class="status-badge">Ready</span>
+          <span v-else-if="providerUnavailable" class="status-badge">暫不提供</span>
+          <span v-else class="status-badge">尚未測試連線</span>
         </div>
       </div>
 
@@ -136,7 +145,7 @@
             <span class="row-title highlight">
               {{ isNetflixTab ? 'Netflix 雙語字幕' : 'YouTube 雙語字幕' }}
             </span>
-            <span class="row-desc">雙軌串流自動對齊與同步</span>
+            <span class="row-desc">播放影片後開啟，需有可用字幕</span>
           </div>
           <div class="row-control">
             <span
@@ -198,10 +207,10 @@
               @change="onSourceSelectionChange"
               data-testid="subtitle-source-select"
             >
-              <option value="auto">自動（優先原生） ▾</option>
-              <option value="ai">僅 AI / 機翻 ▾</option>
+              <option value="auto">自動（優先原生）</option>
+              <option value="ai">僅 AI / 機翻</option>
               <option v-for="t in netflixHud.tracks" :key="t.id" :value="`track:${t.id}`">
-                {{ t.label }}{{ t.isCC ? ' (CC)' : '' }} ▾
+                {{ t.label }}{{ t.isCC ? ' (CC)' : '' }}
               </option>
             </select>
           </div>
@@ -220,9 +229,9 @@
               @change="onYouTubeTrackChange"
               data-testid="youtube-track-select"
             >
-              <option value="auto">自動（優先原生） ▾</option>
+              <option value="auto">自動（優先原生）</option>
               <option v-for="t in ytTracks" :key="t.id" :value="t.languageCode">
-                {{ t.label }}{{ t.kind === 'asr' ? ' (自動產生)' : '' }} ▾
+                {{ t.label }}{{ t.kind === 'asr' ? ' (自動產生)' : '' }}
               </option>
             </select>
           </div>
@@ -278,6 +287,11 @@
         <button class="banner-link-btn" @click="openOptions">前往設定 ➔</button>
       </div>
 
+      <div v-if="providerUnavailable" class="stitch-warning-banner" data-testid="provider-unavailable-banner">
+        <span>Chrome 內建 AI 目前暫不提供，請改選其他翻譯服務。</span>
+        <button class="banner-link-btn" @click="openOptions">前往設定 ➔</button>
+      </div>
+
       <!-- Tip Callout (Regular Webpage) -->
       <div v-if="!isSubtitleTab" class="stitch-callout" data-testid="selection-hint">
         <span class="callout-icon">💡</span>
@@ -288,7 +302,7 @@
       <div v-if="!isSubtitleTab" class="action-group">
         <button
           class="btn-stitch-accent"
-          :disabled="isLoading || !settings.enabled || isGeminiUnconfigured"
+          :disabled="isLoading || !settings.enabled || needsApiKeySetup || providerUnavailable"
           @click="translateCurrentPage"
           data-testid="translate-page-btn"
         >
@@ -298,7 +312,7 @@
 
         <button
           class="btn-stitch-secondary"
-          :disabled="isLoading || !settings.enabled"
+          :disabled="isLoading"
           @click="restorePage"
           data-testid="restore-page-btn"
         >
@@ -326,13 +340,14 @@
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
-        <span>開啟完整設定 (Settings)</span>
+        <span>更多設定</span>
       </button>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useUiTheme } from '@/shared/ui/use-ui-theme';
 import { ref, onMounted, computed, watch } from 'vue';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
@@ -352,7 +367,7 @@ const settings = ref({
   subtitleTranslatedFontSize: 22,
 });
 
-const theme = ref<'light' | 'dark' | 'system'>('system');
+const { theme, onThemeChange } = useUiTheme(message => { errorMessage.value = message; });
 const isTranslating = ref(false);
 const isRestoring = ref(false);
 const isLoading = computed(() => isTranslating.value || isRestoring.value);
@@ -377,14 +392,6 @@ const sourceSelectionValue = computed(() =>
       : 'auto',
 );
 
-function onThemeChange(e: Event) {
-  const select = e.target as HTMLSelectElement;
-  const mode = select.value as 'light' | 'dark' | 'system';
-  theme.value = mode;
-  if (typeof document !== 'undefined' && document.documentElement) {
-    document.documentElement.setAttribute('data-theme', mode);
-  }
-}
 
 async function toggleSubtitles() {
   const target = !subtitleActive.value;
@@ -476,6 +483,11 @@ const needsApiKeySetup = computed(() => {
   return false;
 });
 
+const providerUnavailable = computed(() =>
+  settings.value.activeProviderId === 'chrome-ai-provider' ||
+  settings.value.activeProviderId === 'chrome-builtin-ai-provider',
+);
+
 const activeProviderDetail = computed(() => {
   switch (settings.value.activeProviderId) {
     case 'gemini-provider':
@@ -497,6 +509,14 @@ const activeProviderDetail = computed(() => {
       return 'Google 翻譯 · 預設免金鑰';
   }
 });
+
+function swapLanguages() {
+  if (settings.value.sourceLanguage === 'auto') return;
+  const temp = settings.value.sourceLanguage;
+  settings.value.sourceLanguage = settings.value.targetLanguage;
+  settings.value.targetLanguage = temp;
+  save();
+}
 
 function onTargetLanguageChange(e: Event) {
   settings.value.targetLanguage = (e.target as HTMLSelectElement).value;
@@ -691,7 +711,7 @@ function openOptions() {
 <style scoped>
 /* ── Main Popup Container ───────────────────────────────────────── */
 .popup-container {
-  width: 360px;
+  width: 380px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
@@ -702,7 +722,7 @@ function openOptions() {
 
 /* ── Top Header ─────────────────────────────────────────────────── */
 .popup-header {
-  height: 48px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -724,6 +744,11 @@ function openOptions() {
   user-select: none;
 }
 
+.brand-icon {
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
 .brand-name {
   font-size: 14px;
   font-weight: 700;
@@ -736,7 +761,7 @@ function openOptions() {
   font-family: var(--font-mono, monospace);
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-light);
   color: var(--text-secondary);
   letter-spacing: 0.05em;
@@ -752,9 +777,9 @@ function openOptions() {
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   outline: none;
   transition: all 0.15s ease;
@@ -767,7 +792,7 @@ function openOptions() {
 
 /* ── Popup Body ─────────────────────────────────────────────────── */
 .popup-body {
-  padding: 14px 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -777,21 +802,90 @@ function openOptions() {
 .stitch-rows-container {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-md, 10px);
   overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 .stitch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 14px;
   border-bottom: 1px solid var(--border-color);
   gap: 12px;
 }
 
 .stitch-row:last-child {
   border-bottom: none;
+}
+
+/* ── Horizontal Language Capsule ────────────────────────────────── */
+.lang-capsule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 8px;
+}
+
+.lang-select-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lang-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.lang-dropdown {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 6px 10px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.lang-dropdown:hover {
+  border-color: var(--border-light);
+}
+
+.lang-swap-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 14px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.lang-swap-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-light);
+  background: var(--border-light);
+}
+
+.lang-swap-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .row-info {
@@ -812,9 +906,9 @@ function openOptions() {
 }
 
 .row-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: 1.6;
 }
 
 .row-control {
@@ -834,7 +928,7 @@ function openOptions() {
   color: var(--text-primary);
   font-size: 12px;
   padding: 5px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   outline: none;
   min-width: 130px;
@@ -926,7 +1020,7 @@ input:checked + .slider:before {
   font-family: var(--font-mono, monospace);
   font-weight: 700;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
 }
 
 .sub-state-pill.active {
@@ -940,13 +1034,13 @@ input:checked + .slider:before {
 }
 
 .toggle-btn-wrapper {
-  padding: 10px 14px;
+  padding: 14px;
 }
 
 .btn-main-toggle {
   width: 100%;
   padding: 8px 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 12.5px;
   font-weight: 700;
   cursor: pointer;
@@ -974,7 +1068,7 @@ input:checked + .slider:before {
   padding: 6px 14px;
   background: var(--bg-primary);
   border-top: 1px solid var(--border-color);
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono, monospace);
   color: var(--text-muted);
 }
@@ -1005,7 +1099,7 @@ input:checked + .slider:before {
   background: transparent;
   border: none;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   padding: 0;
@@ -1042,37 +1136,42 @@ input:checked + .slider:before {
   flex: 1;
   background: var(--primary-accent);
   color: var(--on-primary);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
-  padding: 8px 12px;
-  border-radius: 4px;
+  height: 42px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: background 0.15s ease;
+  box-shadow: none;
+  transition: all 0.15s ease;
 }
 
 .btn-stitch-accent:hover:not(:disabled) {
   background: var(--primary-hover);
+  transform: translateY(-1px);
 }
 
 .btn-stitch-accent:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
 }
 
 .btn-stitch-secondary {
   flex: 1;
-  background: var(--bg-card);
+  background: transparent;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
-  padding: 8px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
+  height: 42px;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1083,19 +1182,19 @@ input:checked + .slider:before {
 
 .btn-stitch-secondary:hover:not(:disabled) {
   background: var(--bg-hover);
-  border-color: var(--border-light);
+  border-color: var(--text-muted);
 }
 
 .btn-stitch-secondary:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .spinner {
   width: 12px;
   height: 12px;
-  border: 2px solid rgba(0, 0, 0, 0.35);
-  border-top-color: #000;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -1161,7 +1260,7 @@ input:checked + .slider:before {
   width: 100%;
   background: transparent;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 7px 0;
   color: var(--text-secondary);
   font-size: 12px;
@@ -1184,4 +1283,21 @@ input:checked + .slider:before {
   width: 13px;
   height: 13px;
 }
+
+.app-brand { border: 0; background: transparent; padding: 0; color: inherit; }
+.stitch-select, .stitch-theme-select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='1.5'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
+}
+.lang-dropdown { min-width: 0; text-align: left; }
+.lang-select-box, .row-info { min-width: 0; }
+.lang-label { font-size: 11px; }
+.lang-swap-btn { width: 32px; height: 36px; }
+.status-indicator-row { padding: 10px 14px; gap: 8px; font-family: var(--font-ui); }
+.status-left { min-width: 0; }
+.pulse-dot { flex-shrink: 0; }
+.status-badge { white-space: nowrap; font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+.popup-footer { padding: 0 18px 18px; border-top: 0; }
+.footer-btn { min-height: 38px; }
 </style>

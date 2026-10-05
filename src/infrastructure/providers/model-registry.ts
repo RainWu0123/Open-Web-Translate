@@ -147,6 +147,7 @@ export class ModelRegistry {
       case 'local-http-provider':
         return new LocalHttpProvider({
           endpoint: settings?.localHttpEndpoint,
+          model: settings?.localHttpModel,
           apiKey: settings?.localHttpApiKey,
           instructions: settings?.aiTranslationInstructions,
         });

@@ -99,14 +99,17 @@ export class GenericDomAdapter implements SiteAdapter {
     }
 
     const { targets } = extractResult;
-    removeAllBilingualBlocks(doc);
 
     const segments = targets.map((t) => ({ id: t.id, text: t.text }));
     const translatedSegments = await options.translateFn(segments);
     const translationMap = new Map(translatedSegments.map((s) => [s.id, s.translatedText]));
+    if (targets.some(target => !translationMap.get(target.id)?.trim())) {
+      throw new Error('翻譯服務未回傳完整內容，請重試。');
+    }
+    removeAllBilingualBlocks(doc);
 
     targets.forEach((target) => {
-      const translatedText = translationMap.get(target.id) || '[翻譯不可用]';
+      const translatedText = translationMap.get(target.id)!;
       renderBilingualBlock(
         target.element,
         target.id,
@@ -143,7 +146,8 @@ export class GenericDomAdapter implements SiteAdapter {
 
     const target = extractResult.targets[0];
     const translatedSegments = await options.translateFn([{ id: target.id, text: target.text }]);
-    const translatedText = translatedSegments[0]?.translatedText || '[翻譯不可用]';
+    const translatedText = translatedSegments[0]?.translatedText;
+    if (!translatedText?.trim()) throw new Error('翻譯服務未回傳內容，請重試。');
 
     const host = target.isInline
       ? renderInlineHost(

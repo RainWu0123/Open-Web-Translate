@@ -21,6 +21,7 @@ export const DEFAULT_NETFLIX_CONFIG: NonNullable<ExtensionSettings['netflix']> =
 };
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  theme: 'system',
   netflix: DEFAULT_NETFLIX_CONFIG,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',

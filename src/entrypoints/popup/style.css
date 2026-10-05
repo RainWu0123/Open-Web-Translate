@@ -12,9 +12,10 @@ body {
   font-family: var(--font-ui, system-ui, sans-serif);
 }
 
-:where(button, select, input, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+:where(button, a, select, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

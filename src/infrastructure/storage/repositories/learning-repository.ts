@@ -163,26 +163,27 @@ export class LearningRepository {
    * Back (Meaning + Reading + Explanation), and Tags.
    */
   public static exportToAnki(cards: LearningCard[]): string {
+    const html = (value: string = '') => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\t/g, ' ').replace(/\r?\n/g, '<br>');
     const lines = cards.map((c) => {
-      const front = c.word;
-      const reading = c.phonetic ? `[${c.phonetic}]` : '';
+      const front = html(c.word);
+      const reading = c.phonetic ? `[${html(c.phonetic)}]` : '';
       const back = [
-        c.meaning,
+        html(c.meaning),
         reading,
-        c.pos ? `(${c.pos})` : '',
-        c.lemma && c.lemma !== c.word ? `原形: ${c.lemma}` : '',
-        c.contextSentence ? `<br><br><i>${c.contextSentence}</i>` : '',
-        c.contextTranslation ? `<br><span style="color:#888">${c.contextTranslation}</span>` : '',
+        c.pos ? `(${html(c.pos)})` : '',
+        c.lemma && c.lemma !== c.word ? `原形: ${html(c.lemma)}` : '',
+        c.contextSentence ? `<br><br><i>${html(c.contextSentence)}</i>` : '',
+        c.contextTranslation ? `<br><span style="color:#888">${html(c.contextTranslation)}</span>` : '',
       ]
         .filter(Boolean)
         .join(' ');
 
-      const tags = (c.tags || []).join(' ');
+      const tags = (c.tags || []).map(tag => tag.replace(/\s+/g, '_')).join(' ');
       // Anki tab-separated values: Front \t Back \t Tags
       return `${front.replace(/\t/g, ' ')}\t${back.replace(/\t/g, ' ')}\t${tags}`;
     });
 
-    return lines.join('\n');
+    return '#separator:Tab\n#html:true\n' + lines.join('\n');
   }
 
   public static exportToCSV(cards: LearningCard[]): string {

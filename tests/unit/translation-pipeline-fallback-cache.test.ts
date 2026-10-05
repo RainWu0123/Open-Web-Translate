@@ -26,11 +26,9 @@ describe('TranslationPipeline: fallback results are never cached', () => {
       targetLanguage: 'zh-Hant',
     };
 
-    // 1) Network down -> primary fails -> mock echo is served (flagged as degraded)
+    // A network failure must reject, never show the original text as a translation.
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
-    const degraded = await pipeline.translate(req);
-    expect(degraded.error?.code).toBe('DEGRADED');
-    expect(degraded.segments[0].translatedText).toBe('Hello world');
+    await expect(pipeline.translate(req)).rejects.toThrow();
 
     // 2) Network recovered -> the real translation must be fetched, not the echoed source
     vi.stubGlobal(

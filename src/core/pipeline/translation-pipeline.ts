@@ -1,5 +1,5 @@
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { MockProvider, GoogleTranslateProvider, getProvider } from '@/infrastructure/providers';
+import { getProvider } from '@/infrastructure/providers';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
 import { createLogger } from '@/shared/logger';
 import type { ExtensionSettings } from '@/core/contracts/messages';
@@ -7,6 +7,7 @@ import type { ExtensionSettings } from '@/core/contracts/messages';
 const logger = createLogger('TranslationPipeline');
 
 export interface TranslationPipelineRequest {
+  bypassCache?: boolean;
   segments: Array<{ id: string; text: string }>;
   sourceLanguage: string;
   targetLanguage: string;
@@ -25,8 +26,6 @@ export interface TranslationPipelineResponse {
 }
 
 export class TranslationPipeline {
-  private googleProvider = new GoogleTranslateProvider();
-  private mockProvider = new MockProvider();
   private cacheRepo = new CacheRepository();
 
   /**
@@ -74,7 +73,7 @@ export class TranslationPipeline {
 
     // 1. Concurrent cache lookups (were N sequential IndexedDB roundtrips)
     const cacheHits = await Promise.all(
-      msg.segments.map((seg) =>
+      msg.segments.map((seg) => msg.bypassCache ? Promise.resolve({ seg, cached: null }) :
         this.cacheRepo
           .get({
             sourceText: seg.text,
@@ -106,7 +105,7 @@ export class TranslationPipeline {
       };
     }
 
-    // 3. Cache miss: call active provider with failover logic
+    // 3. Call the selected provider; failures remain visible to the caller.
     logger.info(
       `Cache miss for ${segmentsToTranslate.length}/${msg.segments.length} segments, calling provider ${activeProviderId}`,
     );
@@ -122,46 +121,17 @@ export class TranslationPipeline {
       ...(msg.context?.previous?.length ? { context: msg.context } : {}),
     };
 
-    let providerResult;
-    let degraded: string | undefined;
-    // Results produced by a fallback path (another provider, or the mock
-    // echo) must never be written to the cache under the primary provider's
-    // key: a transient outage would otherwise pin untranslated text for the
-    // whole cache TTL.
-    let usedFallback = false;
-    try {
-      providerResult = await provider.translate(request);
-    } catch (err: any) {
-      usedFallback = true;
-      if (provider.isLocal) {
-        logger.error(
-          `Local private provider ${activeProviderId} failed. Privacy boundary enforced (no fallback).`,
-          err,
-        );
-        throw err;
-      }
-
-      logger.warn(`Primary provider ${activeProviderId} failed, falling back to GoogleTranslateProvider`, err);
-
-      try {
-        if (activeProviderId !== 'google-provider' && activeProviderId !== 'google') {
-          providerResult = await this.googleProvider.translate(request);
-        } else {
-          degraded = 'mock-fallback';
-          providerResult = await this.mockProvider.translate(request);
-        }
-      } catch (fallbackErr: any) {
-        // Double failure: surface mock text but flag it so callers can warn.
-        degraded = 'mock-fallback';
-        logger.warn(`Fallback provider failed, serving MockProvider placeholder output`, fallbackErr);
-        providerResult = await this.mockProvider.translate(request);
-      }
+    // A failed service is an error, never a successful echo of the source.
+    // Keep the selected provider and its privacy boundary explicit.
+    const providerResult = await provider.translate(request);
+    if (segmentsToTranslate.some(segment => !providerResult.segments.some(result => result.id === segment.id && result.text.trim()))) {
+      throw new Error('翻譯服務未回傳完整譯文，請重試或更換服務。');
     }
 
     // 4. Persist new translations (concurrent writes; Map lookup instead of
     //    the previous O(n*m) find-per-result loop)
     const sourceById = new Map(segmentsToTranslate.map((s) => [s.id as string, s]));
-    if (providerResult.cacheable && !usedFallback) {
+    if (providerResult.cacheable) {
       await Promise.all(
         providerResult.segments.map((resSeg: { id: unknown; text: string }) => {
           const originalSeg = sourceById.get(resSeg.id as string);
@@ -189,7 +159,6 @@ export class TranslationPipeline {
         id: s.id,
         translatedText: resultsMap.get(s.id) || '',
       })),
-      ...(degraded ? { error: { code: 'DEGRADED', message: degraded } } : {}),
     };
   }
 }

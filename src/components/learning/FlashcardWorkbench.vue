@@ -1,11 +1,17 @@
 <template>
   <div class="flashcard-workbench" data-testid="flashcard-workbench">
+    <p v-if="reviewError" role="alert" class="review-error">{{ reviewError }}</p>
+    <div v-if="!dueCards.length" class="fc-summary-card">
+      <h2>{{ cards.length ? '目前沒有待複習的單字' : '還沒有收藏的單字' }}</h2>
+      <p>{{ cards.length ? '下次到期時再回來複習。你也可以到單字收藏查看所有單字。' : '在字幕中點選單字收藏，或到「我的單字」手動新增。' }}</p>
+      <button class="btn btn-primary" @click="$emit('close')">前往我的單字</button>
+    </div>
     <!-- Review Complete Summary -->
-    <div v-if="isComplete" class="fc-summary-container" data-testid="fc-summary">
+    <div v-else-if="isComplete" class="fc-summary-container" data-testid="fc-summary">
       <div class="fc-summary-card">
-        <div class="summary-badge">COMPLETED</div>
-        <h2 class="summary-title">今日複習已全數完成</h2>
-        <p class="summary-desc">太棒了！您已順利完成本輪所有待複習生詞的間隔記憶評分。</p>
+        <div class="summary-badge">已完成</div>
+        <h2 class="summary-title">本輪複習完成</h2>
+        <p class="summary-desc">評分已儲存，下次複習日期已更新。</p>
         <div class="summary-stats-grid">
           <div class="stat-box again">
             <span class="stat-label">生疏 (1)</span>
@@ -25,7 +31,7 @@
           </div>
         </div>
         <div class="summary-actions">
-          <button class="btn btn-primary" @click="$emit('close')">返回生詞庫歸檔</button>
+          <button class="btn btn-primary" @click="$emit('close')">返回我的單字</button>
         </div>
       </div>
     </div>
@@ -38,7 +44,7 @@
         <div class="fc-top-info">
           <div class="fc-info-left">
             <span class="fc-counter" data-testid="fc-counter">
-              CARD {{ currentIndex + 1 }} OF {{ dueCards.length }}
+              第 {{ currentIndex + 1 }} / {{ dueCards.length }} 張
             </span>
             <span class="fc-divider">·</span>
             <span class="fc-meta-level">
@@ -77,7 +83,7 @@
                 <span class="fc-phonetic-top" v-if="currentCard.phonetic">
                   [{{ currentCard.phonetic }}]
                 </span>
-                <span class="fc-reveal-tag">CLICK TO REVEAL</span>
+                <span class="fc-reveal-tag">點擊看答案</span>
               </div>
 
               <div class="fc-face-body">
@@ -92,14 +98,14 @@
               </div>
             </div>
 
-            <!-- BACK FACE (REVEALED) -->
+            <!-- BACK FACE (答案) -->
             <div v-else class="fc-face fc-back">
               <div class="fc-face-header">
                 <div class="fc-back-heading">
                   <span class="fc-back-term">{{ currentCard.word }}</span>
                   <span class="fc-back-phonetic" v-if="currentCard.phonetic">[{{ currentCard.phonetic }}]</span>
                 </div>
-                <span class="fc-revealed-tag">REVEALED</span>
+                <span class="fc-revealed-tag">答案</span>
               </div>
 
               <div class="fc-face-body fc-back-body">
@@ -114,9 +120,7 @@
                   </div>
                 </div>
 
-                <div v-if="currentCardNotes" class="fc-notes-box">
-                  {{ currentCardNotes }}
-                </div>
+
               </div>
 
               <div class="fc-face-footer">
@@ -129,49 +133,49 @@
         <!-- 4 SM-2 Grade Buttons (shown when flipped) -->
         <div v-if="isFlipped" class="fc-grade-actions" data-testid="fc-grade-actions">
           <button
-            class="fc-grade-btn again"
+            :disabled="isSaving" class="fc-grade-btn again"
             @click.stop="submitGrade('again')"
             data-testid="grade-again-btn"
           >
             <div class="grade-info">
               <div class="grade-name">生疏</div>
-              <div class="grade-interval">10 分鐘後</div>
+              <div class="grade-interval">{{ intervalLabel('again') }}</div>
             </div>
             <kbd class="grade-kbd">1</kbd>
           </button>
 
           <button
-            class="fc-grade-btn hard"
+            :disabled="isSaving" class="fc-grade-btn hard"
             @click.stop="submitGrade('hard')"
             data-testid="grade-hard-btn"
           >
             <div class="grade-info">
               <div class="grade-name">困難</div>
-              <div class="grade-interval">1 天後</div>
+              <div class="grade-interval">{{ intervalLabel('hard') }}</div>
             </div>
             <kbd class="grade-kbd">2</kbd>
           </button>
 
           <button
-            class="fc-grade-btn good"
+            :disabled="isSaving" class="fc-grade-btn good"
             @click.stop="submitGrade('good')"
             data-testid="grade-good-btn"
           >
             <div class="grade-info">
               <div class="grade-name">良好</div>
-              <div class="grade-interval">3 天後</div>
+              <div class="grade-interval">{{ intervalLabel('good') }}</div>
             </div>
             <kbd class="grade-kbd">3</kbd>
           </button>
 
           <button
-            class="fc-grade-btn easy"
+            :disabled="isSaving" class="fc-grade-btn easy"
             @click.stop="submitGrade('easy')"
             data-testid="grade-easy-btn"
           >
             <div class="grade-info">
               <div class="grade-name">容易</div>
-              <div class="grade-interval">7 天後</div>
+              <div class="grade-interval">{{ intervalLabel('easy') }}</div>
             </div>
             <kbd class="grade-kbd">4</kbd>
           </button>
@@ -191,8 +195,8 @@
         <div class="fc-inspector-card">
           <div class="inspector-section">
             <div class="inspector-header">
-              <span class="inspector-title">LEXICAL INSPECTOR</span>
-              <span class="stage-pill">SM-2 STAGE {{ currentCard.srs?.repetition || 1 }}</span>
+              <span class="inspector-title">單字資料</span>
+              <span class="stage-pill">已複習次數 {{ currentCard.srs?.repetition || 0 }}</span>
             </div>
 
             <div class="inspector-specs">
@@ -204,28 +208,13 @@
                 <span class="spec-label">詞性 (POS)</span>
                 <span class="spec-val">{{ currentCard.pos || '未標註' }}</span>
               </div>
+
               <div class="spec-row">
-                <span class="spec-label">語料庫詞頻排行</span>
-                <span class="spec-val font-mono">{{ currentCardRank }}</span>
-              </div>
-              <div class="spec-row">
-                <span class="spec-label">考級認定</span>
+                <span class="spec-label">收藏標籤</span>
                 <span class="spec-val font-mono">{{ currentCardLevel }}</span>
               </div>
             </div>
 
-            <div class="inspector-collocations">
-              <div class="collocations-title">COMMON COLLOCATIONS (常見搭配)</div>
-              <div class="collocations-tags">
-                <span
-                  v-for="(col, idx) in currentCollocations"
-                  :key="idx"
-                  class="col-tag"
-                >
-                  {{ col }}
-                </span>
-              </div>
-            </div>
           </div>
 
           <div class="inspector-actions">
@@ -233,7 +222,7 @@
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
               </svg>
-              <span>聆聽真人語調朗讀</span>
+              <span>使用系統語音朗讀</span>
             </button>
             <button class="btn-inspector-copy" @click="copyMarkdownCard">
               <span>{{ copyStatusText }}</span>
@@ -265,13 +254,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import { SrsEngine } from '@/core/learning/srs-engine';
 import { ttsPlayer } from '@/shared/audio/tts-player';
 
 const props = defineProps<{
   cards: LearningCard[];
+  saveReview?: (id: string, grade: SrsGrade) => Promise<void>;
   t?: (key: string) => string;
 }>();
 
@@ -283,6 +273,8 @@ const emit = defineEmits<{
 const currentIndex = ref(0);
 const isFlipped = ref(false);
 const isComplete = ref(false);
+const isSaving = ref(false);
+const reviewError = ref('');
 const copyStatusText = ref('複製 Markdown 單字卡');
 
 const stats = ref({
@@ -292,58 +284,31 @@ const stats = ref({
   easy: 0,
 });
 
-// Due cards: cards due for review, or all cards if none are due
-const dueCards = computed(() => {
-  const due = props.cards.filter((c) => SrsEngine.isDue(c.srs));
-  return due.length > 0 ? due : props.cards;
-});
-
+// Freeze this session so saving a grade cannot reorder or skip the next card.
+const dueCards = ref<LearningCard[]>([]);
+let sessionStarted = false;
+watch(() => props.cards, cards => {
+  if (sessionStarted) return;
+  dueCards.value = cards.filter(card => SrsEngine.isDue(card.srs));
+  if (dueCards.value.length) sessionStarted = true;
+}, { immediate: true });
 const currentCard = computed(() => dueCards.value[currentIndex.value] || null);
 
-const currentCardLevel = computed(() => {
-  if (!currentCard.value) return '通用考級';
-  const tag = currentCard.value.tags?.find(
-    (t) => t.startsWith('JLPT') || t.startsWith('CEFR') || t.startsWith('N')
-  );
-  if (tag) return tag;
-  if (currentCard.value.sourceLang === 'ja') return 'JLPT N1/N2';
-  if (currentCard.value.sourceLang === 'en') return 'CEFR B2/C1';
-  return '基礎生詞';
-});
-
-const currentCardRank = computed(() => {
-  if (!currentCard.value) return '#1,000 / 40,000';
-  const hash = Math.abs(
-    currentCard.value.word.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-  );
-  const rank = (hash % 3800) + 420;
-  return `#${rank.toLocaleString()} / 40,000`;
-});
-
-const currentCollocations = computed(() => {
-  if (!currentCard.value) return [];
-  const w = currentCard.value.word;
-  if (currentCard.value.sourceLang === 'ja') {
-    return [`${w}の命 (短暫生命)`, `${w}の夢 (幻夢)`, `${w}く散る (飄落消逝)`];
-  }
-  return [`pure ${w} (純粹機緣)`, `stroke of ${w} (意外收穫)`, `${w} encounter`];
-});
-
-const currentCardNotes = computed(() => {
+const currentCardLevel = computed(() =>
+  currentCard.value?.tags?.find(tag => /^(JLPT|CEFR)\b/.test(tag)) || '未標註'
+);
+function intervalLabel(grade: SrsGrade) {
   if (!currentCard.value) return '';
-  if (currentCard.value.sourceLang === 'ja') {
-    return '常與「命 (いのち)」、「夢 (ゆめ)」連用，強調「因轉瞬即逝而更顯珍貴」的情緒美學。句尾「〜だからこそ」為強調助詞。';
-  }
-  return '源自童話《塞倫迪普的三個王子》，常用於科學重大意外發現或命運般的邂逅。';
-});
-
+  return SrsEngine.calculateNextState(currentCard.value.srs, grade).interval + ' 天後';
+}
 function flip() {
-  isFlipped.value = !isFlipped.value;
+  if (!isSaving.value) isFlipped.value = !isFlipped.value;
 }
 
 function playAudio() {
   if (!currentCard.value) return;
-  void ttsPlayer.speak(currentCard.value.word, currentCard.value.sourceLang || 'auto');
+  if (!ttsPlayer.isSupported()) { reviewError.value = '這個瀏覽器不支援朗讀。'; return; }
+  void ttsPlayer.speak(currentCard.value.word, currentCard.value.sourceLang || 'auto').catch(() => { reviewError.value = '朗讀失敗，請檢查系統語音是否可用。'; });
 }
 
 // Saved sentences originate from arbitrary web pages / subtitles and are
@@ -377,25 +342,27 @@ function highlightKeyword(sentence: string, word: string): string {
   return safe.replace(wordRegex(word), '<strong class="highlight-word">$1</strong>');
 }
 
-function submitGrade(grade: SrsGrade) {
-  if (!currentCard.value) return;
-
-  stats.value[grade] += 1;
-  emit('review', currentCard.value.id, grade);
-
-  isFlipped.value = false;
-  if (currentIndex.value + 1 < dueCards.value.length) {
-    currentIndex.value += 1;
-  } else {
-    isComplete.value = true;
-  }
+async function submitGrade(grade: SrsGrade) {
+  if (!currentCard.value || !isFlipped.value || isSaving.value) return;
+  isSaving.value = true; reviewError.value = '';
+  try {
+    if (props.saveReview) await props.saveReview(currentCard.value.id, grade);
+    else emit('review', currentCard.value.id, grade);
+    stats.value[grade] += 1;
+    isFlipped.value = false;
+    if (currentIndex.value + 1 < dueCards.value.length) currentIndex.value += 1;
+    else isComplete.value = true;
+  } catch {
+    reviewError.value = '尚未儲存這次評分，請再按一次重試。';
+  } finally { isSaving.value = false; }
 }
 
-function copyMarkdownCard() {
+async function copyMarkdownCard() {
   if (!currentCard.value) return;
   const c = currentCard.value;
-  const md = `### ${c.word} [${c.phonetic || ''}]\n- **詞性**: ${c.pos || ''} (${currentCardLevel.value})\n- **釋義**: ${c.meaning}\n- **例句**: ${c.contextSentence || ''}\n- **譯文**: ${c.contextTranslation || ''}\n- **筆記**: ${currentCardNotes.value}`;
-  void navigator.clipboard.writeText(md);
+  const md = `### ${c.word} [${c.phonetic || ''}]\n- **詞性**: ${c.pos || ''} (${currentCardLevel.value})\n- **釋義**: ${c.meaning}\n- **例句**: ${c.contextSentence || ''}\n- **譯文**: ${c.contextTranslation || ''}`;
+  try { await navigator.clipboard.writeText(md); }
+  catch { copyStatusText.value = '複製失敗，請允許剪貼簿存取'; return; }
   copyStatusText.value = '✓ 已複製 Markdown';
   setTimeout(() => {
     copyStatusText.value = '複製 Markdown 單字卡';
@@ -403,7 +370,9 @@ function copyMarkdownCard() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (isComplete.value) return;
+  const target = e.target as HTMLElement | null;
+  if (e.ctrlKey || e.metaKey || e.altKey || target?.closest('input, textarea, select, button, [contenteditable]')) return;
+  if (isComplete.value || isSaving.value) return;
 
   if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault();
@@ -430,10 +399,12 @@ onUnmounted(() => {
 
 <style scoped>
 .flashcard-workbench {
+  container-type: inline-size;
+  container-name: learning;
   width: 100%;
   max-width: 1360px;
   margin: 0 auto;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
   font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
 }
 
@@ -445,7 +416,7 @@ onUnmounted(() => {
   width: 100%;
 }
 
-@media (min-width: 1024px) {
+@container learning (min-width: 720px) {
   .fc-layout-grid {
     grid-template-columns: 3fr 1fr;
   }
@@ -465,7 +436,7 @@ onUnmounted(() => {
   align-items: center;
   font-size: 12px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   padding: 0 4px;
 }
 
@@ -477,11 +448,11 @@ onUnmounted(() => {
 
 .fc-counter {
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .fc-divider {
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
 }
 
 .fc-info-right {
@@ -492,10 +463,10 @@ onUnmounted(() => {
 
 .fc-kbd {
   padding: 2px 6px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 11px;
 }
 
@@ -505,14 +476,14 @@ onUnmounted(() => {
   gap: 6px;
   background: none;
   border: none;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: color 0.15s ease;
 }
 
 .fc-audio-action-btn:hover {
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .fc-icon {
@@ -522,17 +493,17 @@ onUnmounted(() => {
 
 .fc-exit-btn {
   background: none;
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-dim, var(--text-dim));
-  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
   padding: 2px 8px;
   font-size: 12px;
   cursor: pointer;
 }
 
 .fc-exit-btn:hover {
-  color: var(--text-primary, var(--text-primary));
-  background: var(--bg-hover, var(--bg-hover));
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 /* Framed Card Stage */
@@ -540,9 +511,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 380px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  border-radius: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
   padding: 16px;
   cursor: pointer;
   user-select: none;
@@ -550,7 +521,7 @@ onUnmounted(() => {
 }
 
 .fc-card-frame:hover {
-  border-color: var(--border-light, var(--border-light));
+  border-color: var(--border-light);
 }
 
 .fc-card-inner {
@@ -559,7 +530,7 @@ onUnmounted(() => {
   flex: 1;
   background: var(--bg-inset, var(--bg-input));
   border: 1px solid var(--border-color);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   padding: 32px 28px;
   justify-content: space-between;
 }
@@ -581,18 +552,18 @@ onUnmounted(() => {
 }
 
 .fc-phonetic-top {
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .fc-reveal-tag {
   font-size: 11px;
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
   letter-spacing: 0.05em;
 }
 
 .fc-revealed-tag {
   font-size: 11px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   letter-spacing: 0.05em;
 }
 
@@ -610,17 +581,17 @@ onUnmounted(() => {
   font-size: 52px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
   margin: 0;
 }
 
 .fc-cloze-box {
   display: inline-block;
   padding: 12px 20px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-muted, var(--text-muted));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
   font-size: 14px;
   max-width: 640px;
 }
@@ -639,7 +610,7 @@ onUnmounted(() => {
 
 .fc-face-footer {
   font-size: 11px;
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
   text-align: center;
 }
 
@@ -653,12 +624,12 @@ onUnmounted(() => {
 .fc-back-term {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .fc-back-phonetic {
   font-size: 12px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .fc-back-body {
@@ -670,14 +641,14 @@ onUnmounted(() => {
 .fc-meaning-text {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .fc-sentence-card {
   padding: 14px 16px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   font-size: 12.5px;
   display: flex;
   flex-direction: column;
@@ -685,11 +656,11 @@ onUnmounted(() => {
 }
 
 .fc-sentence-orig {
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .fc-sentence-trans {
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 :deep(.highlight-word) {
@@ -699,11 +670,11 @@ onUnmounted(() => {
 
 .fc-notes-box {
   padding: 12px 14px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   font-size: 11px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   line-height: 1.6;
 }
 
@@ -719,18 +690,18 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   padding: 16px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: all 0.15s ease;
 }
 
 .fc-grade-btn:hover {
-  background: var(--bg-hover, var(--bg-hover));
-  border-color: var(--border-light, var(--border-light));
+  background: var(--bg-hover);
+  border-color: var(--border-light);
 }
 
 .grade-info {
@@ -742,24 +713,24 @@ onUnmounted(() => {
 .grade-name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .grade-interval {
   font-size: 11px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-dim, var(--text-dim));
+  color: var(--text-dim);
   margin-top: 2px;
 }
 
 .grade-kbd {
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color, var(--border-color));
+  border: 1px solid var(--border-color);
   font-size: 11px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .fc-unflipped-controls {
@@ -769,18 +740,18 @@ onUnmounted(() => {
 .fc-flip-btn {
   width: 100%;
   padding: 14px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-muted, var(--text-muted));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .fc-flip-btn:hover {
-  color: var(--text-primary, var(--text-primary));
-  border-color: var(--border-light, var(--border-light));
+  color: var(--text-primary);
+  border-color: var(--border-light);
 }
 
 /* Right 1 Column Sidebar */
@@ -792,9 +763,9 @@ onUnmounted(() => {
 
 .fc-inspector-card {
   padding: 20px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -819,17 +790,17 @@ onUnmounted(() => {
   font-weight: 700;
   font-family: var(--font-mono, monospace);
   letter-spacing: 0.05em;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .stage-pill {
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .inspector-specs {
@@ -846,11 +817,11 @@ onUnmounted(() => {
 }
 
 .spec-label {
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .spec-val {
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
   font-weight: 500;
 }
 
@@ -863,7 +834,7 @@ onUnmounted(() => {
 }
 
 .inspector-collocations {
-  border-top: 1px solid var(--border-color, var(--border-color));
+  border-top: 1px solid var(--border-color);
   padding-top: 12px;
   display: flex;
   flex-direction: column;
@@ -873,7 +844,7 @@ onUnmounted(() => {
 .collocations-title {
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 
@@ -885,15 +856,15 @@ onUnmounted(() => {
 
 .col-tag {
   padding: 4px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color, var(--border-color));
+  border: 1px solid var(--border-color);
   font-size: 11px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .inspector-actions {
-  border-top: 1px solid var(--border-color, var(--border-color));
+  border-top: 1px solid var(--border-color);
   padding-top: 12px;
   display: flex;
   flex-direction: column;
@@ -907,10 +878,10 @@ onUnmounted(() => {
   gap: 6px;
   width: 100%;
   padding: 10px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
-  color: var(--text-primary, var(--text-primary));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -918,7 +889,7 @@ onUnmounted(() => {
 }
 
 .btn-inspector-audio:hover {
-  background: var(--bg-hover, var(--bg-hover));
+  background: var(--bg-hover);
 }
 
 .btn-icon {
@@ -933,10 +904,10 @@ onUnmounted(() => {
   gap: 6px;
   width: 100%;
   padding: 10px;
-  border-radius: 2px;
-  background: var(--primary-accent, var(--primary-accent));
-  border: 1px solid var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
+  border-radius: var(--radius-sm);
+  background: var(--primary-accent);
+  border: 1px solid var(--primary-accent);
+  color: var(--on-primary);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -951,9 +922,9 @@ onUnmounted(() => {
 /* Shortcuts Card */
 .fc-shortcuts-card {
   padding: 20px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -962,7 +933,7 @@ onUnmounted(() => {
 .shortcuts-title {
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .shortcuts-list {
@@ -979,17 +950,17 @@ onUnmounted(() => {
 }
 
 .shortcut-label {
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .shortcut-kbd {
   padding: 2px 6px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color, var(--border-color));
+  border: 1px solid var(--border-color);
   font-size: 10.5px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 /* Summary Card */
@@ -1005,9 +976,9 @@ onUnmounted(() => {
   max-width: 520px;
   width: 100%;
   padding: 32px;
-  border-radius: 2px;
-  background: var(--bg-card, var(--bg-card));
-  border: 1px solid var(--border-color, var(--border-color));
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -1021,22 +992,22 @@ onUnmounted(() => {
   font-weight: 700;
   letter-spacing: 0.08em;
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .summary-title {
   font-size: 20px;
   font-weight: 700;
   margin: 0;
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .summary-desc {
   font-size: 13px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
   margin: 0;
   line-height: 1.5;
 }
@@ -1051,9 +1022,9 @@ onUnmounted(() => {
 
 .stat-box {
   padding: 12px 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--bg-primary);
-  border: 1px solid var(--border-color, var(--border-color));
+  border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1061,13 +1032,13 @@ onUnmounted(() => {
 
 .stat-label {
   font-size: 11px;
-  color: var(--text-muted, var(--text-muted));
+  color: var(--text-muted);
 }
 
 .stat-num {
   font-size: 18px;
   font-family: var(--font-mono, monospace);
-  color: var(--text-primary, var(--text-primary));
+  color: var(--text-primary);
 }
 
 .summary-actions {
@@ -1078,10 +1049,10 @@ onUnmounted(() => {
 .btn-primary {
   width: 100%;
   padding: 12px;
-  border-radius: 2px;
-  background: var(--primary-accent, var(--primary-accent));
-  border: 1px solid var(--primary-accent, var(--primary-accent));
-  color: var(--on-primary, var(--on-primary));
+  border-radius: var(--radius-sm);
+  background: var(--primary-accent);
+  border: 1px solid var(--primary-accent);
+  color: var(--on-primary);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -1091,4 +1062,7 @@ onUnmounted(() => {
 .btn-primary:hover {
   background: var(--primary-hover);
 }
+.review-error { padding: 12px; color: var(--danger-text); background: var(--danger-bg); margin-bottom: 16px; }
+.fc-grade-btn:disabled { opacity: .5; cursor: wait; }
+.fc-top-info { flex-wrap: wrap; gap: 12px; }
 </style>

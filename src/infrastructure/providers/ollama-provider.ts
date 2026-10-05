@@ -125,21 +125,27 @@ export class OllamaProvider implements TranslationProvider {
 
     const generatedText = data.response || '';
     const lines = generatedText.split('\n').filter((l: string) => l.trim().length > 0);
+    if (!lines.length) {
+      throw new ProviderError(this.id, 'Ollama returned an empty translation');
+    }
 
     const translatedSegments: TranslatedSegment[] = request.segments.map((seg, idx) => {
       // Look for line starting with [idx]
       const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
       if (matchingLine) {
         const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
+        if (!cleanText) throw new ProviderError(this.id, `Ollama response has an empty translation for segment ${idx}`);
         return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
       }
       if (lines[idx]) {
+        const cleanText = lines[idx].replace(/^\[\d+\]\s*/, '').trim();
+        if (!cleanText) throw new ProviderError(this.id, `Ollama response has an empty translation for segment ${idx}`);
         return {
           id: seg.id,
-          text: normalizeSubtitleAlternatives(lines[idx].replace(/^\[\d+\]\s*/, '').trim()),
+          text: normalizeSubtitleAlternatives(cleanText),
         };
       }
-      return { id: seg.id, text: normalizeSubtitleAlternatives(generatedText.trim() || seg.text) };
+      throw new ProviderError(this.id, `Ollama response is missing a translation for segment ${idx}`);
     });
 
     return {
