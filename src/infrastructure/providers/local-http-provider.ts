@@ -17,6 +17,7 @@ import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
+import { parseIndexedTranslations } from './indexed-translation-parser';
 
 const logger = createLogger('LocalHttpProvider');
 
@@ -144,21 +145,15 @@ export class LocalHttpProvider implements TranslationProvider {
         },
       ];
     } else {
-      const lines = `${outputText}`.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
-      translatedSegments = request.segments.map((seg, idx) => {
-        const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
-        if (matchingLine) {
-          const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
-          if (!cleanText) throw new ProviderError(this.id, `Local HTTP response has an empty translation for segment ${idx}`);
-          return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
-        }
-        if (lines[idx]) {
-          const cleanText = lines[idx].replace(/^\[\d+\]\s*/, '').trim();
-          if (!cleanText) throw new ProviderError(this.id, `Local HTTP response has an empty translation for segment ${idx}`);
-          return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
-        }
-        throw new ProviderError(this.id, `Local HTTP response is missing a translation for segment ${idx}`);
+      const parsedTranslations = parseIndexedTranslations(outputText, {
+        providerId: this.id,
+        providerLabel: 'Local HTTP',
+        expectedCount: request.segments.length,
       });
+      translatedSegments = request.segments.map((seg, idx) => ({
+        id: seg.id,
+        text: normalizeSubtitleAlternatives(parsedTranslations[idx]),
+      }));
     }
 
     return {

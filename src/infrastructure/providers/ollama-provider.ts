@@ -17,6 +17,7 @@ import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
+import { parseIndexedTranslations } from './indexed-translation-parser';
 
 const logger = createLogger('OllamaProvider');
 
@@ -124,29 +125,16 @@ export class OllamaProvider implements TranslationProvider {
     }).then((r) => r.json as Record<string, any>);
 
     const generatedText = data.response || '';
-    const lines = generatedText.split('\n').filter((l: string) => l.trim().length > 0);
-    if (!lines.length) {
-      throw new ProviderError(this.id, 'Ollama returned an empty translation');
-    }
-
-    const translatedSegments: TranslatedSegment[] = request.segments.map((seg, idx) => {
-      // Look for line starting with [idx]
-      const matchingLine = lines.find((l: string) => l.startsWith(`[${idx}]`));
-      if (matchingLine) {
-        const cleanText = matchingLine.replace(/^\[\d+\]\s*/, '').trim();
-        if (!cleanText) throw new ProviderError(this.id, `Ollama response has an empty translation for segment ${idx}`);
-        return { id: seg.id, text: normalizeSubtitleAlternatives(cleanText) };
-      }
-      if (lines[idx]) {
-        const cleanText = lines[idx].replace(/^\[\d+\]\s*/, '').trim();
-        if (!cleanText) throw new ProviderError(this.id, `Ollama response has an empty translation for segment ${idx}`);
-        return {
-          id: seg.id,
-          text: normalizeSubtitleAlternatives(cleanText),
-        };
-      }
-      throw new ProviderError(this.id, `Ollama response is missing a translation for segment ${idx}`);
+    const parsedTranslations = parseIndexedTranslations(generatedText, {
+      providerId: this.id,
+      providerLabel: 'Ollama',
+      expectedCount: request.segments.length,
     });
+
+    const translatedSegments: TranslatedSegment[] = request.segments.map((seg, idx) => ({
+      id: seg.id,
+      text: normalizeSubtitleAlternatives(parsedTranslations[idx]),
+    }));
 
     return {
       providerId: this.id,
