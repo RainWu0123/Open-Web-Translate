@@ -14,6 +14,7 @@ export interface ExtractedTarget {
   text: string;
   tagMap?: Map<number, TagInfo>;
   isInline?: boolean;
+  range?: Range;
 }
 
 export type ExtractionResult =
@@ -119,8 +120,6 @@ function hasChildBlockCandidates(el: Element): boolean {
  */
 function extractFromCandidateList(candidates: Element[]): ExtractionResult {
   const validTargets: ExtractedTarget[] = [];
-  let totalChars = 0;
-
   for (let i = 0; i < candidates.length; i++) {
     const el = candidates[i];
 
@@ -132,14 +131,6 @@ function extractFromCandidateList(candidates: Element[]): ExtractionResult {
     let text = textWithPlaceholders.trim();
     if (!text) continue;
 
-    if (text.length > PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT) {
-      text = text.slice(0, PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT);
-    }
-
-    if (totalChars + text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS) {
-      break;
-    }
-
     const segId = generateSegmentId(el, validTargets.length, text);
     validTargets.push({
       id: segId,
@@ -148,7 +139,6 @@ function extractFromCandidateList(candidates: Element[]): ExtractionResult {
       tagMap: tagMap.size > 0 ? tagMap : undefined,
     });
 
-    totalChars += text.length;
 
     if (validTargets.length >= PAYLOAD_LIMITS.MAX_TARGETS) {
       break;
@@ -241,11 +231,11 @@ export function extractFromSelection(
     };
   }
 
-  const { textWithPlaceholders, tagMap } = encodeInlineTags(rootEl);
-  const textToUse =
-    tagMap.size > 0 && textWithPlaceholders.includes(selectedText)
-      ? textWithPlaceholders
-      : selectedText;
+  const selectionFragment = range.cloneContents();
+  const selectionContainer = _doc.createElement('span');
+  selectionContainer.appendChild(selectionFragment);
+  const { textWithPlaceholders, tagMap } = encodeInlineTags(selectionContainer);
+  const textToUse = textWithPlaceholders.trim() || selectedText;
 
   const segId = generateSegmentId(rootEl, 0, selectedText);
   return {
@@ -257,6 +247,7 @@ export function extractFromSelection(
         text: textToUse,
         tagMap: tagMap.size > 0 ? tagMap : undefined,
         isInline: true,
+        range: range.cloneRange(),
       },
     ],
   };

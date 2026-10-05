@@ -79,6 +79,22 @@ describe('Multi-Mode Shadow DOM Renderer Unit Tests', () => {
     expect(document.querySelectorAll('.owt-bilingual-host').length).toBe(0);
   });
 
+  it('renders table-cell translations inside the cell without invalid table siblings', () => {
+    document.body.innerHTML = '<table><tbody><tr><td id="cell">Original cell</td></tr></tbody></table>';
+    const cell = document.getElementById('cell')!;
+    const host = renderBilingualBlock(cell, 'seg-cell', 'Original cell', '儲存格翻譯', 'immersive');
+    expect(host.parentElement).toBe(cell);
+    expect(cell.classList.contains('owt-source-hidden')).toBe(false);
+    expect(host.shadowRoot?.textContent).toContain('儲存格翻譯');
+  });
+
+  it('keeps a visible keyboard focus indicator on immersive toggles', () => {
+    const p1 = document.getElementById('p1')!;
+    const host = renderBilingualBlock(p1, 'seg-focus', 'Original', 'Translated', 'immersive');
+    expect(host.shadowRoot?.querySelector('style')?.textContent).toContain(':focus-visible');
+    expect(host.shadowRoot?.querySelector('style')?.textContent).toContain('outline: 2px solid currentColor');
+  });
+
   it('is idempotent across repeated renders in all display modes', () => {
     const p1 = document.getElementById('p1')!;
     renderBilingualBlock(p1, 'seg-1', 'Original paragraph text', '譯文1', 'bilingual');

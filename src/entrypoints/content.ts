@@ -204,13 +204,13 @@ export default defineContentScript({
 });
 
 function setupSpaNavigationListener(): void {
-  let lastPath = window.location.pathname;
+  let lastUrl = window.location.href;
 
   const handleRouteCheck = () => {
-    const currentPath = window.location.pathname;
-    if (currentPath !== lastPath) {
-      logger.info('SPA navigation detected from', lastPath, 'to', currentPath);
-      lastPath = currentPath;
+    const currentUrl = window.location.href;
+    if (currentUrl !== lastUrl) {
+      logger.info('SPA navigation detected from', lastUrl, 'to', currentUrl);
+      lastUrl = currentUrl;
       if (badgeState === 'translated') {
         void executePageRestore();
       }

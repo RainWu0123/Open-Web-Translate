@@ -103,7 +103,46 @@ describe('Generic Web Page DOM Translation Adapter & Model Registry', () => {
       expect(result.host?.classList.contains('owt-inline-host') || result.host?.classList.contains('owt-bilingual-host')).toBe(true);
     });
 
-    it('1.5 restores page by removing injected Shadow DOM hosts', async () => {
+    it('1.5 chunks very long blocks without truncating translated content', async () => {
+      const longText = Array.from({ length: 900 }, (_, i) => `word${i}`).join(' ');
+      testContainer.innerHTML = `<p id="long-p">${longText}</p>`;
+      const seen: string[] = [];
+      const result = await adapter.translatePage(document, {
+        targetLanguage: 'zh-TW',
+        translateFn: async (segments) => {
+          seen.push(...segments.map((segment) => segment.text));
+          return segments.map((segment) => ({ id: segment.id, translatedText: `T:${segment.text}` }));
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(seen.length).toBeGreaterThan(1);
+      expect(seen.every((text) => text.length <= 3000)).toBe(true);
+      const rendered = document.querySelector('.owt-bilingual-host')?.shadowRoot?.textContent || '';
+      expect(rendered).toContain('word0');
+      expect(rendered).toContain('word899');
+    });
+
+    it('1.6 anchors a partial selection translation at the selected range', async () => {
+      testContainer.innerHTML = '<p id="partial">Before selected words after</p>';
+      const p = document.getElementById('partial')!;
+      const textNode = p.firstChild!;
+      const range = document.createRange();
+      range.setStart(textNode, 7);
+      range.setEnd(textNode, 21);
+      const result = await adapter.translateSelection(range, document, {
+        targetLanguage: 'zh-TW',
+        translateFn: async (segments) => {
+          expect(segments[0].text).toBe('selected words');
+          return [{ id: segments[0].id, translatedText: '選取文字' }];
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(result.host?.parentElement).toBe(p);
+      expect(p.textContent).toContain('Before');
+      expect(p.textContent).toContain('after');
+    });
+
+    it('1.7 restores page by removing injected Shadow DOM hosts', async () => {
       testContainer.innerHTML = `<p>Test content block for restore verification.</p>`;
 
       await adapter.translatePage(document, {
