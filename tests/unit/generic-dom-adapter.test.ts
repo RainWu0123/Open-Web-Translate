@@ -87,9 +87,12 @@ describe('Generic Web Page DOM Translation Adapter & Model Registry', () => {
       const range = document.createRange();
       range.selectNodeContents(targetP);
 
-      const mockTranslateFn = vi.fn().mockResolvedValue([
-        { id: 'seg-sel', translatedText: '使用者選擇的特定短語' },
-      ]);
+      const mockTranslateFn = vi.fn().mockImplementation(async (segments) =>
+        segments.map((segment: { id: string }) => ({
+          id: segment.id,
+          translatedText: '使用者選擇的特定短語',
+        })),
+      );
 
       const result = await adapter.translateSelection(range, document, {
         targetLanguage: 'zh-TW',
