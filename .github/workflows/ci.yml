@@ -22,7 +22,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-          cache: pnpm
       - name: Enable pnpm
         run: |
           corepack enable
@@ -41,7 +40,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-          cache: pnpm
       - name: Enable pnpm
         run: |
           corepack enable
@@ -64,7 +62,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
-          cache: pnpm
       - name: Enable pnpm
         run: |
           corepack enable
