@@ -224,9 +224,13 @@ describe('Tier 4: Real-World Application Scenarios E2E Suite', () => {
     logger.debug('Extraction successful', 'Targets:', extractRes.targets.length);
 
     globalThis.fetch = vi.fn().mockImplementation(async () => {
+      const content = extractRes.targets
+        .map((_, idx) => `[${idx}] 批次大文章段落翻譯結果 ${idx}`)
+        .join('\n');
+
       return {
         ok: true,
-        json: async () => ({ choices: [{ message: { content: '批次大文章段落翻譯結果' } }] }),
+        json: async () => ({ choices: [{ message: { content } }] }),
       };
     });
 
