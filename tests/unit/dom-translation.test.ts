@@ -60,6 +60,25 @@ describe('R3 DOM Translation Engine Unit Tests', () => {
       }
     });
 
+    it('extracts only a partial selection instead of the whole ancestor paragraph', () => {
+      const p = document.createElement('p');
+      p.innerHTML = 'Before <strong>selected words</strong> after';
+      document.body.appendChild(p);
+      const textNode = p.querySelector('strong')!.firstChild!;
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 'selected words'.length);
+
+      const result = extractFromSelection(range, document);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.targets[0].text).toContain('selected words');
+        expect(result.targets[0].text).not.toContain('Before');
+        expect(result.targets[0].text).not.toContain('after');
+        expect(result.targets[0].range).toBeInstanceOf(Range);
+      }
+    });
+
     it('returns error when selection is empty or collapsed', () => {
       const range = document.createRange(); // collapsed range
       const result = extractFromSelection(range, document);

@@ -17,7 +17,7 @@ import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
-import { parseIndexedTranslations } from './indexed-translation-parser';
+import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
 
 const logger = createLogger('OllamaProvider');
 
@@ -125,11 +125,22 @@ export class OllamaProvider implements TranslationProvider {
     }).then((r) => r.json as Record<string, any>);
 
     const generatedText = data.response || '';
-    const parsedTranslations = parseIndexedTranslations(generatedText, {
-      providerId: this.id,
-      providerLabel: 'Ollama',
-      expectedCount: request.segments.length,
-    });
+    const parsedTranslations = await parseIndexedTranslationsWithRepair(
+      generatedText,
+      { providerId: this.id, providerLabel: 'Ollama', expectedCount: request.segments.length },
+      async (malformedOutput) => {
+        logger.info('Ollama returned malformed indexed output; requesting one format repair');
+        const repairData = await httpTranslationFetch(this.id, {
+          url,
+          body: { model: this.model, prompt: buildIndexedRepairPrompt(malformedOutput, request.segments.length), stream: false },
+          signal: request.signal,
+          timeoutMs: 15000,
+          interpretStatus: (status, bodyText) =>
+            new NetworkError(`Ollama server error HTTP ${status}: ${bodyText.slice(0, 120)}`),
+        }).then((r) => r.json as Record<string, any>);
+        return repairData.response || '';
+      },
+    );
 
     const translatedSegments: TranslatedSegment[] = request.segments.map((seg, idx) => ({
       id: seg.id,

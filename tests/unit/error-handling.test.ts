@@ -8,6 +8,8 @@ import {
   ConfigurationError,
   QuotaExceededError,
 } from '../../src/core/domain/errors/translation-errors';
+import { toErrorPayload } from '../../src/core/domain/errors/error-payload';
+import { MessageErrorCode } from '../../src/core/contracts/messages';
 
 describe('Error Handling & Boundary Edge Cases', () => {
   beforeEach(() => {
@@ -43,6 +45,12 @@ describe('Error Handling & Boundary Edge Cases', () => {
 
     const quotaErr = new QuotaExceededError('Exceeded daily quota');
     expect(quotaErr).toBeInstanceOf(BaseError);
+  });
+
+  it('normalizes domain errors into stable payloads', () => {
+    expect(toErrorPayload(new NetworkError('timeout'))).toMatchObject({ code: MessageErrorCode.NETWORK_ERROR, retryable: true });
+    expect(toErrorPayload(new ProviderError('gemini-provider', 'bad output'))).toMatchObject({ code: MessageErrorCode.PROVIDER_ERROR, providerId: 'gemini-provider' });
+    expect(toErrorPayload(new ConfigurationError('bad config'))).toMatchObject({ code: MessageErrorCode.CONFIGURATION_ERROR, retryable: false });
   });
 
   it('handles provider failures without crashing translation execution pipeline', async () => {

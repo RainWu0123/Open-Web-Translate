@@ -26,6 +26,11 @@ export enum MessageErrorCode {
   TRANSLATION_FAILED = 'TRANSLATION_FAILED',
   ACTIVE_TAB_NOT_FOUND = 'ACTIVE_TAB_NOT_FOUND',
   CONTENT_SCRIPT_UNAVAILABLE = 'CONTENT_SCRIPT_UNAVAILABLE',
+  PROVIDER_ERROR = 'PROVIDER_ERROR',
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  CONFIGURATION_ERROR = 'CONFIGURATION_ERROR',
+  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
+  ABORTED = 'ABORTED',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
@@ -33,6 +38,8 @@ export interface ErrorPayload {
   code: MessageErrorCode | string;
   message: string;
   details?: unknown;
+  providerId?: string;
+  retryable?: boolean;
 }
 
 // ─── Settings ────────────────────────────────────────────────────

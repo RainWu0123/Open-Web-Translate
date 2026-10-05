@@ -16,6 +16,17 @@ import { restoreInlineTagsToHTML, type TagInfo } from '../extractor/tag-preserva
 
 export type DisplayMode = 'bilingual' | 'translation-first' | 'immersive';
 
+function usesContainedTranslationHost(originalEl: Element): boolean {
+  const tag = originalEl.tagName.toLowerCase();
+  return tag === 'td' || tag === 'th' || tag === 'li';
+}
+
+function findContainedHost(originalEl: Element, className: string): HTMLElement | null {
+  return (Array.from(originalEl.children).find((child) =>
+    child.classList.contains(className),
+  ) as HTMLElement | undefined) ?? null;
+}
+
 /** Ensure global OWT document styles are injected for source element visual modes */
 function ensureGlobalOWTStyles(doc: Document = document): void {
   if (doc.getElementById('owt-global-renderer-styles')) return;
@@ -48,19 +59,21 @@ export function renderBilingualBlock(
   const doc = originalEl.ownerDocument || document;
   ensureGlobalOWTStyles(doc);
 
-  // Apply source element classes based on display mode
+  const containedHost = usesContainedTranslationHost(originalEl);
+
   originalEl.classList.remove('owt-source-muted', 'owt-source-hidden');
-  if (displayMode === 'translation-first') {
+  if (!containedHost && displayMode === 'translation-first') {
     originalEl.classList.add('owt-source-muted');
-  } else if (displayMode === 'immersive') {
+  } else if (!containedHost && displayMode === 'immersive') {
     originalEl.classList.add('owt-source-hidden');
   }
 
-  // Check if adjacent host already exists for idempotency
-  let host: HTMLElement | null = null;
-  const nextSib = originalEl.nextElementSibling;
-  if (nextSib && nextSib.classList.contains('owt-bilingual-host')) {
-    host = nextSib as HTMLElement;
+  let host: HTMLElement | null = containedHost
+    ? findContainedHost(originalEl, 'owt-bilingual-host')
+    : null;
+  if (!containedHost) {
+    const nextSib = originalEl.nextElementSibling;
+    if (nextSib && nextSib.classList.contains('owt-bilingual-host')) host = nextSib as HTMLElement;
   }
 
   if (!host) {
@@ -86,7 +99,9 @@ export function renderBilingualBlock(
       // ignore
     }
 
-    if (originalEl.insertAdjacentElement) {
+    if (containedHost) {
+      originalEl.appendChild(host);
+    } else if (originalEl.insertAdjacentElement) {
       originalEl.insertAdjacentElement('afterend', host);
     } else {
       originalEl.appendChild(host);
@@ -143,10 +158,15 @@ export function renderBilingualBlock(
       cursor: pointer;
       transition: background 0.2s, opacity 0.2s;
     }
-    .owt-toggle-btn:hover, .owt-toggle-btn:focus {
+    .owt-toggle-btn:hover {
       background: rgba(128, 128, 128, 0.18);
       opacity: 1;
-      outline: none;
+    }
+    .owt-toggle-btn:focus-visible {
+      background: rgba(128, 128, 128, 0.18);
+      opacity: 1;
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
     }
   `;
   shadow.appendChild(style);
@@ -166,7 +186,7 @@ export function renderBilingualBlock(
   block.appendChild(trans);
 
   // In immersive mode, add accessible button to toggle original text
-  if (displayMode === 'immersive') {
+  if (displayMode === 'immersive' && !containedHost) {
     const toggleBtn = doc.createElement('button');
     toggleBtn.type = 'button';
     toggleBtn.className = 'owt-toggle-btn';
@@ -204,20 +224,28 @@ export function renderInlineHost(
   translatedText: string,
   _displayMode: DisplayMode = 'bilingual',
   tagMap?: Map<number, TagInfo>,
+  range?: Range,
 ): HTMLElement {
   const doc = originalEl.ownerDocument || document;
   ensureGlobalOWTStyles(doc);
 
-  let host: HTMLElement | null = null;
-  const nextSib = originalEl.nextElementSibling;
-  if (nextSib && nextSib.classList.contains('owt-inline-host')) {
-    host = nextSib as HTMLElement;
-  }
+  let host: HTMLElement | null = (Array.from(
+    doc.querySelectorAll('.owt-inline-host'),
+  ).find((candidate) => candidate.getAttribute('data-owt-seg-id') === segmentId) as HTMLElement | undefined) ?? null;
 
   if (!host) {
     host = doc.createElement('span');
     host.className = 'owt-inline-host';
-    if (originalEl.insertAdjacentElement) {
+    if (range) {
+      try {
+        const insertionRange = range.cloneRange();
+        insertionRange.collapse(false);
+        insertionRange.insertNode(host);
+      } catch {
+        if (originalEl.insertAdjacentElement) originalEl.insertAdjacentElement('afterend', host);
+        else originalEl.appendChild(host);
+      }
+    } else if (originalEl.insertAdjacentElement) {
       originalEl.insertAdjacentElement('afterend', host);
     } else {
       originalEl.appendChild(host);

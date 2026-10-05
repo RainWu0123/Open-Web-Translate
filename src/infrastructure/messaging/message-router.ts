@@ -11,6 +11,7 @@ import type {
   ResponseMap,
 } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
+import { toErrorPayload } from '@/core/domain/errors/error-payload';
 
 const logger = createLogger('MessageRouter');
 
@@ -46,7 +47,7 @@ class MessageRouterImpl {
         .then((payload) => sendResponse({ ok: true, payload }))
         .catch((err: Error) => {
           logger.error(`Error in message handler [${message.type}]`, err);
-          sendResponse({ ok: false, error: err.message });
+          sendResponse({ ok: false, error: toErrorPayload(err) });
         });
 
       return true; // Synchronously return true to keep message port open in Chrome & Firefox
@@ -62,7 +63,17 @@ class MessageRouterImpl {
     try {
       const raw: any = await browser.runtime.sendMessage(message);
       if (raw && raw.ok) return raw.payload as ResponseMap[T];
-      throw new Error(raw?.error ?? 'Unknown messaging error');
+      const payload = raw?.error;
+      if (payload && typeof payload === 'object') {
+        const transportError = new Error(payload.message || 'Unknown messaging error') as Error & {
+          code?: string; providerId?: string; retryable?: boolean;
+        };
+        transportError.code = payload.code;
+        transportError.providerId = payload.providerId;
+        transportError.retryable = payload.retryable;
+        throw transportError;
+      }
+      throw new Error(typeof payload === 'string' ? payload : 'Unknown messaging error');
     } catch (err: any) {
       logger.error(`Failed to send message [${message.type}]`, err);
       throw err;

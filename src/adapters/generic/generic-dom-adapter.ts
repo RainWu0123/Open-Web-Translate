@@ -24,8 +24,116 @@ import {
   type DisplayMode,
 } from '@/features/page-translation/renderer/shadow-renderer';
 import { createLogger } from '@/shared/logger';
+import { PAYLOAD_LIMITS } from '@/core/contracts/messages';
 
 const logger = createLogger('GenericDomAdapter');
+
+type RequestChunk = { id: string; text: string; targetId: string; chunkIndex: number };
+
+function splitTextForTranslation(text: string, maxChars = PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT): string[] {
+  const normalized = text.trim();
+  if (normalized.length <= maxChars) return [normalized];
+
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset < normalized.length) {
+    if (normalized.length - offset <= maxChars) {
+      chunks.push(normalized.slice(offset).trim());
+      break;
+    }
+
+    const windowEnd = offset + maxChars;
+    const windowText = normalized.slice(offset, windowEnd);
+    const minimumUsefulSplit = Math.floor(maxChars * 0.55);
+    let splitAt = -1;
+    for (let index = windowText.length - 1; index >= minimumUsefulSplit; index--) {
+      if (/\s|[。！？.!?;；]/.test(windowText[index])) {
+        splitAt = offset + index + 1;
+        break;
+      }
+    }
+    if (splitAt <= offset) splitAt = windowEnd;
+
+    const candidate = normalized.slice(offset, splitAt);
+    const lastOpenAngle = candidate.lastIndexOf('<');
+    const lastCloseAngle = candidate.lastIndexOf('>');
+    if (lastOpenAngle > lastCloseAngle && lastOpenAngle > 0) splitAt = offset + lastOpenAngle;
+    if (splitAt <= offset) splitAt = windowEnd;
+
+    chunks.push(normalized.slice(offset, splitAt).trim());
+    offset = splitAt;
+    while (offset < normalized.length && /\s/.test(normalized[offset])) offset++;
+  }
+  return chunks.filter(Boolean);
+}
+
+function buildRequestChunks(targets: ExtractedTarget[]): {
+  chunks: RequestChunk[];
+  renderTagMapByTarget: Map<string, ExtractedTarget['tagMap']>;
+} {
+  const chunks: RequestChunk[] = [];
+  const renderTagMapByTarget = new Map<string, ExtractedTarget['tagMap']>();
+  for (const target of targets) {
+    const sourceText =
+      target.text.length > PAYLOAD_LIMITS.MAX_CHARS_PER_SEGMENT && target.tagMap?.size
+        ? (target.element.textContent || target.text).trim()
+        : target.text;
+    renderTagMapByTarget.set(target.id, sourceText === target.text ? target.tagMap : undefined);
+    const parts = splitTextForTranslation(sourceText);
+    parts.forEach((part, chunkIndex) => chunks.push({
+      id: parts.length === 1 ? target.id : `${target.id}::chunk-${chunkIndex}`,
+      text: part,
+      targetId: target.id,
+      chunkIndex,
+    }));
+  }
+  return { chunks, renderTagMapByTarget };
+}
+
+function partitionChunks(chunks: RequestChunk[]): RequestChunk[][] {
+  const batches: RequestChunk[][] = [];
+  let current: RequestChunk[] = [];
+  let currentChars = 0;
+  for (const chunk of chunks) {
+    const overflow =
+      current.length >= PAYLOAD_LIMITS.MAX_TARGETS ||
+      (current.length > 0 && currentChars + chunk.text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS);
+    if (overflow) {
+      batches.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(chunk);
+    currentChars += chunk.text.length;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
+async function translateExtractedTargets(
+  targets: ExtractedTarget[],
+  translateFn: TranslationExecutionOptions['translateFn'],
+): Promise<{ translations: Map<string, string>; renderTagMapByTarget: Map<string, ExtractedTarget['tagMap']> }> {
+  const { chunks, renderTagMapByTarget } = buildRequestChunks(targets);
+  const translatedChunks = new Map<string, string>();
+
+  for (const batch of partitionChunks(chunks)) {
+    const response = await translateFn(batch.map(({ id, text }) => ({ id, text })));
+    const responseMap = new Map(response.map((item) => [item.id, item.translatedText]));
+    for (const chunk of batch) {
+      const translated = responseMap.get(chunk.id);
+      if (!translated?.trim()) throw new Error('翻譯服務未回傳完整內容，請重試。');
+      translatedChunks.set(chunk.id, translated);
+    }
+  }
+
+  const translations = new Map<string, string>();
+  for (const target of targets) {
+    const targetChunks = chunks.filter((chunk) => chunk.targetId === target.id).sort((a, b) => a.chunkIndex - b.chunkIndex);
+    translations.set(target.id, targetChunks.map((chunk) => translatedChunks.get(chunk.id)!).join(' ').trim());
+  }
+  return { translations, renderTagMapByTarget };
+}
 
 export interface TranslationExecutionOptions {
   targetLanguage: string;
@@ -99,24 +207,18 @@ export class GenericDomAdapter implements SiteAdapter {
     }
 
     const { targets } = extractResult;
-
-    const segments = targets.map((t) => ({ id: t.id, text: t.text }));
-    const translatedSegments = await options.translateFn(segments);
-    const translationMap = new Map(translatedSegments.map((s) => [s.id, s.translatedText]));
-    if (targets.some(target => !translationMap.get(target.id)?.trim())) {
-      throw new Error('翻譯服務未回傳完整內容，請重試。');
-    }
+    const { translations, renderTagMapByTarget } = await translateExtractedTargets(targets, options.translateFn);
     removeAllBilingualBlocks(doc);
 
     targets.forEach((target) => {
-      const translatedText = translationMap.get(target.id)!;
+      const translatedText = translations.get(target.id)!;
       renderBilingualBlock(
         target.element,
         target.id,
         target.text,
         translatedText,
         options.displayMode || 'bilingual',
-        target.tagMap,
+        renderTagMapByTarget.get(target.id),
       );
     });
 
@@ -145,8 +247,8 @@ export class GenericDomAdapter implements SiteAdapter {
     }
 
     const target = extractResult.targets[0];
-    const translatedSegments = await options.translateFn([{ id: target.id, text: target.text }]);
-    const translatedText = translatedSegments[0]?.translatedText;
+    const { translations, renderTagMapByTarget } = await translateExtractedTargets([target], options.translateFn);
+    const translatedText = translations.get(target.id);
     if (!translatedText?.trim()) throw new Error('翻譯服務未回傳內容，請重試。');
 
     const host = target.isInline
@@ -156,7 +258,8 @@ export class GenericDomAdapter implements SiteAdapter {
           target.text,
           translatedText,
           options.displayMode || 'bilingual',
-          target.tagMap,
+          renderTagMapByTarget.get(target.id),
+          target.range,
         )
       : renderBilingualBlock(
           target.element,
