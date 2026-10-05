@@ -105,7 +105,7 @@ export class GeminiProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    const settings = await SettingsStorage.get();
+    const settings = await SettingsStorage.getInternal();
     const apiKey = settings.geminiApiKey?.trim();
     const rawModel = settings.geminiModel?.trim() || DEFAULT_MODEL_ID;
     const userInstructions = settings.aiTranslationInstructions?.trim().slice(0, 2000) || '';
