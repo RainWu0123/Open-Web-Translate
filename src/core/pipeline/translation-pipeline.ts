@@ -1,5 +1,6 @@
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { getProvider } from '@/infrastructure/providers';
+import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-identity';
 import { CacheRepository } from '@/infrastructure/storage/repositories/cache-repository';
 import { createLogger } from '@/shared/logger';
 import type { ExtensionSettings } from '@/core/contracts/messages';
@@ -60,16 +61,9 @@ export class TranslationPipeline {
     const resultsMap = new Map<string, string>();
     const segmentsToTranslate: Array<{ id: string; text: string }> = [];
 
-    const providerFingerprint =
-      activeProviderId === 'gemini-provider'
-        ? `v2:${settings.geminiModel?.trim() || 'gemini-2.0-flash'}:${settings.aiTranslationInstructions?.trim() || ''}`
-        : activeProviderId === 'ollama-provider'
-        ? `v2:${settings.ollamaEndpoint?.trim() || 'default'}:${settings.ollamaModel?.trim() || 'llama3'}:${settings.aiTranslationInstructions?.trim() || ''}`
-        : activeProviderId === 'local-http-provider'
-        ? `v2:${settings.localHttpEndpoint?.trim() || 'default'}:${settings.localHttpModel?.trim() || 'local-model'}:${settings.aiTranslationInstructions?.trim() || ''}`
-        : activeProviderId === 'google-provider' || activeProviderId === 'google'
-        ? 'free-v2-subtitle'
-        : 'default';
+    const cacheIdentity = getProviderCacheIdentity(activeProviderId, settings);
+    const cacheProviderId = cacheIdentity.providerId;
+    const providerFingerprint = cacheIdentity.fingerprint;
 
     // 1. Concurrent cache lookups (were N sequential IndexedDB roundtrips)
     const cacheHits = await Promise.all(
@@ -79,7 +73,7 @@ export class TranslationPipeline {
             sourceText: seg.text,
             sourceLanguage: msg.sourceLanguage,
             targetLanguage: msg.targetLanguage,
-            providerId: activeProviderId,
+            providerId: cacheProviderId,
             providerFingerprint,
           })
           .then((cached) => ({ seg, cached })),
@@ -180,7 +174,7 @@ export class TranslationPipeline {
             translatedText: entry.translatedText,
             sourceLanguage: msg.sourceLanguage,
             targetLanguage: msg.targetLanguage,
-            providerId: activeProviderId,
+            providerId: cacheProviderId,
             providerFingerprint,
           }),
         ),
