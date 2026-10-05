@@ -4,7 +4,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('@/infrastructure/storage/extension-storage/settings-storage', () => ({
   SettingsStorage: {
     watch: vi.fn(),
-    get: vi.fn().mockResolvedValue({
+    getInternal: vi.fn().mockResolvedValue({
       activeProviderId: 'google-provider',
       defaultTranslationMode: 'fast',
     }),
