@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
 import { ModelRegistry, REGISTERED_PROVIDERS } from '@/infrastructure/providers/model-registry';
 import { OllamaProvider } from '@/infrastructure/providers/ollama-provider';
+import { CustomHttpProvider } from '@/infrastructure/providers/custom-http-provider';
 import { ChromeAiProvider, ChromeBuiltInAIProvider } from '@/infrastructure/providers/chrome-builtin-ai-provider';
 import { removeAllBilingualBlocks } from '@/features/page-translation/renderer/shadow-renderer';
 
@@ -135,6 +136,23 @@ describe('Generic Web Page DOM Translation Adapter & Model Registry', () => {
       expect(provider).toBeInstanceOf(OllamaProvider);
       expect(provider.isLocal).toBe(true);
       expect(provider.id).toBe('ollama-provider');
+    });
+
+    it('2.2 registers Custom HTTP as an explicit remote provider', () => {
+      expect(ModelRegistry.isRegistered('custom-http-provider')).toBe(true);
+      expect(ModelRegistry.isRegistered('custom-http')).toBe(true);
+
+      const reg = ModelRegistry.getProviderRegistration('custom-http-provider');
+      expect(reg?.displayName).toBe('Custom HTTP API');
+      expect(reg?.isLocal).toBe(false);
+
+      const provider = ModelRegistry.createProvider('custom-http', {
+        customHttpEndpoint: 'https://api.example.com',
+        customHttpModel: 'test-model',
+      });
+      expect(provider).toBeInstanceOf(CustomHttpProvider);
+      expect(provider.isLocal).toBe(false);
+      expect(provider.id).toBe('custom-http-provider');
     });
 
     it('2.2 registers ChromeAiProvider in ModelRegistry with local built-in AI capabilities', () => {
