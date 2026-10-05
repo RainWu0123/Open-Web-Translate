@@ -6,7 +6,7 @@
  * Provider (ChromeAiProvider).
  */
 import type { TranslationProvider } from '@/core/contracts/provider';
-import type { ExtensionSettings } from '@/core/contracts/messages';
+import type { InternalExtensionSettings } from '@/core/contracts/messages';
 import {
   VERIFIED_MODEL_REGISTRY,
   validateModelId as validateGeminiModelId,
@@ -122,7 +122,7 @@ export class ModelRegistry {
   /**
    * Instantiate provider from registry
    */
-  static createProvider(providerId: string, settings?: Partial<ExtensionSettings>): TranslationProvider {
+  static createProvider(providerId: string, settings?: Partial<InternalExtensionSettings>): TranslationProvider {
     const resolved = this.resolveProviderId(providerId);
     const reg = this.providerMap.get(resolved);
 
