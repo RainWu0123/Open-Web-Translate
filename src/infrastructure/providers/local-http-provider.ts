@@ -16,6 +16,7 @@ import {
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
+import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
 
 const logger = createLogger('LocalHttpProvider');
 
@@ -54,18 +55,16 @@ export class LocalHttpProvider implements TranslationProvider {
       return { isValid: false, errors: ['Configuration must be an object'] };
     }
     const cfg = config as LocalHttpConfig;
-    if (cfg.endpoint !== undefined && typeof cfg.endpoint === 'string' && cfg.endpoint.trim() === '') {
-      return { isValid: false, errors: ['Endpoint URL cannot be empty'] };
+    const endpoint = cfg.endpoint ?? 'http://127.0.0.1:8080';
+    const inspection = inspectHttpEndpoint(endpoint);
+    if (!inspection.isValid) {
+      return { isValid: false, errors: [inspection.error || 'Invalid Local HTTP endpoint'] };
     }
-    if (cfg.endpoint) {
-      try {
-        const parsed = new URL(cfg.endpoint);
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          return { isValid: false, errors: ['Invalid endpoint URL scheme'] };
-        }
-      } catch {
-        return { isValid: false, errors: ['Invalid endpoint URL format'] };
-      }
+    if (!inspection.isLocal) {
+      return {
+        isValid: false,
+        errors: ['Local HTTP AI only accepts loopback endpoints (localhost, 127.0.0.0/8, or ::1)'],
+      };
     }
     return { isValid: true };
   }
@@ -85,7 +84,8 @@ export class LocalHttpProvider implements TranslationProvider {
       };
     }
 
-    const url = `${this.endpoint.replace(/\/+$/, '')}/v1/chat/completions`;
+    const endpoint = assertLocalHttpEndpoint(this.endpoint, 'Local HTTP AI');
+    const url = `${endpoint}/v1/chat/completions`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };

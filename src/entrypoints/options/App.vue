@@ -440,8 +440,8 @@
                       <option value="google-provider">Google Translate (Free)</option>
                       <option value="gemini-provider">Google Gemini API</option>
                       <option value="deepl-provider">DeepL Translate API</option>
-                      <option value="ollama-provider">Local Ollama AI</option>
-                      <option value="local-http-provider">Local Custom HTTP AI</option>
+                      <option value="ollama-provider">Local Ollama AI (loopback only)</option>
+                      <option value="local-http-provider">Local HTTP AI (loopback only)</option>
                       <option value="chrome-builtin-ai-provider" disabled>Chrome Built-in AI（暫不提供）</option>
                     </select>
                   </div>
@@ -505,14 +505,14 @@
 
                 <div v-if="settings.activeProviderId === 'ollama-provider'" class="stitch-row vertical-row">
                   <label for="ollama-url" class="row-title">Ollama 位址</label>
-                  <p class="row-desc">請先啟動本機 Ollama，並下載要使用的模型。</p>
+                  <p class="row-desc">僅允許 localhost、127.0.0.0/8 或 ::1。請先啟動本機 Ollama，並下載要使用的模型。</p>
                   <input id="ollama-url" class="stitch-input" type="url" v-model="settings.ollamaEndpoint" @change="save" />
                   <label for="ollama-model" class="row-title">模型名稱</label>
                   <input id="ollama-model" class="stitch-input" v-model="settings.ollamaModel" @change="save" />
                 </div>
                 <div v-if="settings.activeProviderId === 'local-http-provider'" class="stitch-row vertical-row">
                   <label for="http-url" class="row-title">本機翻譯服務位址</label>
-                  <p class="row-desc">需使用相容 OpenAI 的本機服務。填入根位址，擴充功能會呼叫 /v1/chat/completions。</p>
+                  <p class="row-desc">僅允許 localhost、127.0.0.0/8 或 ::1 的相容 OpenAI 本機服務。填入根位址，擴充功能會呼叫 /v1/chat/completions。</p>
                   <input id="http-url" class="stitch-input" type="url" v-model="settings.localHttpEndpoint" @change="save" />
                   <label for="http-model" class="row-title">模型名稱</label>
                   <input id="http-model" class="stitch-input" v-model="settings.localHttpModel" @change="save" />

@@ -16,6 +16,7 @@ import {
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
+import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
 
 const logger = createLogger('OllamaProvider');
 
@@ -52,18 +53,16 @@ export class OllamaProvider implements TranslationProvider {
       return { isValid: false, errors: ['Configuration must be an object'] };
     }
     const cfg = config as OllamaConfig;
-    if (cfg.endpoint !== undefined && typeof cfg.endpoint === 'string' && cfg.endpoint.trim() === '') {
-      return { isValid: false, errors: ['Endpoint URL cannot be empty'] };
+    const endpoint = cfg.endpoint ?? 'http://localhost:11434';
+    const inspection = inspectHttpEndpoint(endpoint);
+    if (!inspection.isValid) {
+      return { isValid: false, errors: [inspection.error || 'Invalid Ollama endpoint'] };
     }
-    if (cfg.endpoint) {
-      try {
-        const parsed = new URL(cfg.endpoint);
-        if (!['http:', 'https:'].includes(parsed.protocol)) {
-          return { isValid: false, errors: ['Invalid endpoint URL scheme'] };
-        }
-      } catch {
-        return { isValid: false, errors: ['Invalid endpoint URL format'] };
-      }
+    if (!inspection.isLocal) {
+      return {
+        isValid: false,
+        errors: ['Ollama Local AI only accepts loopback endpoints (localhost, 127.0.0.0/8, or ::1)'],
+      };
     }
     return { isValid: true };
   }
@@ -110,7 +109,8 @@ export class OllamaProvider implements TranslationProvider {
     }
 
     const prompt = this.buildPrompt(request);
-    const url = `${this.endpoint.replace(/\/+$/, '')}/api/generate`;
+    const endpoint = assertLocalHttpEndpoint(this.endpoint, 'Ollama Local AI');
+    const url = `${endpoint}/api/generate`;
 
     logger.debug('Sending Ollama generate request', { endpoint: url, model: this.model, segmentCount: request.segments.length });
 
