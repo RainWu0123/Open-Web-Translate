@@ -52,7 +52,7 @@ export class AiLearningEngine {
 
     const settings = customSettings || (await SettingsStorage.get());
     const isAiConfigured =
-      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey || settings.geminiApiKey)) ||
+      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey)) ||
       settings.activeProviderId === 'ollama-provider' ||
       settings.activeProviderId === 'local-http-provider' ||
       settings.activeProviderId === 'chrome-builtin-ai-provider';
@@ -89,7 +89,7 @@ export class AiLearningEngine {
 
     const settings = customSettings || (await SettingsStorage.get());
     const isAiConfigured =
-      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey || settings.geminiApiKey)) ||
+      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey)) ||
       settings.activeProviderId === 'ollama-provider' ||
       settings.activeProviderId === 'local-http-provider' ||
       settings.activeProviderId === 'chrome-builtin-ai-provider';

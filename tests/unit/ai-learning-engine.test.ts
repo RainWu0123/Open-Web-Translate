@@ -85,7 +85,6 @@ describe('AiLearningEngine Unit Tests', () => {
       {
         activeProviderId: 'gemini-provider',
         hasGeminiApiKey: true,
-        geminiApiKey: 'AIzaSyFakeKey',
         enabled: true,
         sourceLanguage: 'en',
         targetLanguage: 'zh-Hant',
@@ -128,7 +127,6 @@ describe('AiLearningEngine Unit Tests', () => {
       {
         activeProviderId: 'gemini-provider',
         hasGeminiApiKey: true,
-        geminiApiKey: 'AIzaSyFakeKey',
         enabled: true,
         sourceLanguage: 'en',
         targetLanguage: 'zh-Hant',

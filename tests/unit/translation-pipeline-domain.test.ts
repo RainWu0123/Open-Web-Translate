@@ -3,7 +3,7 @@ import { TranslationPipeline } from '@/core/pipeline/translation-pipeline';
 
 vi.mock('@/infrastructure/storage/extension-storage/settings-storage', () => ({
   SettingsStorage: {
-    get: vi.fn().mockResolvedValue({
+    getInternal: vi.fn().mockResolvedValue({
       activeProviderId: 'mock-provider',
       defaultTranslationMode: 'fast',
     }),

@@ -1,4 +1,4 @@
-import type { ExtensionSettings } from '@/core/contracts/messages';
+import type { InternalExtensionSettings } from '@/core/contracts/messages';
 import type { TranslationProvider } from '@/core/contracts/provider';
 import { GoogleTranslateProvider } from './google-provider';
 import { DeepLProvider } from './deepl-provider';
@@ -21,6 +21,6 @@ export * from './model-registry';
 /**
  * Factory function to retrieve active provider based on ID and settings.
  */
-export function getProvider(providerId: string, settings?: Partial<ExtensionSettings>): TranslationProvider {
+export function getProvider(providerId: string, settings?: Partial<InternalExtensionSettings>): TranslationProvider {
   return ModelRegistry.createProvider(providerId, settings);
 }

@@ -68,7 +68,7 @@ export class DeepLProvider implements TranslationProvider {
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    const settings = await SettingsStorage.get();
+    const settings = await SettingsStorage.getInternal();
     const apiKey = settings.deeplApiKey?.trim();
     const isPro = Boolean(settings.deeplApiIsPro);
 

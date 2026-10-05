@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/infrastructure/storage/extension-storage/settings-storage', () => ({
   SettingsStorage: {
-    get: vi.fn().mockResolvedValue({
+    getInternal: vi.fn().mockResolvedValue({
       activeProviderId: 'test-provider',
       defaultTranslationMode: 'fast',
     }),

@@ -45,13 +45,11 @@ export interface ExtensionSettings {
   enabled: boolean;
   defaultTranslationMode: 'fast' | 'quality';
   activeProviderId: string;
-  geminiApiKey?: string;
   geminiApiKeyMasked?: string;
   hasGeminiApiKey?: boolean;
   geminiModel?: string;
   /** User-authored style/terminology guidance appended to prompt-aware AI providers. */
   aiTranslationInstructions?: string;
-  deeplApiKey?: string;
   deeplApiKeyMasked?: string;
   hasDeeplApiKey?: boolean;
   deeplApiIsPro?: boolean;
@@ -66,12 +64,22 @@ export interface ExtensionSettings {
   ollamaModel?: string;
   ollamaTemperature?: number;
   localHttpEndpoint?: string;
-  localHttpApiKey?: string;
+  localHttpApiKeyMasked?: string;
+  hasLocalHttpApiKey?: boolean;
   localHttpModel?: string;
   smartBlurSubtitles?: boolean;
   /** Netflix subtitle card settings; persisted inside the single settings store. */
   netflix?: NetflixConfig;
 }
+
+export interface SecretSettings {
+  geminiApiKey?: string;
+  deeplApiKey?: string;
+  localHttpApiKey?: string;
+}
+
+export type InternalExtensionSettings = ExtensionSettings & SecretSettings;
+export type ApiKeyProvider = 'gemini' | 'deepl' | 'local-http';
 
 export interface NetflixConfig {
   enabled: boolean;
@@ -127,6 +135,17 @@ export interface GetSettingsMessage {
 export interface UpdateSettingsMessage {
   type: 'UPDATE_SETTINGS';
   settings: Partial<ExtensionSettings>;
+}
+
+export interface SetApiKeyMessage {
+  type: 'SET_API_KEY';
+  provider: ApiKeyProvider;
+  apiKey: string;
+}
+
+export interface ClearApiKeyMessage {
+  type: 'CLEAR_API_KEY';
+  provider: ApiKeyProvider;
 }
 
 export interface TranslateActiveTabMessage {
@@ -250,6 +269,8 @@ export type BackgroundMessage =
   | TranslateRequestMessage
   | GetSettingsMessage
   | UpdateSettingsMessage
+  | SetApiKeyMessage
+  | ClearApiKeyMessage
   | TranslateActiveTabMessage
   | RestoreActiveTabMessage
   | ExecutePageTranslationMessage
@@ -304,6 +325,8 @@ export type ResponseMap = {
   TRANSLATE_REQUEST: TranslateResponsePayload;
   GET_SETTINGS: ExtensionSettings;
   UPDATE_SETTINGS: boolean;
+  SET_API_KEY: boolean;
+  CLEAR_API_KEY: boolean;
   TRANSLATE_ACTIVE_TAB: TranslateActiveTabResponsePayload;
   RESTORE_ACTIVE_TAB: RestoreActiveTabResponsePayload;
   EXECUTE_PAGE_TRANSLATION: ExecutePageTranslationResponsePayload;

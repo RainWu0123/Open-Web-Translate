@@ -517,7 +517,14 @@
                   <label for="http-model" class="row-title">模型名稱</label>
                   <input id="http-model" class="stitch-input" v-model="settings.localHttpModel" @change="save" />
                   <label for="http-key" class="row-title">服務金鑰（選填）</label>
-                  <input id="http-key" class="stitch-input" type="password" v-model="settings.localHttpApiKey" @change="save" />
+                  <p class="row-desc">目前狀態：{{ settings.hasLocalHttpApiKey ? settings.localHttpApiKeyMasked : '未設定' }}</p>
+                  <div class="input-group">
+                    <input id="http-key" class="stitch-input" type="password" v-model="localHttpKeyInput" placeholder="貼上服務金鑰" />
+                    <button class="btn-stitch-accent" @click="saveLocalHttpKey(localHttpKeyInput)">
+                      {{ saveLocalHttpKeyStatus === 'success' ? '已儲存 ✓' : saveLocalHttpKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
+                    <button class="btn-stitch-secondary" @click="clearLocalHttpKey" v-if="settings.hasLocalHttpApiKey">清除</button>
+                  </div>
                 </div>
                 <div v-if="settings.activeProviderId === 'deepl-provider'" class="stitch-row">
                   <label for="deepl-plan" class="row-title">DeepL API 方案</label>
@@ -687,16 +694,19 @@ const mainCanvasRef = ref<HTMLElement | null>(null);
 
 const geminiKeyInput = ref('');
 const deeplKeyInput = ref('');
+const localHttpKeyInput = ref('');
 const testingProvider = ref(false);
 const providerTestResult = ref('');
 const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
+const saveLocalHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 
 const settings = ref({
   ollamaEndpoint: 'http://localhost:11434',
   ollamaModel: 'llama3',
   localHttpEndpoint: 'http://localhost:8080',
-  localHttpApiKey: '',
+  hasLocalHttpApiKey: false,
+  localHttpApiKeyMasked: '',
   localHttpModel: 'local-model',
   enabled: true,
   sourceLanguage: 'auto',
@@ -935,7 +945,8 @@ async function loadSettings() {
       settings.value.ollamaEndpoint = s.ollamaEndpoint || 'http://localhost:11434';
       settings.value.ollamaModel = s.ollamaModel || 'llama3';
       settings.value.localHttpEndpoint = s.localHttpEndpoint || 'http://localhost:8080';
-      settings.value.localHttpApiKey = s.localHttpApiKey || '';
+      settings.value.hasLocalHttpApiKey = !!s.hasLocalHttpApiKey;
+      settings.value.localHttpApiKeyMasked = s.localHttpApiKeyMasked || '';
       settings.value.localHttpModel = s.localHttpModel || 'local-model';
       settings.value.enabled = s.enabled ?? true;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
@@ -1013,7 +1024,7 @@ async function saveApiKey(key: string) {
   try {
     const trimmed = (key || '').trim();
     if (!trimmed) return;
-    await SettingsStorage.saveGeminiApiKey(trimmed);
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'gemini', apiKey: trimmed });
     settings.value.hasGeminiApiKey = true;
     settings.value.geminiApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
     geminiKeyInput.value = '';
@@ -1030,7 +1041,7 @@ async function saveApiKey(key: string) {
 
 async function clearApiKey() {
   try {
-    await SettingsStorage.clearGeminiApiKey();
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'gemini' });
     settings.value.hasGeminiApiKey = false;
     settings.value.geminiApiKeyMasked = '';
     await loadSettings();
@@ -1043,7 +1054,7 @@ async function saveDeeplKey(key: string) {
   try {
     const trimmed = (key || '').trim();
     if (!trimmed) return;
-    await SettingsStorage.saveDeeplApiKey(trimmed);
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'deepl', apiKey: trimmed });
     settings.value.hasDeeplApiKey = true;
     settings.value.deeplApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
     deeplKeyInput.value = '';
@@ -1060,12 +1071,42 @@ async function saveDeeplKey(key: string) {
 
 async function clearDeeplKey() {
   try {
-    await SettingsStorage.clearDeeplApiKey();
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'deepl' });
     settings.value.hasDeeplApiKey = false;
     settings.value.deeplApiKeyMasked = '';
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear DeepL key', e);
+  }
+}
+
+async function saveLocalHttpKey(key: string) {
+  try {
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'local-http', apiKey: trimmed });
+    settings.value.hasLocalHttpApiKey = true;
+    settings.value.localHttpApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
+    localHttpKeyInput.value = '';
+    saveLocalHttpKeyStatus.value = 'success';
+    setTimeout(() => {
+      saveLocalHttpKeyStatus.value = 'idle';
+    }, 2500);
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to save Local HTTP key', e);
+    saveLocalHttpKeyStatus.value = 'error';
+  }
+}
+
+async function clearLocalHttpKey() {
+  try {
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'local-http' });
+    settings.value.hasLocalHttpApiKey = false;
+    settings.value.localHttpApiKeyMasked = '';
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to clear Local HTTP key', e);
   }
 }
 

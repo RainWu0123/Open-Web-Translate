@@ -3,7 +3,7 @@ import { getProvider } from '@/infrastructure/providers';
 import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-identity';
 import { CacheRepository, sha256 } from '@/infrastructure/storage/repositories/cache-repository';
 import { createLogger } from '@/shared/logger';
-import type { ExtensionSettings } from '@/core/contracts/messages';
+import type { InternalExtensionSettings } from '@/core/contracts/messages';
 
 const logger = createLogger('TranslationPipeline');
 
@@ -33,7 +33,7 @@ export class TranslationPipeline {
    * Settings cache: subtitle mode calls translate() on every caption, and
    * storage reads dominated latency. Invalidated by SettingsStorage.onChange.
    */
-  private cachedSettings: ExtensionSettings | null = null;
+  private cachedSettings: InternalExtensionSettings | null = null;
   private settingsCacheReady = false;
 
   constructor() {
@@ -46,9 +46,9 @@ export class TranslationPipeline {
     }
   }
 
-  private async getSettings(): Promise<ExtensionSettings> {
+  private async getSettings(): Promise<InternalExtensionSettings> {
     if (this.settingsCacheReady && this.cachedSettings) return this.cachedSettings;
-    this.cachedSettings = await SettingsStorage.get();
+    this.cachedSettings = await SettingsStorage.getInternal();
     this.settingsCacheReady = true;
     return this.cachedSettings;
   }

@@ -46,21 +46,25 @@ export default defineBackground(() => {
   });
 
   // ── SET_API_KEY ────────────────────────────────────────────────
-  messageRouter.registerHandler('SET_API_KEY' as any, async (msg: any) => {
+  messageRouter.registerHandler('SET_API_KEY', async (msg) => {
     if (msg.provider === 'gemini') {
       await SettingsStorage.saveGeminiApiKey(msg.apiKey);
     } else if (msg.provider === 'deepl') {
       await SettingsStorage.saveDeeplApiKey(msg.apiKey);
+    } else if (msg.provider === 'local-http') {
+      await SettingsStorage.saveLocalHttpApiKey(msg.apiKey);
     }
     return true;
   });
 
   // ── CLEAR_API_KEY ──────────────────────────────────────────────
-  messageRouter.registerHandler('CLEAR_API_KEY' as any, async (msg: any) => {
+  messageRouter.registerHandler('CLEAR_API_KEY', async (msg) => {
     if (msg.provider === 'gemini') {
       await SettingsStorage.clearGeminiApiKey();
     } else if (msg.provider === 'deepl') {
       await SettingsStorage.clearDeeplApiKey();
+    } else if (msg.provider === 'local-http') {
+      await SettingsStorage.clearLocalHttpApiKey();
     }
     return true;
   });
