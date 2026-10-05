@@ -47,23 +47,14 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
       expect(result.segments[1].text).toBe('第二段翻譯');
     });
 
-    it('rejects unindexed multi-segment output instead of guessing by line position', async () => {
+    it('repairs an unindexed multi-segment response once without guessing locally', async () => {
       const provider = new LocalHttpProvider({ endpoint: 'http://127.0.0.1:8080' });
+      const fetchSpy = vi.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: '段落甲\n段落乙' } }] }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: '[0] 段落甲\n[1] 段落乙' } }] }) });
+      vi.stubGlobal('fetch', fetchSpy);
 
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          choices: [
-            {
-              message: {
-                content: '段落甲\n段落乙',
-              },
-            },
-          ],
-        }),
-      }));
-
-      await expect(provider.translate({
+      const result = await provider.translate({
         segments: [
           { id: 'seg-1' as SegmentId, text: 'First paragraph' },
           { id: 'seg-2' as SegmentId, text: 'Second paragraph' },
@@ -71,7 +62,10 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
         sourceLanguage: 'en' as LanguageCode,
         targetLanguage: 'zh-Hant' as LanguageCode,
         mode: 'fast',
-      })).rejects.toThrow('unindexed content');
+      });
+
+      expect(result.segments.map((segment) => segment.text)).toEqual(['段落甲', '段落乙']);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
     it('rejects an empty response instead of echoing the source text', async () => {

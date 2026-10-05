@@ -17,7 +17,7 @@ import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
-import { parseIndexedTranslations } from './indexed-translation-parser';
+import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
 
 const logger = createLogger('LocalHttpProvider');
 
@@ -114,24 +114,19 @@ export class LocalHttpProvider implements TranslationProvider {
       ? `Translate the following text to target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
       : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase:\n\n${request.segments.map((s, idx) => `[${idx}] ${s.text}`).join('\n')}`;
 
-    const data = await httpTranslationFetch(this.id, {
-      url,
-      headers,
-      body: {
-        model: this.model,
-        messages: [
-          {
-            role: 'user',
-            content: promptContent,
-          },
-        ],
-      },
-      signal: request.signal,
-      timeoutMs: 15000,
-      interpretStatus: (status) => new NetworkError(`Local HTTP server returned HTTP ${status}`),
-    }).then((r) => r.json as Record<string, any>);
+    const sendPrompt = async (content: string): Promise<string> => {
+      const data = await httpTranslationFetch(this.id, {
+        url,
+        headers,
+        body: { model: this.model, messages: [{ role: 'user', content }] },
+        signal: request.signal,
+        timeoutMs: 15000,
+        interpretStatus: (status) => new NetworkError(`Local HTTP server returned HTTP ${status}`),
+      }).then((response) => response.json as Record<string, any>);
+      return String(data.choices?.[0]?.message?.content || data.translatedText || '');
+    };
 
-    let outputText = data.choices?.[0]?.message?.content || data.translatedText || '';
+    const outputText = await sendPrompt(promptContent);
 
     let translatedSegments: TranslatedSegment[];
     if (isSingle) {
@@ -145,13 +140,16 @@ export class LocalHttpProvider implements TranslationProvider {
         },
       ];
     } else {
-      const parsedTranslations = parseIndexedTranslations(outputText, {
-        providerId: this.id,
-        providerLabel: 'Local HTTP',
-        expectedCount: request.segments.length,
-      });
-      translatedSegments = request.segments.map((seg, idx) => ({
-        id: seg.id,
+      const parsedTranslations = await parseIndexedTranslationsWithRepair(
+        outputText,
+        { providerId: this.id, providerLabel: 'Local HTTP', expectedCount: request.segments.length },
+        async (malformedOutput) => {
+          logger.info('Local HTTP returned malformed indexed output; requesting one format repair');
+          return sendPrompt(buildIndexedRepairPrompt(malformedOutput, request.segments.length));
+        },
+      );
+      translatedSegments = request.segments.map((segment, idx) => ({
+        id: segment.id,
         text: normalizeSubtitleAlternatives(parsedTranslations[idx]),
       }));
     }

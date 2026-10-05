@@ -18,7 +18,7 @@ import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { inspectHttpEndpoint } from './endpoint-security';
-import { parseIndexedTranslations } from './indexed-translation-parser';
+import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
 
 const logger = createLogger('CustomHttpProvider');
 
@@ -150,19 +150,19 @@ export class CustomHttpProvider implements TranslationProvider {
       segmentCount: request.segments.length,
     });
 
-    const data = await httpTranslationFetch(this.id, {
-      url,
-      headers,
-      body: {
-        model: this.model,
-        messages: [{ role: 'user', content: promptContent }],
-      },
-      signal: request.signal,
-      timeoutMs: 15000,
-      interpretStatus: (status) => new NetworkError(`Custom HTTP server returned HTTP ${status}`),
-    }).then((response) => response.json as Record<string, any>);
+    const sendPrompt = async (content: string): Promise<string> => {
+      const data = await httpTranslationFetch(this.id, {
+        url,
+        headers,
+        body: { model: this.model, messages: [{ role: 'user', content }] },
+        signal: request.signal,
+        timeoutMs: 15000,
+        interpretStatus: (status) => new NetworkError(`Custom HTTP server returned HTTP ${status}`),
+      }).then((response) => response.json as Record<string, any>);
+      return String(data.choices?.[0]?.message?.content || data.translatedText || '');
+    };
 
-    const outputText = data.choices?.[0]?.message?.content || data.translatedText || '';
+    const outputText = await sendPrompt(promptContent);
 
     let translatedSegments: TranslatedSegment[];
     if (isSingle) {
@@ -175,14 +175,17 @@ export class CustomHttpProvider implements TranslationProvider {
         text: normalizeSubtitleAlternatives(cleanText),
       }];
     } else {
-      const parsed = parseIndexedTranslations(outputText, {
-        providerId: this.id,
-        providerLabel: 'Custom HTTP',
-        expectedCount: request.segments.length,
-      });
+      const parsedTranslations = await parseIndexedTranslationsWithRepair(
+        outputText,
+        { providerId: this.id, providerLabel: 'Custom HTTP', expectedCount: request.segments.length },
+        async (malformedOutput) => {
+          logger.info('Custom HTTP returned malformed indexed output; requesting one format repair');
+          return sendPrompt(buildIndexedRepairPrompt(malformedOutput, request.segments.length));
+        },
+      );
       translatedSegments = request.segments.map((segment, idx) => ({
         id: segment.id,
-        text: normalizeSubtitleAlternatives(parsed[idx]),
+        text: normalizeSubtitleAlternatives(parsedTranslations[idx]),
       }));
     }
 

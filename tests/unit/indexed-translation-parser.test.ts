@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ProviderError } from '@/core/domain/errors/translation-errors';
-import { parseIndexedTranslations } from '@/infrastructure/providers/indexed-translation-parser';
+import { parseIndexedTranslations, parseIndexedTranslationsWithRepair } from '@/infrastructure/providers/indexed-translation-parser';
 
 describe('parseIndexedTranslations', () => {
   it('returns translations ordered by index even when response lines are out of order', () => {
@@ -49,5 +49,26 @@ describe('parseIndexedTranslations', () => {
       providerLabel: 'Test',
       expectedCount: 1,
     })).toThrow('empty translation for segment 0');
+  });
+
+  it('repairs malformed formatting exactly once', async () => {
+    let repairs = 0;
+    const result = await parseIndexedTranslationsWithRepair(
+      'first\nsecond',
+      { providerId: 'test-provider', providerLabel: 'Test', expectedCount: 2 },
+      async () => { repairs++; return '[0] first\n[1] second'; },
+    );
+    expect(result).toEqual(['first', 'second']);
+    expect(repairs).toBe(1);
+  });
+
+  it('fails closed after one unsuccessful repair', async () => {
+    let repairs = 0;
+    await expect(parseIndexedTranslationsWithRepair(
+      'first\nsecond',
+      { providerId: 'test-provider', providerLabel: 'Test', expectedCount: 2 },
+      async () => { repairs++; return 'still malformed'; },
+    )).rejects.toThrow('unindexed content');
+    expect(repairs).toBe(1);
   });
 });
