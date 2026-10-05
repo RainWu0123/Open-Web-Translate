@@ -53,6 +53,8 @@ export default defineBackground(() => {
       await SettingsStorage.saveDeeplApiKey(msg.apiKey);
     } else if (msg.provider === 'local-http') {
       await SettingsStorage.saveLocalHttpApiKey(msg.apiKey);
+    } else if (msg.provider === 'custom-http') {
+      await SettingsStorage.saveCustomHttpApiKey(msg.apiKey);
     }
     return true;
   });
@@ -65,6 +67,8 @@ export default defineBackground(() => {
       await SettingsStorage.clearDeeplApiKey();
     } else if (msg.provider === 'local-http') {
       await SettingsStorage.clearLocalHttpApiKey();
+    } else if (msg.provider === 'custom-http') {
+      await SettingsStorage.clearCustomHttpApiKey();
     }
     return true;
   });
