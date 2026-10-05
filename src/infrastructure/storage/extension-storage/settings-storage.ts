@@ -1,19 +1,25 @@
 /**
- * Settings — the single settings module.
+ * Settings storage with a strict public/secret boundary.
  *
- * Deep module owning the extension's entire settings surface:
- * one schema (ExtensionSettings, incl. the nested NetflixConfig), one
- * storage area (storage.local, key owt_settings), one set of defaults
- * (DEFAULT_SETTINGS), and one change seam (watch).
- *
- * Interface: get() · set(patch) · watch(fn). Every context (background,
- * content script, popup, options) talks to storage directly through this
- * module — no parallel schema, transport, or defaults are allowed to grow
- * beside it.
+ * Public callers (content scripts, popup, options UI) use get/set/watch and
+ * never receive raw provider credentials. Background-only provider code uses
+ * getInternal() when a real API key is required to perform a request.
  */
 import { browser } from 'wxt/browser';
 import { STORAGE_KEYS, DEFAULT_SETTINGS } from '../../../shared/constants';
-import type { ExtensionSettings } from '../../../core/contracts/messages';
+import type {
+  ExtensionSettings,
+  InternalExtensionSettings,
+  SecretSettings,
+} from '../../../core/contracts/messages';
+
+type StoredSettings = Partial<InternalExtensionSettings>;
+
+const SECRET_KEYS: Array<keyof SecretSettings> = [
+  'geminiApiKey',
+  'deeplApiKey',
+  'localHttpApiKey',
+];
 
 export class SettingsStorage {
   static maskApiKey(key?: string): string {
@@ -23,42 +29,52 @@ export class SettingsStorage {
     return `${trimmed.slice(0, 4)}••••••••${trimmed.slice(-4)}`;
   }
 
-  /** Read settings with defaults merged and API keys decorated. */
+  /** Public settings view. Raw API keys are always stripped. */
   static async get(): Promise<ExtensionSettings> {
-    return this.decorate(await this.readRaw());
+    return this.toPublic(await this.readRaw());
   }
 
   /**
-   * Merge-patch write. Only the touched fields change; the decorated key
-   * flags are recomputed. Returns the decorated result.
+   * Background/provider-only settings view. This contains raw credentials and
+   * must never be returned through extension messaging or exposed to page UI.
+   */
+  static async getInternal(): Promise<InternalExtensionSettings> {
+    const raw = await this.readRaw();
+    return {
+      ...this.toPublic(raw),
+      ...this.pickSecrets(raw),
+    };
+  }
+
+  /**
+   * Merge-patch public settings. Secret and derived fields are ignored even
+   * if an untyped caller tries to smuggle them into the patch.
    */
   static async set(patch: Partial<ExtensionSettings>): Promise<ExtensionSettings> {
-    const current = await this.get();
-    const updated: ExtensionSettings = { ...current, ...patch };
+    const current = await this.readRaw();
+    const safePatch = this.sanitizePublicPatch(patch as Record<string, unknown>);
+    const updated: StoredSettings = {
+      ...current,
+      ...safePatch,
+      ...(current.netflix || safePatch.netflix
+        ? { netflix: { ...(current.netflix ?? {}), ...(safePatch.netflix ?? {}) } as ExtensionSettings['netflix'] }
+        : {}),
+    };
     await browser.storage.local.set({ [STORAGE_KEYS.SETTINGS]: updated });
-    return this.decorate(updated);
+    return this.toPublic(updated);
   }
 
-  /**
-   * Subscribe to settings changes (same key, storage.local). Returns an
-   * unsubscribe function.
-   */
+  /** Public change stream; raw credentials never leave this module. */
   static watch(callback: (newSettings: ExtensionSettings) => void): () => void {
     const listener = (changes: Record<string, { newValue?: unknown }>) => {
       if (changes[STORAGE_KEYS.SETTINGS]) {
-        callback(this.decorate(changes[STORAGE_KEYS.SETTINGS].newValue as Partial<ExtensionSettings> | undefined));
+        callback(this.toPublic(changes[STORAGE_KEYS.SETTINGS].newValue as StoredSettings | undefined));
       }
     };
     browser.storage.local.onChanged.addListener(listener);
     return () => browser.storage.local.onChanged.removeListener(listener);
   }
 
-  /**
-   * One-time migration of the legacy parallel config system: Netflix
-   * settings used to live in storage.sync under 'owt_netflix_config' with
-   * their own transport. Folds them into settings.netflix and removes the
-   * sync key. Safe to call on every background startup.
-   */
   static async migrateLegacyKeys(): Promise<void> {
     try {
       if (!browser.storage?.sync) return;
@@ -78,45 +94,95 @@ export class SettingsStorage {
     }
   }
 
-  // ── API-key conveniences (domain rules live here, not in callers) ──
+  // ── Secret write conveniences ──────────────────────────────────
 
   static async saveGeminiApiKey(key: string): Promise<void> {
-    await this.set({ geminiApiKey: key.trim() });
+    await this.setSecret('geminiApiKey', key);
   }
 
   static async clearGeminiApiKey(): Promise<void> {
-    await this.set({ geminiApiKey: '' });
+    await this.setSecret('geminiApiKey', '');
   }
 
   static async saveDeeplApiKey(key: string): Promise<void> {
-    await this.set({ deeplApiKey: key.trim() });
+    await this.setSecret('deeplApiKey', key);
   }
 
   static async clearDeeplApiKey(): Promise<void> {
-    await this.set({ deeplApiKey: '' });
+    await this.setSecret('deeplApiKey', '');
   }
 
-  // ── internals ─────────────────────────────────────────────────────
+  static async saveLocalHttpApiKey(key: string): Promise<void> {
+    await this.setSecret('localHttpApiKey', key);
+  }
 
-  private static async readRaw(): Promise<Partial<ExtensionSettings>> {
+  static async clearLocalHttpApiKey(): Promise<void> {
+    await this.setSecret('localHttpApiKey', '');
+  }
+
+  // ── internals ──────────────────────────────────────────────────
+
+  private static async setSecret(key: keyof SecretSettings, value: string): Promise<void> {
+    const current = await this.readRaw();
+    await browser.storage.local.set({
+      [STORAGE_KEYS.SETTINGS]: {
+        ...current,
+        [key]: value.trim(),
+      },
+    });
+  }
+
+  private static async readRaw(): Promise<StoredSettings> {
     try {
       const result = await browser.storage.local.get(STORAGE_KEYS.SETTINGS);
-      return (result[STORAGE_KEYS.SETTINGS] as Partial<ExtensionSettings> | undefined) ?? DEFAULT_SETTINGS;
+      return (result[STORAGE_KEYS.SETTINGS] as StoredSettings | undefined) ?? DEFAULT_SETTINGS;
     } catch {
       return DEFAULT_SETTINGS;
     }
   }
 
-  private static decorate(raw: Partial<ExtensionSettings> | undefined): ExtensionSettings {
-    const s = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
-    const geminiKey = s.geminiApiKey ?? '';
-    const deeplKey = s.deeplApiKey ?? '';
+  private static pickSecrets(raw: StoredSettings): SecretSettings {
     return {
-      ...s,
+      geminiApiKey: typeof raw.geminiApiKey === 'string' ? raw.geminiApiKey : '',
+      deeplApiKey: typeof raw.deeplApiKey === 'string' ? raw.deeplApiKey : '',
+      localHttpApiKey: typeof raw.localHttpApiKey === 'string' ? raw.localHttpApiKey : '',
+    };
+  }
+
+  private static sanitizePublicPatch(patch: Record<string, unknown>): Partial<ExtensionSettings> {
+    const clean = { ...patch };
+    for (const key of SECRET_KEYS) delete clean[key];
+    delete clean.geminiApiKeyMasked;
+    delete clean.hasGeminiApiKey;
+    delete clean.deeplApiKeyMasked;
+    delete clean.hasDeeplApiKey;
+    delete clean.localHttpApiKeyMasked;
+    delete clean.hasLocalHttpApiKey;
+    return clean as Partial<ExtensionSettings>;
+  }
+
+  private static toPublic(raw: StoredSettings | undefined): ExtensionSettings {
+    const s: StoredSettings = { ...DEFAULT_SETTINGS, ...(raw ?? {}) };
+    const geminiKey = typeof s.geminiApiKey === 'string' ? s.geminiApiKey : '';
+    const deeplKey = typeof s.deeplApiKey === 'string' ? s.deeplApiKey : '';
+    const localHttpKey = typeof s.localHttpApiKey === 'string' ? s.localHttpApiKey : '';
+
+    const {
+      geminiApiKey: _geminiApiKey,
+      deeplApiKey: _deeplApiKey,
+      localHttpApiKey: _localHttpApiKey,
+      ...publicFields
+    } = s;
+
+    return {
+      ...DEFAULT_SETTINGS,
+      ...publicFields,
       hasGeminiApiKey: geminiKey.trim().length > 0,
       geminiApiKeyMasked: this.maskApiKey(geminiKey),
       hasDeeplApiKey: deeplKey.trim().length > 0,
       deeplApiKeyMasked: this.maskApiKey(deeplKey),
-    };
+      hasLocalHttpApiKey: localHttpKey.trim().length > 0,
+      localHttpApiKeyMasked: this.maskApiKey(localHttpKey),
+    } as ExtensionSettings;
   }
 }
