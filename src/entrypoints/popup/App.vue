@@ -120,6 +120,7 @@
               <option value="chrome-builtin-ai-provider" disabled>Chrome 內建 AI（暫不提供）</option>
               <option value="ollama-provider">Ollama 本機端</option>
               <option value="local-http-provider">本機 HTTP API</option>
+              <option value="custom-http-provider">自訂 HTTP API</option>
             </select>
           </div>
         </div>
@@ -504,6 +505,8 @@ const activeProviderDetail = computed(() => {
       return 'Ollama 本機端（僅 loopback）';
     case 'local-http-provider':
       return '本機 HTTP API（僅 loopback）';
+    case 'custom-http-provider':
+      return '自訂 HTTP API · 遠端內容傳輸';
     case 'google-provider':
     default:
       return 'Google 翻譯 · 預設免金鑰';

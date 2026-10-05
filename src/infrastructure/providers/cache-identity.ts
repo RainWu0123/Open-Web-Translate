@@ -38,6 +38,12 @@ export function getProviderCacheIdentity(
         fingerprint: `v3:endpoint=${normalized(settings.localHttpEndpoint, 'http://127.0.0.1:8080')};model=${normalized(settings.localHttpModel, 'local-model')};instructions=${instructions}`,
       };
 
+    case 'custom-http-provider':
+      return {
+        providerId: resolvedProviderId,
+        fingerprint: `v1:endpoint=${normalized(settings.customHttpEndpoint, '')};model=${normalized(settings.customHttpModel, 'default')};instructions=${instructions}`,
+      };
+
     case 'google-provider':
       return {
         providerId: resolvedProviderId,

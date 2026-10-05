@@ -442,6 +442,7 @@
                       <option value="deepl-provider">DeepL Translate API</option>
                       <option value="ollama-provider">Local Ollama AI (loopback only)</option>
                       <option value="local-http-provider">Local HTTP AI (loopback only)</option>
+                      <option value="custom-http-provider">Custom HTTP API (remote/self-hosted)</option>
                       <option value="chrome-builtin-ai-provider" disabled>Chrome Built-in AI（暫不提供）</option>
                     </select>
                   </div>
@@ -526,6 +527,22 @@
                     <button class="btn-stitch-secondary" @click="clearLocalHttpKey" v-if="settings.hasLocalHttpApiKey">清除</button>
                   </div>
                 </div>
+                <div v-if="settings.activeProviderId === 'custom-http-provider'" class="stitch-row vertical-row">
+                  <label for="custom-http-url" class="row-title">自訂 API 根位址</label>
+                  <p class="row-desc">相容 OpenAI Chat Completions。遠端位址必須使用 HTTPS；翻譯內容會傳送到你指定的服務。</p>
+                  <input id="custom-http-url" class="stitch-input" type="url" v-model="settings.customHttpEndpoint" @change="save" placeholder="https://api.example.com" />
+                  <label for="custom-http-model" class="row-title">模型名稱</label>
+                  <input id="custom-http-model" class="stitch-input" v-model="settings.customHttpModel" @change="save" placeholder="model-name" />
+                  <label for="custom-http-key" class="row-title">服務金鑰（選填）</label>
+                  <p class="row-desc">目前狀態：{{ settings.hasCustomHttpApiKey ? settings.customHttpApiKeyMasked : '未設定' }}</p>
+                  <div class="input-group">
+                    <input id="custom-http-key" class="stitch-input" type="password" v-model="customHttpKeyInput" placeholder="貼上服務金鑰" />
+                    <button class="btn-stitch-accent" @click="saveCustomHttpKey(customHttpKeyInput)">
+                      {{ saveCustomHttpKeyStatus === 'success' ? '已儲存 ✓' : saveCustomHttpKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
+                    <button class="btn-stitch-secondary" @click="clearCustomHttpKey" v-if="settings.hasCustomHttpApiKey">清除</button>
+                  </div>
+                </div>
                 <div v-if="settings.activeProviderId === 'deepl-provider'" class="stitch-row">
                   <label for="deepl-plan" class="row-title">DeepL API 方案</label>
                   <select id="deepl-plan" v-model="settings.deeplApiIsPro" @change="save"><option :value="false">API Free</option><option :value="true">API Pro</option></select>
@@ -539,7 +556,7 @@
                   <p v-if="providerTestResult" role="status">{{ providerTestResult }}</p>
                 </div>
                 <!-- AI Translation Instructions -->
-                <div v-if="['gemini-provider', 'ollama-provider', 'local-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
+                <div v-if="['gemini-provider', 'ollama-provider', 'local-http-provider', 'custom-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
                   <div class="row-info">
                     <span class="row-title">翻譯偏好</span>
                     <span class="row-desc">提供給 Gemini、Ollama 等 AI 模型的風格與術語指引。</span>
@@ -695,11 +712,13 @@ const mainCanvasRef = ref<HTMLElement | null>(null);
 const geminiKeyInput = ref('');
 const deeplKeyInput = ref('');
 const localHttpKeyInput = ref('');
+const customHttpKeyInput = ref('');
 const testingProvider = ref(false);
 const providerTestResult = ref('');
 const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveLocalHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
+const saveCustomHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 
 const settings = ref({
   ollamaEndpoint: 'http://localhost:11434',
@@ -708,6 +727,10 @@ const settings = ref({
   hasLocalHttpApiKey: false,
   localHttpApiKeyMasked: '',
   localHttpModel: 'local-model',
+  customHttpEndpoint: '',
+  hasCustomHttpApiKey: false,
+  customHttpApiKeyMasked: '',
+  customHttpModel: 'default',
   enabled: true,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',
@@ -948,6 +971,10 @@ async function loadSettings() {
       settings.value.hasLocalHttpApiKey = !!s.hasLocalHttpApiKey;
       settings.value.localHttpApiKeyMasked = s.localHttpApiKeyMasked || '';
       settings.value.localHttpModel = s.localHttpModel || 'local-model';
+      settings.value.customHttpEndpoint = s.customHttpEndpoint || '';
+      settings.value.hasCustomHttpApiKey = !!s.hasCustomHttpApiKey;
+      settings.value.customHttpApiKeyMasked = s.customHttpApiKeyMasked || '';
+      settings.value.customHttpModel = s.customHttpModel || 'default';
       settings.value.enabled = s.enabled ?? true;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage || 'zh-Hant';
@@ -1107,6 +1134,36 @@ async function clearLocalHttpKey() {
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear Local HTTP key', e);
+  }
+}
+
+async function saveCustomHttpKey(key: string) {
+  try {
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'custom-http', apiKey: trimmed });
+    settings.value.hasCustomHttpApiKey = true;
+    settings.value.customHttpApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
+    customHttpKeyInput.value = '';
+    saveCustomHttpKeyStatus.value = 'success';
+    setTimeout(() => {
+      saveCustomHttpKeyStatus.value = 'idle';
+    }, 2500);
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to save Custom HTTP key', e);
+    saveCustomHttpKeyStatus.value = 'error';
+  }
+}
+
+async function clearCustomHttpKey() {
+  try {
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'custom-http' });
+    settings.value.hasCustomHttpApiKey = false;
+    settings.value.customHttpApiKeyMasked = '';
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to clear Custom HTTP key', e);
   }
 }
 

@@ -19,6 +19,7 @@ const SECRET_KEYS: Array<keyof SecretSettings> = [
   'geminiApiKey',
   'deeplApiKey',
   'localHttpApiKey',
+  'customHttpApiKey',
 ];
 
 export class SettingsStorage {
@@ -120,6 +121,14 @@ export class SettingsStorage {
     await this.setSecret('localHttpApiKey', '');
   }
 
+  static async saveCustomHttpApiKey(key: string): Promise<void> {
+    await this.setSecret('customHttpApiKey', key);
+  }
+
+  static async clearCustomHttpApiKey(): Promise<void> {
+    await this.setSecret('customHttpApiKey', '');
+  }
+
   // ── internals ──────────────────────────────────────────────────
 
   private static async setSecret(key: keyof SecretSettings, value: string): Promise<void> {
@@ -146,6 +155,7 @@ export class SettingsStorage {
       geminiApiKey: typeof raw.geminiApiKey === 'string' ? raw.geminiApiKey : '',
       deeplApiKey: typeof raw.deeplApiKey === 'string' ? raw.deeplApiKey : '',
       localHttpApiKey: typeof raw.localHttpApiKey === 'string' ? raw.localHttpApiKey : '',
+      customHttpApiKey: typeof raw.customHttpApiKey === 'string' ? raw.customHttpApiKey : '',
     };
   }
 
@@ -158,6 +168,8 @@ export class SettingsStorage {
     delete clean.hasDeeplApiKey;
     delete clean.localHttpApiKeyMasked;
     delete clean.hasLocalHttpApiKey;
+    delete clean.customHttpApiKeyMasked;
+    delete clean.hasCustomHttpApiKey;
     return clean as Partial<ExtensionSettings>;
   }
 
@@ -166,11 +178,13 @@ export class SettingsStorage {
     const geminiKey = typeof s.geminiApiKey === 'string' ? s.geminiApiKey : '';
     const deeplKey = typeof s.deeplApiKey === 'string' ? s.deeplApiKey : '';
     const localHttpKey = typeof s.localHttpApiKey === 'string' ? s.localHttpApiKey : '';
+    const customHttpKey = typeof s.customHttpApiKey === 'string' ? s.customHttpApiKey : '';
 
     const {
       geminiApiKey: _geminiApiKey,
       deeplApiKey: _deeplApiKey,
       localHttpApiKey: _localHttpApiKey,
+      customHttpApiKey: _customHttpApiKey,
       ...publicFields
     } = s;
 
@@ -183,6 +197,8 @@ export class SettingsStorage {
       deeplApiKeyMasked: this.maskApiKey(deeplKey),
       hasLocalHttpApiKey: localHttpKey.trim().length > 0,
       localHttpApiKeyMasked: this.maskApiKey(localHttpKey),
+      hasCustomHttpApiKey: customHttpKey.trim().length > 0,
+      customHttpApiKeyMasked: this.maskApiKey(customHttpKey),
     } as ExtensionSettings;
   }
 }

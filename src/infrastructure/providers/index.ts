@@ -15,6 +15,7 @@ export * from './gemini-provider';
 export * from './mock-provider';
 export * from './ollama-provider';
 export * from './local-http-provider';
+export * from './custom-http-provider';
 export * from './chrome-builtin-ai-provider';
 export * from './model-registry';
 

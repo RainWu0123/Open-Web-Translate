@@ -67,8 +67,9 @@ OWT 內建強大的翻譯管線（`TranslationPipeline`），支援隨時在彈�
 | **Google Gemini AI** | 雲端大模型 | 支援 `gemini-2.5-flash`、`gemini-3.5-flash`，具備對話記憶上下文（Context）與智慧熔斷機制 |
 | **DeepL 翻譯** | 專業翻譯 API | 支援 DeepL Free 與 Pro API 金鑰，翻譯自然度高 |
 | **Chrome 內建 AI** | 瀏覽器本機端 | 支援 Chrome 實驗性本機 Gemini Nano，無網路連線亦可極速翻譯 |
-| **Ollama** | 自託管本機模型 | 支援連線本機端 `localhost:11434` 執行 LLaMA 3、Mistral 等開源模型 |
-| **自訂 HTTP API** | 企業 / 代理 | 相容 OpenAI Chat Completions 規範之自訂端點 |
+| **Ollama** | 自託管本機模型 | 僅連線 loopback（`localhost` / `127.0.0.0/8` / `::1`），適合本機 LLaMA、Mistral 等模型 |
+| **Local HTTP API** | 本機 OpenAI-compatible | 僅允許 loopback，相容 `/v1/chat/completions`；保證 Local provider 不會把內容送往遠端主機 |
+| **自訂 HTTP API** | 企業 / 代理 / 自架服務 | 相容 OpenAI Chat Completions 的自訂端點；遠端端點必須使用 HTTPS，翻譯內容會傳送至使用者指定的服務 |
 
 ---
 
@@ -142,7 +143,7 @@ pnpm zip:firefox
 
 ## 🔒 隱私與安全模型
 
-- **Local-first（本機優先）**：所有使用者設定、自訂字典、劃詞翻譯快取與生詞本卡片均儲存在本地 `IndexedDB` 與 `browser.storage.local`，絕不私自上傳任何雲端伺服器。
+- **Local-first（本機優先）**：所有使用者設定、自訂字典、劃詞翻譯快取與生詞本卡片均儲存在本地 `IndexedDB` 與 `browser.storage.local`。只有在使用者明確選擇雲端或 Custom HTTP provider 時，待翻譯內容才會傳送至對應服務。
 - **無追蹤與零遙測**：程式碼中不含 Google Analytics、Sentry 或任何第三方遙測代碼，保證您的閱讀習慣完全私密。
 - **金鑰嚴密隔離**：您的 API Key 僅儲存於本機擴充套件沙盒中，在網路請求時僅傳送給該 AI 官方端點，絕不寫入構建產物或環境變數。
 

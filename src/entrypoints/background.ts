@@ -15,6 +15,7 @@ import { learningRepository } from '@/infrastructure/storage/repositories/learni
 import { aiLearningEngine } from '@/core/pipeline/ai-learning-engine';
 import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
+import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
 
 const logger = createLogger('Background');
 
@@ -28,6 +29,39 @@ export default defineBackground(() => {
 
   // Fold legacy sync-area Netflix config into the single settings store
   SettingsStorage.migrateLegacyKeys().catch(() => {});
+
+  // PR #7 temporarily made the historical Custom HTTP slot local-only. If a
+  // user already had a remote endpoint stored there, move it into the restored
+  // Custom HTTP provider instead of silently breaking that configuration.
+  void (async () => {
+    try {
+      const settings = await SettingsStorage.getInternal();
+      const legacyEndpoint = settings.localHttpEndpoint?.trim();
+      if (!legacyEndpoint || settings.customHttpEndpoint?.trim()) return;
+
+      const inspection = inspectHttpEndpoint(legacyEndpoint);
+      if (!inspection.isValid || inspection.isLocal) return;
+
+      await SettingsStorage.set({
+        customHttpEndpoint: legacyEndpoint,
+        customHttpModel: settings.localHttpModel || 'default',
+        localHttpEndpoint: 'http://127.0.0.1:8080',
+        localHttpModel: 'local-model',
+        ...(settings.activeProviderId === 'local-http-provider'
+          ? { activeProviderId: 'custom-http-provider' }
+          : {}),
+      });
+
+      if (settings.localHttpApiKey?.trim()) {
+        await SettingsStorage.saveCustomHttpApiKey(settings.localHttpApiKey);
+        await SettingsStorage.clearLocalHttpApiKey();
+      }
+
+      logger.info('Migrated legacy remote HTTP configuration to Custom HTTP provider');
+    } catch (error) {
+      logger.warn('Failed to migrate legacy remote HTTP configuration', error);
+    }
+  })();
 
   // ── TRANSLATE_REQUEST ──────────────────────────────────────────
   messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
@@ -53,6 +87,8 @@ export default defineBackground(() => {
       await SettingsStorage.saveDeeplApiKey(msg.apiKey);
     } else if (msg.provider === 'local-http') {
       await SettingsStorage.saveLocalHttpApiKey(msg.apiKey);
+    } else if (msg.provider === 'custom-http') {
+      await SettingsStorage.saveCustomHttpApiKey(msg.apiKey);
     }
     return true;
   });
@@ -65,6 +101,8 @@ export default defineBackground(() => {
       await SettingsStorage.clearDeeplApiKey();
     } else if (msg.provider === 'local-http') {
       await SettingsStorage.clearLocalHttpApiKey();
+    } else if (msg.provider === 'custom-http') {
+      await SettingsStorage.clearCustomHttpApiKey();
     }
     return true;
   });

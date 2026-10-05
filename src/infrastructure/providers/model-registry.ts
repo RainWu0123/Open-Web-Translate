@@ -18,6 +18,7 @@ import { GeminiProvider } from './gemini-provider';
 import { GoogleTranslateProvider } from './google-provider';
 import { DeepLProvider } from './deepl-provider';
 import { LocalHttpProvider } from './local-http-provider';
+import { CustomHttpProvider } from './custom-http-provider';
 import { MockProvider } from './mock-provider';
 
 export * from './gemini/model-registry';
@@ -66,6 +67,12 @@ export const REGISTERED_PROVIDERS: Record<string, ProviderRegistration> = {
     isLocal: true,
     supportedModels: ['default'],
   },
+  'custom-http-provider': {
+    providerId: 'custom-http-provider',
+    displayName: 'Custom HTTP API',
+    isLocal: false,
+    supportedModels: ['default'],
+  },
   'mock-provider': {
     providerId: 'mock-provider',
     displayName: 'Mock Provider',
@@ -92,6 +99,7 @@ export class ModelRegistry {
     ['google', 'google-provider'],
     ['deepl', 'deepl-provider'],
     ['local-http', 'local-http-provider'],
+    ['custom-http', 'custom-http-provider'],
     ['mock', 'mock-provider'],
   ]);
 
@@ -149,6 +157,13 @@ export class ModelRegistry {
           endpoint: settings?.localHttpEndpoint,
           model: settings?.localHttpModel,
           apiKey: settings?.localHttpApiKey,
+          instructions: settings?.aiTranslationInstructions,
+        });
+      case 'custom-http-provider':
+        return new CustomHttpProvider({
+          endpoint: settings?.customHttpEndpoint,
+          model: settings?.customHttpModel,
+          apiKey: settings?.customHttpApiKey,
           instructions: settings?.aiTranslationInstructions,
         });
       case 'mock-provider':
