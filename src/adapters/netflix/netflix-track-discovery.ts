@@ -476,8 +476,8 @@ export class NetflixTrackDiscovery {
     this.fetchHookInstalled = true;
     const originalFetch = window.fetch;
     this.originalFetch = originalFetch;
-    const patchedFetch: typeof window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
-      const response = await originalFetch.call(this, input, init);
+    const patchedFetch: typeof window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch.call(window, input, init);
 
       try {
         const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
