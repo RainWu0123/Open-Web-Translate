@@ -116,7 +116,7 @@ export class SubtitleSessionStore {
 
     this.vocabulary.set(id, fullCard);
     await this.persistVocabulary();
-    logger.info('Saved vocabulary card:', fullCard.surface);
+    logger.info('Saved vocabulary card', { id: fullCard.id });
     return fullCard;
   }
 

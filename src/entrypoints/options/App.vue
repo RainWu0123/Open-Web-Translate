@@ -547,7 +547,7 @@
                   <label for="deepl-plan" class="row-title">DeepL API 方案</label>
                   <select id="deepl-plan" v-model="settings.deeplApiIsPro" @change="save"><option :value="false">API Free</option><option :value="true">API Pro</option></select>
                 </div>
-                <p v-if="['chrome-ai-provider', 'chrome-builtin-ai-provider'].includes(settings.activeProviderId)" class="stitch-row row-desc">Chrome 內建 AI 的整合尚未完成實機驗證，目前暫不提供。請改選其他翻譯服務。</p>
+                <p v-if="['chrome-ai-provider', 'chrome-builtin-ai-provider'].includes(settings.activeProviderId)" class="stitch-row row-desc">使用 Chrome 桌面版的內建 Translator API；是否可用取決於瀏覽器版本、語言組合與本機模型狀態。來源語言設為自動時會優先使用 LanguageDetector。</p>
 
                 <div class="stitch-row vertical-row">
                   <span class="row-title">確認服務是否可用</span>

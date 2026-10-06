@@ -232,6 +232,12 @@ function extractTracksFromPerformanceEntries(): any[] {
 }
 
 // ── The engine ───────────────────────────────────────────────────────
+//
+// Interoperability / provenance note:
+// This module observes runtime objects and network responses exposed by the
+// Netflix web player in the user's browser. It contains no Netflix source
+// code and is not based on a Netflix SDK. These private runtime surfaces are
+// brittle by nature and may change without notice.
 
 export class NetflixTrackDiscovery {
   constructor() {
@@ -249,6 +255,8 @@ export class NetflixTrackDiscovery {
   private jsonParseHookInstalled = false;
   private originalJsonParse: typeof JSON.parse | null = null;
   private fetchHookInstalled = false;
+  private originalFetch: typeof window.fetch | null = null;
+  private patchedFetch: typeof window.fetch | null = null;
 
   /** Diagnostic snapshot for __OWT_DEBUG__. */
   public lastPayload(): { tracks: any[]; source: string; revision: number } {
@@ -263,6 +271,7 @@ export class NetflixTrackDiscovery {
 
   public stop(): void {
     this.uninstallManifestJsonHook();
+    this.uninstallNetworkHooks();
     this.stopPoller();
   }
 
@@ -466,7 +475,8 @@ export class NetflixTrackDiscovery {
     if (this.fetchHookInstalled) return;
     this.fetchHookInstalled = true;
     const originalFetch = window.fetch;
-    window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+    this.originalFetch = originalFetch;
+    const patchedFetch: typeof window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
       const response = await originalFetch.call(this, input, init);
 
       try {
@@ -489,6 +499,21 @@ export class NetflixTrackDiscovery {
 
       return response;
     };
+    this.patchedFetch = patchedFetch;
+    window.fetch = patchedFetch;
+  }
+
+  private uninstallNetworkHooks(): void {
+    if (!this.fetchHookInstalled) return;
+
+    // Avoid clobbering another library's patch if it replaced fetch after us.
+    if (this.patchedFetch && window.fetch === this.patchedFetch && this.originalFetch) {
+      window.fetch = this.originalFetch;
+    }
+
+    this.originalFetch = null;
+    this.patchedFetch = null;
+    this.fetchHookInstalled = false;
   }
 
   private stopPoller(): void {

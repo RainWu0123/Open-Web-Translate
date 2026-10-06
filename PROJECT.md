@@ -1,32 +1,32 @@
-# Project: Open Web Translate (v3)
+# Project: Open Web Translate
 
 ## Architecture
-- Dual-track architecture: Implementation Track (building product) + E2E Testing Track (requirement-driven test suite).
-- Extensible provider hierarchy (`TranslationProvider` interface) supporting Cloud & Local Private AI providers (`OllamaProvider`, `LocalHttpProvider`, `ChromeBuiltInAIProvider`).
-- Non-destructive DOM Translation Engine (`DomExtractor`, `ShadowRenderer`, `InlineHost`, `BlockHost`, `tag-preservation`).
-- Decomposed modern Vue 3 UI architecture (`src/components/`: `ProviderConfigCard`, `DisplaySettings`, `GlossaryManager`, `ThemeToggle`, `tokens.css`).
-- Typed shared logger supporting variadic arguments (`...args: any[]`).
+- WXT + Vue 3 + TypeScript browser extension targeting Chrome MV3 and Firefox MV2.
+- Provider registry for cloud, remote custom, and loopback-only local translation engines.
+- Non-destructive DOM translation with Shadow DOM rendering, exact-range selection translation, caching, batching, and context-aware cache identity.
+- Netflix and YouTube caption adapters use browser-visible runtime/player surfaces and custom MAIN↔content bridges.
+- Local-first settings, vocabulary, learning state, and translation cache.
 
-## Milestones
-| # | Name | Scope | Dependencies | Status |
-|---|------|-------|-------------|--------|
-| E2E | E2E Testing Track | Requirement-driven test suite creation (Tiers 1-4) & publishing TEST_READY.md | None | DONE |
-| 1 | M1: Type Safety & Logger Overload Fix (R1) | Fix `src/shared/logger/index.ts` variadic signature & ensure `pnpm typecheck` passes with 0 errors | None | DONE |
-| 2 | M2: Monolithic UI Component Decomposition (R2) | Refactor `options/App.vue` & `popup/App.vue` into 4 components under `src/components/` with theme toggle | M1 | DONE |
-| 3 | M3: Web Page DOM Translation Engine (R3) | Non-destructive selection & article block translation with inline tags & Shadow DOM rendering | M1 | DONE |
-| 4 | M4: Local Private AI Provider Integration (R4) | Add Ollama, Local HTTP, and Chrome Built-in AI providers with strict privacy boundary | M1 | DONE |
-| 5 | M5: Final E2E Pass & Adversarial Hardening | Pass 100% E2E tests (Tiers 1-4) & adversarial coverage hardening (Tier 5 Challenger & Forensic Auditor) | M2, M3, M4, E2E | DONE |
+## Current engineering status
+- Typecheck, Vitest unit/scenario suite, Chrome build, and Firefox build run independently in CI.
+- The historical `tests/e2e/tier*.test.ts` files are JSDOM scenario suites, not real browser-driving E2E tests.
+- Popup and Options work, but remain large Vue single-file components and are a maintainability target.
+- Chrome Built-in AI targets Chrome's public Translator API, with compatibility support for older experimental API shapes.
+- Custom HTTP is explicitly remote; Ollama and Local HTTP are loopback-only.
 
-## Interface Contracts
-- `Logger`: `debug`, `info`, `warn`, `error` methods take `(...args: any[]): void`.
-- `TranslationProvider`: `id: string`, `name: string`, `isLocal?: boolean`, `translate(text: string, options: TranslationOptions): Promise<TranslationResult>`. Local providers enforce `isLocal: true` and private boundary in background service worker.
-- `DomExtractor`: `extractTranslatableTargets(doc: Document, options?: ExtractionOptions): ExtractionResult`. Supports selection ranges (`SelectionAdapter`) and article blocks (`extractArticleBlocks`).
-- `ShadowRenderer`: supports `BlockHost` (`<div class="owt-bilingual-host">`) and `InlineHost` (`<span class="owt-inline-host">`) via open Shadow DOM.
+## Important contracts
+- Raw API credentials are background/provider-only. Public settings expose only masked/status fields.
+- Local providers must not silently send text to remote hosts.
+- Translation results are mapped by stable segment IDs; malformed multi-segment model output is repaired at most once, then fails closed.
+- Site adapters must restore or clean up patched global browser/page APIs when they stop.
+- No silent provider fallback across privacy boundaries.
 
-## Code Layout
-- `src/components/`: Reusable Vue 3 components (`ProviderConfigCard.vue`, `DisplaySettings.vue`, `GlossaryManager.vue`, `ThemeToggle.vue`).
-- `src/assets/styles/`: Design tokens (`tokens.css`).
-- `src/shared/logger/`: Typed Logger supporting variadic args.
-- `src/infrastructure/providers/`: Provider implementations (`OllamaProvider`, `LocalHttpProvider`, `ChromeBuiltInAIProvider`, `GeminiProvider`, `DeepLProvider`, etc.).
-- `src/features/page-translation/`: DOM Extractor, Shadow Renderer, Selection Adapter, Tag Preservation.
-- `tests/e2e/`: E2E Test Suite (Tiers 1-4).
+## Code layout
+- `src/core/`: contracts, domain logic, learning, translation pipeline.
+- `src/infrastructure/`: providers, messaging, storage, platform seams.
+- `src/adapters/`: generic DOM, Netflix, YouTube and caption interaction layers.
+- `src/features/`: page/selection translation and learning UI behavior.
+- `src/entrypoints/`: extension background/content/popup/options/MAIN-world entrypoints.
+- `tests/`: unit, integration, and JSDOM scenario coverage.
+
+See `CODE_AUDIT.md` for audit findings and `THIRD_PARTY_NOTICES.md` for provenance/license notes.

@@ -54,8 +54,8 @@ requestId 對往 + 逾時。協定欄位（source/type）不可被 payload 覆�
 ## Translation Engine
 
 ### TranslationPipeline
-快取檢查、provider 建立與翻譯、失敗轉移（主 → Google → Mock 並標記
-DEGRADED）、快取寫回的管線。
+快取檢查、provider 建立、provider-aware batching、上下文快取隔離與快取寫回的管線。
+provider 失敗會回報給 caller；**不會**在使用者不知情的情況下跨 Local/Remote 隱私邊界自動降級。
 
 - **Interface**: `translate(request): Promise<TranslationResponse>`
 - **Seam**: Background Message Router 與 Infrastructure Providers 之間。
@@ -68,10 +68,10 @@ DEGRADED）、快取寫回的管線。
 ## Settings
 
 ### SettingsStorage（單一設定模組）
-整個擴充功能的設定只有一個系統：schema（`ExtensionSettings`，含巢狀
-`netflix`）、儲存區（storage.local / `owt_settings`）、預設值
-（`DEFAULT_SETTINGS`）、變更 seam（`watch`）。介面：`get / set / watch`。
-不允許在它旁邊長出平行的 schema、傳輸或預設值。
+整個擴充功能的設定只有一個系統：public schema（`ExtensionSettings`）、
+background/provider-only secret view（`InternalExtensionSettings`）、storage.local /
+`owt_settings`、`DEFAULT_SETTINGS` 與 `watch`。public `get()` 不得回傳 raw API key；
+只有 provider execution 可使用 `getInternal()`。
 
 ### Tab Command Transport
 分頁命令的單一傳輸：`extensionBridge.sendTabCommand`（可選隨選注入 +
