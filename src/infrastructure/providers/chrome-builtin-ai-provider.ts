@@ -159,7 +159,9 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
         }
       } else {
         const legacy = getLegacyChromeAiApi();
-        if (!legacy) throw new ProviderError(this.id, 'Chrome Translator API is unavailable');
+        if (!legacy) {
+          throw new NetworkError('Chrome Built-in AI API is not available on this device');
+        }
 
         const sourceLanguage =
           request.sourceLanguage === 'auto'
