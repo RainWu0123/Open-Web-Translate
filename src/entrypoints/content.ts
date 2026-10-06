@@ -261,26 +261,58 @@ function updateBadgeUI(state: BadgeState): void {
   badgeButton.classList.remove('owt-badge-idle', 'owt-badge-translating', 'owt-badge-translated');
 
   switch (state) {
-    case 'idle':
+    case 'idle': {
       badgeButton.classList.add('owt-badge-idle');
-      badgeButton.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
       badgeButton.title = 'Translate Page (Open Web Translate)';
       badgeButton.setAttribute('aria-label', 'Translate page');
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '12');
+      circle.setAttribute('cy', '12');
+      circle.setAttribute('r', '10');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z');
+      svg.append(circle, path);
+      badgeButton.replaceChildren(svg);
       break;
-    case 'translating':
+    }
+    case 'translating': {
       badgeButton.classList.add('owt-badge-translating');
-      badgeButton.innerHTML = '<span class="owt-spinner-ring" aria-hidden="true"></span>';
       badgeButton.title = 'Translating page...';
       badgeButton.setAttribute('aria-label', 'Translating page');
+      const ring = document.createElement('span');
+      ring.className = 'owt-spinner-ring';
+      ring.setAttribute('aria-hidden', 'true');
+      badgeButton.replaceChildren(ring);
       break;
-    case 'translated':
+    }
+    case 'translated': {
       badgeButton.classList.add('owt-badge-translated');
-      badgeButton.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>';
       badgeButton.title = 'Click to Restore Original Page';
       badgeButton.setAttribute('aria-label', 'Restore original page');
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p1.setAttribute('d', 'M3 7v6h6');
+      const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p2.setAttribute('d', 'M21 17a9 9 0 0 0-15-6.7L3 13');
+      svg.append(p1, p2);
+      badgeButton.replaceChildren(svg);
       break;
+    }
   }
 }
 
