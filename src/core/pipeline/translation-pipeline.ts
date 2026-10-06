@@ -4,6 +4,7 @@ import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-ident
 import { CacheRepository, sha256 } from '@/infrastructure/storage/repositories/cache-repository';
 import { createLogger } from '@/shared/logger';
 import type { InternalExtensionSettings } from '@/core/contracts/messages';
+import { ConfigurationError } from '@/core/domain/errors/translation-errors';
 
 const logger = createLogger('TranslationPipeline');
 
@@ -57,6 +58,16 @@ export class TranslationPipeline {
     const settings = await this.getSettings();
     const activeProviderId = msg.forceProvider || settings.activeProviderId || 'google-provider';
     const provider = getProvider(activeProviderId, settings);
+
+    // Brand-new installs must see the data-transfer disclosure before the
+    // first remote translation request. Local providers remain usable.
+    // Undefined is intentionally allowed so existing installs are not
+    // retroactively blocked during upgrade.
+    if (settings.remoteProviderDisclosureVersion === 0 && provider.isLocal !== true) {
+      throw new ConfigurationError(
+        '使用雲端或遠端翻譯服務前，請先在 Open Web Translate 設定頁確認資料傳輸說明。',
+      );
+    }
 
     const resultsMap = new Map<string, string>();
     const segmentsToTranslate: Array<{ id: string; text: string }> = [];

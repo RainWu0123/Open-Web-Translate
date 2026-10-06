@@ -259,6 +259,18 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(async (details) => {
     logger.info('Extension installed/updated', { reason: details.reason });
     await registerContextMenus();
+
+    if (details.reason === 'install') {
+      // New users see the privacy/provider disclosure before a remote provider
+      // is allowed to transmit translation text. Existing upgrades are not
+      // retroactively blocked.
+      await SettingsStorage.set({ remoteProviderDisclosureVersion: 0 });
+      try {
+        await browser.runtime.openOptionsPage();
+      } catch (error) {
+        logger.warn('Could not open first-run settings page', error);
+      }
+    }
   });
 
   // Service workers can be revived without onInstalled firing; make sure

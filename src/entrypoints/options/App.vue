@@ -1,5 +1,52 @@
 <template>
   <div class="stitch-layout" data-testid="options-page">
+    <div
+      v-if="settings.remoteProviderDisclosureVersion === 0"
+      class="privacy-onboarding-backdrop"
+      role="presentation"
+    >
+      <section
+        class="privacy-onboarding-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="privacy-onboarding-title"
+        aria-describedby="privacy-onboarding-description"
+      >
+        <p class="privacy-onboarding-kicker">FIRST RUN</p>
+        <h1 id="privacy-onboarding-title">開始前，先確認翻譯內容會去哪裡</h1>
+        <p id="privacy-onboarding-description">
+          Open Web Translate 本身不經營翻譯伺服器。你選擇的翻譯服務決定文字是否離開裝置。
+        </p>
+
+        <div class="privacy-provider-grid">
+          <article>
+            <strong>本機處理</strong>
+            <span>Chrome Built-in AI、Ollama、Local HTTP。Ollama 與 Local HTTP 僅允許 loopback。</span>
+          </article>
+          <article>
+            <strong>外部服務</strong>
+            <span>Google Translate、Gemini、DeepL，以及你設定的 Custom HTTP。待翻譯文字會傳送到所選服務。</span>
+          </article>
+        </div>
+
+        <p class="privacy-onboarding-note">
+          OWT 不含廣告、分析或遙測。API Key 儲存在瀏覽器擴充功能沙盒中，不會提供給網頁內容。
+        </p>
+
+        <div class="privacy-onboarding-actions">
+          <a
+            href="https://github.com/RainWu0123/Open-Web-Translate/blob/master/PRIVACY.md"
+            target="_blank"
+            rel="noreferrer"
+            class="btn-stitch-secondary"
+          >查看完整隱私政策</a>
+          <button class="btn-stitch-accent" type="button" @click="acknowledgeRemoteDataNotice">
+            我了解資料傳輸方式
+          </button>
+        </div>
+      </section>
+    </div>
+
     <!-- ================================================================= -->
     <!-- 1. TOP HEADER (STITCH MINIMALIST NAVBAR)                          -->
     <!-- ================================================================= -->
@@ -736,6 +783,7 @@ const settings = ref({
   targetLanguage: 'zh-Hant',
   defaultTranslationMode: 'fast' as 'fast' | 'quality',
   activeProviderId: 'gemini-provider',
+  remoteProviderDisclosureVersion: 1,
   hasGeminiApiKey: false,
   geminiApiKeyMasked: '',
   geminiModel: DEFAULT_MODEL_ID,
@@ -979,7 +1027,8 @@ async function loadSettings() {
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage || 'zh-Hant';
       settings.value.defaultTranslationMode = s.defaultTranslationMode || 'fast';
-      settings.value.activeProviderId = s.activeProviderId || 'gemini-provider';
+      settings.value.activeProviderId = s.activeProviderId || 'google-provider';
+      settings.value.remoteProviderDisclosureVersion = s.remoteProviderDisclosureVersion ?? 1;
       settings.value.hasGeminiApiKey = !!s.hasGeminiApiKey;
       settings.value.geminiApiKeyMasked = s.geminiApiKeyMasked || '';
       settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
@@ -1045,6 +1094,18 @@ async function save() {
 
 async function saveNetflix() {
   await save();
+}
+
+async function acknowledgeRemoteDataNotice() {
+  try {
+    settings.value.remoteProviderDisclosureVersion = 1;
+    await SettingsStorage.set({ remoteProviderDisclosureVersion: 1 });
+    feedback.value = '已確認資料傳輸說明';
+    feedbackError.value = false;
+  } catch {
+    settings.value.remoteProviderDisclosureVersion = 0;
+    reportError('無法儲存確認狀態，請再試一次。');
+  }
 }
 
 async function saveApiKey(key: string) {
@@ -1179,6 +1240,92 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* ── First-run privacy / provider disclosure ───────────────────── */
+.privacy-onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.privacy-onboarding-card {
+  width: min(620px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--card-shadow);
+}
+
+.privacy-onboarding-kicker {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.privacy-onboarding-card h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  line-height: 1.35;
+  letter-spacing: -.02em;
+}
+
+.privacy-onboarding-card > p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.privacy-provider-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.privacy-provider-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-primary);
+}
+
+.privacy-provider-grid strong {
+  font-size: 13px;
+}
+
+.privacy-provider-grid span,
+.privacy-onboarding-note {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.privacy-onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.privacy-onboarding-actions a {
+  text-decoration: none;
+}
+
+@media (max-width: 620px) {
+  .privacy-provider-grid { grid-template-columns: 1fr; }
+  .privacy-onboarding-actions { flex-direction: column; }
+  .privacy-onboarding-actions > * { width: 100%; text-align: center; }
+}
+
 /* ── Main Stitch Layout ─────────────────────────────────────────── */
 .stitch-layout {
   display: flex;
