@@ -86,7 +86,40 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
   });
 
   describe('ChromeBuiltInAIProvider Service Worker & globalThis Support', () => {
-    it('detects AI API from globalThis when window is not available', async () => {
+    it('uses the current Chrome Translator global when available', async () => {
+      const provider = new ChromeBuiltInAIProvider();
+      const previousTranslator = (globalThis as any).Translator;
+      const previousDetector = (globalThis as any).LanguageDetector;
+
+      const translate = vi.fn().mockImplementation(async (text: string) => `[Translator] ${text}`);
+      (globalThis as any).Translator = {
+        create: vi.fn().mockResolvedValue({ translate, destroy: vi.fn() }),
+      };
+      (globalThis as any).LanguageDetector = {
+        create: vi.fn().mockResolvedValue({
+          detect: vi.fn().mockResolvedValue([{ detectedLanguage: 'en', confidence: 0.99 }]),
+          destroy: vi.fn(),
+        }),
+      };
+
+      try {
+        expect(provider.validateConfig().isValid).toBe(true);
+        const result = await provider.translate({
+          segments: [{ id: 'seg-official' as SegmentId, text: 'Hello official API' }],
+          sourceLanguage: 'auto' as LanguageCode,
+          targetLanguage: 'zh-Hant' as LanguageCode,
+          mode: 'fast',
+        });
+        expect(result.segments[0].text).toBe('[Translator] Hello official API');
+      } finally {
+        if (previousTranslator === undefined) delete (globalThis as any).Translator;
+        else (globalThis as any).Translator = previousTranslator;
+        if (previousDetector === undefined) delete (globalThis as any).LanguageDetector;
+        else (globalThis as any).LanguageDetector = previousDetector;
+      }
+    });
+
+    it('keeps compatibility with the older experimental globalThis.ai translator shape', async () => {
       const provider = new ChromeBuiltInAIProvider();
 
       const originalWindowAi = (window as any).ai;

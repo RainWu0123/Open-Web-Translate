@@ -1,7 +1,11 @@
 /**
- * Google Translate Provider (Web / Free Client API)
+ * Google Translate Provider (undocumented web endpoint).
  *
- * Uses origin-locked Google Translate endpoints with rate-limiting protection.
+ * IMPORTANT: translate.googleapis.com/translate_a/single with client=gtx is
+ * not the documented Google Cloud Translation API and carries no compatibility
+ * guarantee from Google. OWT contains only its own request/response adapter;
+ * no Google source code is bundled. Users who need a supported contractual API
+ * should prefer a documented provider such as DeepL, Gemini, or Custom HTTP.
  */
 import type { ProviderId, SegmentId } from '../../core/contracts/common';
 import type { ProviderCapabilities } from '../../core/contracts/capabilities';

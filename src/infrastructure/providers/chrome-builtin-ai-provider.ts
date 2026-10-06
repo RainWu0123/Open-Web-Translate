@@ -1,48 +1,107 @@
+/**
+ * Chrome Built-in AI translation provider.
+ *
+ * Primary API references:
+ * https://developer.chrome.com/docs/ai/translator-api
+ * https://developer.chrome.com/docs/ai/language-detection
+ *
+ * This is OWT project code written against Chrome's public Translator /
+ * LanguageDetector API shape. It does not copy Chromium source. A narrow
+ * compatibility fallback for older experimental `ai.translator` builds is
+ * kept so existing users are not broken.
+ */
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
-import type {
-  TranslationProvider,
-  ProviderConfigValidation,
-} from '@/core/contracts/provider';
-import type {
-  TranslationRequest,
-  TranslationResult,
-  TranslatedSegment,
-} from '@/core/contracts/translation';
-import {
-  ProviderError,
-  NetworkError,
-} from '@/core/domain/errors/translation-errors';
+import type { TranslationProvider, ProviderConfigValidation } from '@/core/contracts/provider';
+import type { TranslationRequest, TranslationResult, TranslatedSegment } from '@/core/contracts/translation';
+import { ProviderError, NetworkError, ConfigurationError } from '@/core/domain/errors/translation-errors';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('ChromeBuiltInAIProvider');
 
-function getChromeAiApi(): any {
-  const scopes = [
-    typeof globalThis !== 'undefined' ? (globalThis as any) : null,
-    typeof self !== 'undefined' ? (self as any) : null,
-    typeof window !== 'undefined' ? (window as any) : null,
-  ];
+interface TranslatorInstance {
+  translate(text: string, options?: { signal?: AbortSignal }): Promise<string>;
+  destroy?(): void;
+}
 
-  // 1. Prioritize objects that actually have translator or translate function
-  for (const s of scopes) {
-    if (!s) continue;
-    if (s.translation && (s.translation.translator || typeof s.translation.translate === 'function')) {
-      return s.translation;
-    }
-    if (s.ai && (s.ai.translator || typeof s.ai.translate === 'function')) {
-      return s.ai;
-    }
-  }
+interface TranslatorConstructorLike {
+  availability?(options: { sourceLanguage: string; targetLanguage: string }): Promise<string>;
+  create(options: { sourceLanguage: string; targetLanguage: string }): Promise<TranslatorInstance>;
+}
 
-  // 2. Fallback to generic translation or ai object if present
-  for (const s of scopes) {
-    if (!s) continue;
-    if (s.translation) return s.translation;
-    if (s.ai) return s.ai;
-  }
+interface LanguageDetectorInstance {
+  detect(text: string): Promise<Array<{ detectedLanguage: string; confidence: number }>>;
+  destroy?(): void;
+}
 
+interface LanguageDetectorConstructorLike {
+  availability?(): Promise<string>;
+  create(): Promise<LanguageDetectorInstance>;
+}
+
+type LegacyChromeAiApi = {
+  translator?: {
+    create(options: { sourceLanguage: string; targetLanguage: string }): Promise<TranslatorInstance>;
+  };
+  translate?: (text: string, options: { targetLanguage: string }) => Promise<string>;
+};
+
+function runtimeScope(): Record<string, unknown> {
+  return globalThis as unknown as Record<string, unknown>;
+}
+
+function getOfficialTranslator(): TranslatorConstructorLike | null {
+  const candidate = runtimeScope().Translator;
+  return candidate && (typeof candidate === 'object' || typeof candidate === 'function')
+    ? candidate as TranslatorConstructorLike
+    : null;
+}
+
+function getLanguageDetector(): LanguageDetectorConstructorLike | null {
+  const candidate = runtimeScope().LanguageDetector;
+  return candidate && (typeof candidate === 'object' || typeof candidate === 'function')
+    ? candidate as LanguageDetectorConstructorLike
+    : null;
+}
+
+function getLegacyChromeAiApi(): LegacyChromeAiApi | null {
+  const scope = runtimeScope();
+  const translation = scope.translation as LegacyChromeAiApi | undefined;
+  const ai = scope.ai as LegacyChromeAiApi | undefined;
+
+  if (translation?.translator || typeof translation?.translate === 'function') return translation;
+  if (ai?.translator || typeof ai?.translate === 'function') return ai;
   return null;
+}
+
+async function resolveSourceLanguage(request: TranslationRequest): Promise<string> {
+  if (request.sourceLanguage !== 'auto') return request.sourceLanguage;
+
+  const detectorCtor = getLanguageDetector();
+  if (!detectorCtor?.create) {
+    throw new ConfigurationError(
+      'Chrome Built-in AI requires a source language when LanguageDetector is unavailable. Choose the source language manually.',
+    );
+  }
+
+  const detector = await detectorCtor.create();
+  try {
+    const sample = request.segments.map((segment) => segment.text).join('\n').slice(0, 4000);
+    const candidates = await detector.detect(sample);
+    const best = candidates.find((candidate) =>
+      typeof candidate.detectedLanguage === 'string' &&
+      candidate.detectedLanguage.trim() &&
+      candidate.confidence >= 0.2,
+    );
+    if (!best) {
+      throw new ConfigurationError(
+        'Chrome Built-in AI could not determine the source language. Choose it manually.',
+      );
+    }
+    return best.detectedLanguage;
+  } finally {
+    detector.destroy?.();
+  }
 }
 
 export class ChromeBuiltInAIProvider implements TranslationProvider {
@@ -57,26 +116,19 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
   };
 
   validateConfig(_config?: unknown): ProviderConfigValidation {
-    const aiApi = getChromeAiApi();
-    if (!aiApi) {
+    if (!getOfficialTranslator()?.create && !getLegacyChromeAiApi()) {
       return {
         isValid: false,
-        errors: ['Chrome Built-in AI translator API is not supported or enabled in this browser'],
+        errors: ['Chrome Translator API is not supported or enabled in this browser'],
       };
     }
     return { isValid: true };
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) {
-      throw new Error('Translation aborted');
-    }
+    if (request.signal?.aborted) throw new Error('Translation aborted');
 
-    if (!this.isLocal) {
-      throw new ProviderError(this.id, 'Privacy violation: Chrome Built-in AI provider must have isLocal set to true');
-    }
-
-    if (!request.segments || request.segments.length === 0) {
+    if (!request.segments?.length) {
       return {
         providerId: this.id,
         segments: [],
@@ -85,42 +137,76 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
       };
     }
 
-    const aiApi = getChromeAiApi();
-
-    if (!aiApi) {
-      logger.error('Chrome Built-in AI API unavailable');
-      throw new NetworkError('Chrome Built-in AI API is not available on this device');
-    }
-
-    logger.debug('Executing Chrome Built-in AI translation', { segmentCount: request.segments.length });
-
     const translatedSegments: TranslatedSegment[] = [];
 
     try {
-      if (aiApi.translator) {
-        const translator = await aiApi.translator.create({
-          sourceLanguage: request.sourceLanguage === 'auto' ? 'en' : request.sourceLanguage,
+      const officialTranslator = getOfficialTranslator();
+      if (officialTranslator?.create) {
+        const sourceLanguage = await resolveSourceLanguage(request);
+        const translator = await officialTranslator.create({
+          sourceLanguage,
           targetLanguage: request.targetLanguage,
         });
 
-        for (const seg of request.segments) {
-          const res = await translator.translate(seg.text);
-          translatedSegments.push({
-            id: seg.id,
-            text: res,
-          });
-        }
-      } else if (typeof aiApi.translate === 'function') {
-        for (const seg of request.segments) {
-          const res = await aiApi.translate(seg.text, { targetLanguage: request.targetLanguage });
-          translatedSegments.push({ id: seg.id, text: res });
+        try {
+          for (const segment of request.segments) {
+            if (request.signal?.aborted) throw new Error('Translation aborted');
+            const translated = await translator.translate(segment.text, { signal: request.signal });
+            translatedSegments.push({ id: segment.id, text: translated });
+          }
+        } finally {
+          translator.destroy?.();
         }
       } else {
-        throw new ProviderError(this.id, 'Invalid Chrome Built-in AI API signature');
+        const legacy = getLegacyChromeAiApi();
+        if (!legacy) {
+          throw new NetworkError('Chrome Built-in AI API is not available on this device');
+        }
+
+        const sourceLanguage =
+          request.sourceLanguage === 'auto'
+            ? await resolveSourceLanguage(request)
+            : request.sourceLanguage;
+
+        if (legacy.translator?.create) {
+          const translator = await legacy.translator.create({
+            sourceLanguage,
+            targetLanguage: request.targetLanguage,
+          });
+          try {
+            for (const segment of request.segments) {
+              translatedSegments.push({
+                id: segment.id,
+                text: await translator.translate(segment.text),
+              });
+            }
+          } finally {
+            translator.destroy?.();
+          }
+        } else if (typeof legacy.translate === 'function') {
+          for (const segment of request.segments) {
+            translatedSegments.push({
+              id: segment.id,
+              text: await legacy.translate(segment.text, {
+                targetLanguage: request.targetLanguage,
+              }),
+            });
+          }
+        } else {
+          throw new ProviderError(this.id, 'Invalid Chrome Built-in AI API signature');
+        }
       }
-    } catch (err: any) {
-      if (err instanceof ProviderError || err instanceof NetworkError) throw err;
-      throw new NetworkError(`Chrome Built-in AI execution failed: ${err.message}`);
+    } catch (error) {
+      if (
+        error instanceof ProviderError ||
+        error instanceof NetworkError ||
+        error instanceof ConfigurationError
+      ) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Chrome Built-in AI execution failed', message);
+      throw new NetworkError(`Chrome Built-in AI execution failed: ${message}`);
     }
 
     return {
@@ -133,4 +219,3 @@ export class ChromeBuiltInAIProvider implements TranslationProvider {
 }
 
 export { ChromeBuiltInAIProvider as ChromeAiProvider, ChromeBuiltInAIProvider as ChromeAIProvider };
-

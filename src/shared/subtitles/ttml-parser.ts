@@ -1,3 +1,13 @@
+/**
+ * TTML/DFXP parser implemented against the W3C Timed Text specifications.
+ *
+ * Specification references:
+ * - https://www.w3.org/TR/ttml1/
+ * - https://www.w3.org/TR/ttml2/
+ *
+ * This parser is original project code; the URLs above document the format
+ * semantics and namespace/time-expression conventions it interoperates with.
+ */
 export interface SubtitleCue {
   startMs: number;
   endMs: number;

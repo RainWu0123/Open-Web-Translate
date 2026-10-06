@@ -66,7 +66,7 @@ OWT 內建強大的翻譯管線（`TranslationPipeline`），支援隨時在彈�
 | **Google 翻譯** | 免費免金鑰 | 內建連線頻率控制（Concurrency Limiter）與自動重試，開箱即用 |
 | **Google Gemini AI** | 雲端大模型 | 支援 `gemini-2.5-flash`、`gemini-3.5-flash`，具備對話記憶上下文（Context）與智慧熔斷機制 |
 | **DeepL 翻譯** | 專業翻譯 API | 支援 DeepL Free 與 Pro API 金鑰，翻譯自然度高 |
-| **Chrome 內建 AI** | 瀏覽器本機端 | 支援 Chrome 實驗性本機 Gemini Nano，無網路連線亦可極速翻譯 |
+| **Chrome 內建 AI** | 瀏覽器本機端 | 使用 Chrome Translator API；可用性取決於桌面版 Chrome、語言組合與本機模型狀態 |
 | **Ollama** | 自託管本機模型 | 僅連線 loopback（`localhost` / `127.0.0.0/8` / `::1`），適合本機 LLaMA、Mistral 等模型 |
 | **Local HTTP API** | 本機 OpenAI-compatible | 僅允許 loopback，相容 `/v1/chat/completions`；保證 Local provider 不會把內容送往遠端主機 |
 | **自訂 HTTP API** | 企業 / 代理 / 自架服務 | 相容 OpenAI Chat Completions 的自訂端點；遠端端點必須使用 HTTPS，翻譯內容會傳送至使用者指定的服務 |
@@ -185,6 +185,15 @@ graph TD
     Adapters --> Core
     Core --> Providers
 ```
+
+---
+
+## 🙏 來源、規格與第三方套件
+
+- 專案原始碼採 MPL-2.0；直接相依套件與規格參考整理於 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+- 完整程式碼審查結果與仍待處理的工程風險見 [CODE_AUDIT.md](./CODE_AUDIT.md)。
+- Netflix、YouTube、Google、DeepL、Chrome、Gemini、Ollama 等名稱與商標均屬其各自權利人；OWT 與這些服務沒有官方隸屬或背書關係。
+- 若未來引入改編程式碼，PR 必須保留來源 URL、原授權與必要 notice。
 
 ---
 

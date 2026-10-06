@@ -1,8 +1,13 @@
 /**
- * SuperMemo SM-2 Spaced Repetition System (SRS) Engine
+ * Spaced Repetition System inspired by the SuperMemo SM-2 family.
  *
- * Computes review intervals, repetition counts, and ease factors
- * to optimize memory retention for vocabulary cards.
+ * Reference / attribution:
+ * Piotr Wozniak, SuperMemo / "Optimization of Learning":
+ * https://super-memory.com/english/ol/
+ *
+ * This is an OWT-specific adaptation (four app grades, custom interval/ease
+ * adjustments), not a verbatim copy of SuperMemo source code or the canonical
+ * six-grade SM-2 implementation.
  */
 import type { SrsState, SrsGrade } from '@/core/domain/learning-types';
 

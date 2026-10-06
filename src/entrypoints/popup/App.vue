@@ -354,6 +354,7 @@ import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { useNetflixSession } from '@/core/session/subtitle-session-store';
+import { DEFAULT_MODEL_ID } from '@/infrastructure/providers/gemini/model-registry';
 
 const settings = ref({
   enabled: true,
@@ -361,7 +362,7 @@ const settings = ref({
   targetLanguage: 'zh-Hant',
   activeProviderId: 'google-provider',
   hasGeminiApiKey: false,
-  geminiModel: 'gemini-2.5-flash',
+  geminiModel: DEFAULT_MODEL_ID,
   hasDeeplApiKey: false,
   deeplApiIsPro: false,
   subtitleOriginalFontSize: 18,
@@ -646,7 +647,7 @@ onMounted(async () => {
       settings.value.targetLanguage = s.targetLanguage;
       settings.value.activeProviderId = s.activeProviderId || 'google-provider';
       settings.value.hasGeminiApiKey = Boolean(s.hasGeminiApiKey);
-      settings.value.geminiModel = s.geminiModel || 'gemini-2.5-flash';
+      settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
       settings.value.hasDeeplApiKey = Boolean(s.hasDeeplApiKey);
       settings.value.deeplApiIsPro = Boolean(s.deeplApiIsPro);
       settings.value.subtitleOriginalFontSize = s.subtitleOriginalFontSize ?? 18;
