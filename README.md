@@ -40,7 +40,7 @@
 - **雙軌時間對齊演算法（`CueAligner`）**：以播放頭二分搜尋，動態計算最大時間重疊，完美對齊雙語字幕。
 - **原生字幕無閃爍遮罩**：原生遮罩避免字幕更迭時的白底黑字閃爍。
 - **單詞點擊即查（`DictionaryPopover`）**：在字幕上直接點擊單字即可即時查詢字義，一鍵收藏至生詞本。
-- **逐句精細控制**：支援句尾自動暫停、單句重播，打造超越 Language Reactor 的學習體驗。
+- **逐句精細控制**：支援句尾自動暫停與單句重播，方便把影片當成語言學習素材。
 
 ### 🌐 3. 全網頁雙語對照與劃詞翻譯
 - **非破壞性排版**：採用智慧 DOM 區塊擷取與 Shadow DOM 樣式隔離，保留網頁原有排版與行內樣式。
@@ -147,7 +147,7 @@ pnpm zip:firefox
 - **無追蹤與零遙測**：程式碼中不含 Google Analytics、Sentry 或任何第三方遙測代碼，保證您的閱讀習慣完全私密。
 - **金鑰嚴密隔離**：API Key 僅儲存於本機擴充套件沙盒；一般設定與 content script 只取得遮罩/是否已設定狀態，raw key 僅由 background/provider 在發出對應請求時讀取。
 - **Local 與 Remote 邊界**：Ollama / Local HTTP 僅允許 loopback；Custom HTTP 明確視為 remote provider，遠端端點必須使用 HTTPS。
-- 詳細資料處理方式請見 [`PRIVACY.md`](./PRIVACY.md)。
+- 詳細資料處理方式請見 [`PRIVACY.md`](./PRIVACY.md)。新安裝會先顯示本機／遠端翻譯服務的資料傳輸說明；確認前不會向遠端 provider 發出翻譯請求。
 
 ---
 
@@ -194,6 +194,7 @@ graph TD
 - 完整程式碼審查結果與仍待處理的工程風險見 [CODE_AUDIT.md](./CODE_AUDIT.md)。
 - Netflix、YouTube、Google、DeepL、Chrome、Gemini、Ollama 等名稱與商標均屬其各自權利人；OWT 與這些服務沒有官方隸屬或背書關係。
 - 若未來引入改編程式碼，PR 必須保留來源 URL、原授權與必要 notice。
+- 商店上架文案、權限說明與 reviewer notes 見 [`STORE_LISTING.md`](./STORE_LISTING.md)；Firefox source review 步驟見 [`FIREFOX_REVIEW.md`](./FIREFOX_REVIEW.md)。
 
 ---
 

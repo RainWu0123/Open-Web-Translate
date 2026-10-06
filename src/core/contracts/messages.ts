@@ -52,6 +52,12 @@ export interface ExtensionSettings {
   enabled: boolean;
   defaultTranslationMode: 'fast' | 'quality';
   activeProviderId: string;
+  /**
+   * Version of the first-run remote data-transfer notice acknowledged by the user.
+   * A value of 0 is used only for brand-new installs before acknowledgement.
+   * Undefined is treated as legacy/pre-notice state for backwards compatibility.
+   */
+  remoteProviderDisclosureVersion?: number;
   geminiApiKeyMasked?: string;
   hasGeminiApiKey?: boolean;
   geminiModel?: string;

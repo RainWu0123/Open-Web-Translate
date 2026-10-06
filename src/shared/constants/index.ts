@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   defaultTranslationMode: 'fast',
   activeProviderId: 'google-provider',
+  remoteProviderDisclosureVersion: 1,
   geminiModel: 'gemini-3.5-flash',
   aiTranslationInstructions: '',
   deeplApiIsPro: false,
