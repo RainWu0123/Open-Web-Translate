@@ -43,6 +43,7 @@ export class NetflixAiPrefetchController {
   private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly cueLimit = 40;
+  private readonly charLimit = 20_000;
   private readonly windowMs = 90_000;
   private readonly refillThreshold = 15;
   private readonly clearGraceMs = 1200;
@@ -188,11 +189,15 @@ export class NetflixAiPrefetchController {
     const startMs = this.cues[startIndex]?.startMs ?? 0;
 
     let endExclusive = startIndex;
+    let chars = 0;
     while (
       endExclusive < this.cues.length &&
       endExclusive - startIndex < this.cueLimit &&
       this.cues[endExclusive].startMs - startMs <= this.windowMs
     ) {
+      const nextChars = this.cues[endExclusive].text.length;
+      if (endExclusive > startIndex && chars + nextChars > this.charLimit) break;
+      chars += nextChars;
       endExclusive += 1;
     }
 
