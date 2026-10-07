@@ -66,6 +66,8 @@ OWT 內建強大的翻譯管線（`TranslationPipeline`），支援隨時在彈�
 | **Google 翻譯** | 免費免金鑰 / 非官方網頁端點 | 使用未文件化的 Google 翻譯 web endpoint；免金鑰但不提供 Google Cloud API 的相容性或 SLA 保證 |
 | **Google Gemini AI** | 雲端大模型 | 支援 `gemini-2.5-flash`、`gemini-3.5-flash`，具備對話記憶上下文（Context）與智慧熔斷機制 |
 | **DeepL 翻譯** | 專業翻譯 API | 支援 DeepL Free 與 Pro API 金鑰，翻譯自然度高 |
+| **OpenRouter** | 雲端 OpenAI-compatible | 可輸入任意 OpenRouter model slug，也可使用 `openrouter/auto` 或 `openrouter/free` 路由 |
+| **NVIDIA NIM** | Hosted / self-hosted OpenAI-compatible | 預設支援 NVIDIA hosted NIM，也可指向 loopback NIM；模型 ID 可自行輸入 |
 | **Chrome 內建 AI** | 瀏覽器本機端 | 使用 Chrome Translator API；可用性取決於桌面版 Chrome、語言組合與本機模型狀態 |
 | **Ollama** | 自託管本機模型 | 僅連線 loopback（`localhost` / `127.0.0.0/8` / `::1`），適合本機 LLaMA、Mistral 等模型 |
 | **Local HTTP API** | 本機 OpenAI-compatible | 僅允許 loopback，相容 `/v1/chat/completions`；保證 Local provider 不會把內容送往遠端主機 |
@@ -143,10 +145,10 @@ pnpm zip:firefox
 
 ## 🔒 隱私與安全模型
 
-- **Local-first（本機優先）**：所有使用者設定、自訂字典、劃詞翻譯快取與生詞本卡片均儲存在本地 `IndexedDB` 與 `browser.storage.local`。只有在使用者明確選擇雲端或 Custom HTTP provider 時，待翻譯內容才會傳送至對應服務。
+- **Local-first（本機優先）**：所有使用者設定、自訂字典、劃詞翻譯快取與生詞本卡片均儲存在本地 `IndexedDB` 與 `browser.storage.local`。只有在使用者明確選擇雲端、OpenRouter、Hosted NVIDIA NIM 或 Custom HTTP provider 時，待翻譯內容才會傳送至對應服務。
 - **無追蹤與零遙測**：程式碼中不含 Google Analytics、Sentry 或任何第三方遙測代碼，保證您的閱讀習慣完全私密。
 - **金鑰嚴密隔離**：API Key 僅儲存於本機擴充套件沙盒；一般設定與 content script 只取得遮罩/是否已設定狀態，raw key 僅由 background/provider 在發出對應請求時讀取。
-- **Local 與 Remote 邊界**：Ollama / Local HTTP 僅允許 loopback；Custom HTTP 明確視為 remote provider，遠端端點必須使用 HTTPS。
+- **Local 與 Remote 邊界**：Ollama / Local HTTP 僅允許 loopback；OpenRouter 與 Hosted NVIDIA NIM 為 remote provider；NVIDIA NIM 亦可指向 loopback；Custom HTTP 遠端端點必須使用 HTTPS。
 - 詳細資料處理方式請見 [`PRIVACY.md`](./PRIVACY.md)。新安裝會先顯示本機／遠端翻譯服務的資料傳輸說明；確認前不會向遠端 provider 發出翻譯請求。
 
 ---
@@ -192,7 +194,7 @@ graph TD
 
 - 專案原始碼採 MPL-2.0；直接相依套件與規格參考整理於 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 - 完整程式碼審查結果與仍待處理的工程風險見 [CODE_AUDIT.md](./CODE_AUDIT.md)。
-- Netflix、YouTube、Google、DeepL、Chrome、Gemini、Ollama 等名稱與商標均屬其各自權利人；OWT 與這些服務沒有官方隸屬或背書關係。
+- Netflix、YouTube、Google、DeepL、Chrome、Gemini、Ollama、OpenRouter、NVIDIA 等名稱與商標均屬其各自權利人；OWT 與這些服務沒有官方隸屬或背書關係。
 - 若未來引入改編程式碼，PR 必須保留來源 URL、原授權與必要 notice。
 - 商店上架文案、權限說明與 reviewer notes 見 [`STORE_LISTING.md`](./STORE_LISTING.md)；Firefox source review 步驟見 [`FIREFOX_REVIEW.md`](./FIREFOX_REVIEW.md)。
 - 發布前人工驗證與版本檢查見 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)；使用條款見 [`TERMS.md`](./TERMS.md)。
