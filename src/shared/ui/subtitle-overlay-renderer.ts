@@ -120,7 +120,7 @@ export class SubtitleOverlayRenderer {
           kind: 'translated',
           text: secondaryText,
           color: options.isError ? '#ef4444' : (this.settings.subtitleTranslatedColor || '#d4d4d4'),
-          bold: options.isError,
+          bold: options.isError === true,
           fontSize: `${Math.max(14, Number(this.settings.subtitleTranslatedFontSize || 22) - 4)}px`,
         });
         statusLine.style.opacity = options.isError ? '1' : '0.78';
