@@ -194,25 +194,6 @@
           </button>
         </div>
 
-        <!-- Netflix Learning Mode -->
-        <div v-if="isNetflixTab" class="stitch-row">
-          <div class="row-info">
-            <span class="row-title">{{ t('subtitle.learningTitle') }}</span>
-            <span class="row-desc">{{ t('subtitle.learningDesc') }}</span>
-          </div>
-          <div class="row-control">
-            <label class="toggle">
-              <input
-                type="checkbox"
-                :checked="learningMode"
-                @change="onLearningModeToggle"
-                data-testid="popup-learning-mode-toggle"
-              />
-              <span class="slider"></span>
-            </label>
-          </div>
-        </div>
-
         <!-- Netflix Subtitle Source -->
         <div v-if="isNetflixTab" class="stitch-row">
           <div class="row-info">
@@ -409,8 +390,6 @@ const isYouTubeTab = ref(false);
 const isSubtitleTab = computed(() => isNetflixTab.value || isYouTubeTab.value);
 const { hudInfo: netflixHud } = useNetflixSession();
 
-const learningMode = ref(true);
-
 const ytActive = ref(false);
 const ytTracks = ref<Array<{ id: string; label: string; languageCode: string; kind?: string }>>([]);
 const ytSelectedTrackId = ref<string | null>(null);
@@ -506,15 +485,6 @@ async function onYouTubeTrackChange(e: Event) {
     errorMessage.value = t('error.youtubeTrack');
   }
 }
-
-watch(
-  () => netflixHud.value.learningMode,
-  (mode) => {
-    if (mode !== undefined) {
-      learningMode.value = mode;
-    }
-  },
-);
 
 function onProviderChange(e: Event) {
   const providerId = (e.target as HTMLSelectElement).value;
@@ -616,26 +586,6 @@ async function saveSubtitleSizes() {
   }
 }
 
-async function onLearningModeToggle(e: Event) {
-  const enabled = (e.target as HTMLInputElement).checked;
-  learningMode.value = enabled;
-  try {
-    const current = (await SettingsStorage.get()).netflix ?? {
-      enabled: true,
-      primarySize: 18,
-      secondarySize: 22,
-      bottomPosition: 80,
-      lineSpacing: 4,
-      enableBitmapRescue: true,
-      learningMode: true,
-    };
-    await SettingsStorage.set({ netflix: { ...current, learningMode: enabled } });
-  } catch {
-    learningMode.value = !enabled;
-    errorMessage.value = t('error.learningModeRestored');
-  }
-}
-
 async function setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: string) {
   try {
     const tabId = await extensionBridge.queryActiveTabId();
@@ -698,7 +648,6 @@ onMounted(async () => {
 
     const s = await SettingsStorage.get();
     if (s) {
-      learningMode.value = s.netflix?.learningMode ?? true;
       settings.value.enabled = s.enabled;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage;

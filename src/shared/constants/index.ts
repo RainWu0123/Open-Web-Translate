@@ -17,7 +17,7 @@ export const DEFAULT_NETFLIX_CONFIG: NonNullable<ExtensionSettings['netflix']> =
   bottomPosition: 80,
   lineSpacing: 4,
   enableBitmapRescue: true,
-  learningMode: true,
+  learningMode: false,
 };
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
