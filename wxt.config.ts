@@ -11,6 +11,7 @@ const EXTENSION_ICONS = {
 
 export default defineConfig({
   srcDir: 'src',
+  publicDir: 'src/public',
   modules: ['@wxt-dev/module-vue'],
   manifest: () => ({
     name: 'Open Web Translate',
