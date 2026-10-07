@@ -140,7 +140,6 @@ export class OpenAiCompatibleProvider implements TranslationProvider {
         body: {
           model: this.model,
           messages: [{ role: 'user', content }],
-          temperature: request.mode === 'quality' ? 0.2 : 0,
         },
         signal: request.signal,
         timeoutMs: 30000,
