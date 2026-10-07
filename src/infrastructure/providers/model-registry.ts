@@ -19,6 +19,8 @@ import { GoogleTranslateProvider } from './google-provider';
 import { DeepLProvider } from './deepl-provider';
 import { LocalHttpProvider } from './local-http-provider';
 import { CustomHttpProvider } from './custom-http-provider';
+import { OpenRouterProvider, OPENROUTER_MODEL_SUGGESTIONS } from './openrouter-provider';
+import { NvidiaNimProvider, NVIDIA_NIM_MODEL_SUGGESTIONS } from './nvidia-nim-provider';
 import { MockProvider } from './mock-provider';
 
 export * from './gemini/model-registry';
@@ -73,6 +75,18 @@ export const REGISTERED_PROVIDERS: Record<string, ProviderRegistration> = {
     isLocal: false,
     supportedModels: ['default'],
   },
+  'openrouter-provider': {
+    providerId: 'openrouter-provider',
+    displayName: 'OpenRouter',
+    isLocal: false,
+    supportedModels: [...OPENROUTER_MODEL_SUGGESTIONS],
+  },
+  'nvidia-nim-provider': {
+    providerId: 'nvidia-nim-provider',
+    displayName: 'NVIDIA NIM',
+    isLocal: false,
+    supportedModels: [...NVIDIA_NIM_MODEL_SUGGESTIONS],
+  },
   'mock-provider': {
     providerId: 'mock-provider',
     displayName: 'Mock Provider',
@@ -100,6 +114,11 @@ export class ModelRegistry {
     ['deepl', 'deepl-provider'],
     ['local-http', 'local-http-provider'],
     ['custom-http', 'custom-http-provider'],
+    ['openrouter', 'openrouter-provider'],
+    ['open-router', 'openrouter-provider'],
+    ['nvidia-nim', 'nvidia-nim-provider'],
+    ['nvidia', 'nvidia-nim-provider'],
+    ['nim', 'nvidia-nim-provider'],
     ['mock', 'mock-provider'],
   ]);
 
@@ -166,6 +185,19 @@ export class ModelRegistry {
           apiKey: settings?.customHttpApiKey,
           instructions: settings?.aiTranslationInstructions,
         });
+      case 'openrouter-provider':
+        return new OpenRouterProvider({
+          model: settings?.openRouterModel,
+          apiKey: settings?.openRouterApiKey,
+          instructions: settings?.aiTranslationInstructions,
+        });
+      case 'nvidia-nim-provider':
+        return new NvidiaNimProvider({
+          endpoint: settings?.nvidiaNimEndpoint,
+          model: settings?.nvidiaNimModel,
+          apiKey: settings?.nvidiaNimApiKey,
+          instructions: settings?.aiTranslationInstructions,
+        });
       case 'mock-provider':
         return new MockProvider();
       case 'google-provider':
@@ -183,9 +215,9 @@ export class ModelRegistry {
       const res = validateGeminiModelId(modelId);
       return { isValid: res.valid, message: 'message' in res ? res.message : undefined };
     }
-    if (resolved === 'ollama-provider') {
+    if (resolved === 'ollama-provider' || resolved === 'openrouter-provider' || resolved === 'nvidia-nim-provider') {
       if (!modelId || modelId.trim().length === 0) {
-        return { isValid: false, message: 'Ollama model ID cannot be empty' };
+        return { isValid: false, message: 'Model ID cannot be empty' };
       }
       return { isValid: true };
     }
