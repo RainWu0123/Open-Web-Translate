@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "Open Web Translate"
+  },
+  "appDescription": {
+    "message": "オープンソースのブラウザー翻訳拡張機能。"
+  },
+  "actionTitle": {
+    "message": "Open Web Translate を開く"
+  }
+}

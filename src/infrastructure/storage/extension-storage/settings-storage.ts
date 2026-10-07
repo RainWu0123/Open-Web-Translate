@@ -69,6 +69,7 @@ export class SettingsStorage {
 
   /** Public change stream; raw credentials never leave this module. */
   static watch(callback: (newSettings: ExtensionSettings) => void): () => void {
+    if (!browser?.storage?.local?.onChanged) return () => {};
     const listener = (changes: Record<string, { newValue?: unknown }>) => {
       if (changes[STORAGE_KEYS.SETTINGS]) {
         callback(this.toPublic(changes[STORAGE_KEYS.SETTINGS].newValue as StoredSettings | undefined));

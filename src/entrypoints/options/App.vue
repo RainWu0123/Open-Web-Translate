@@ -12,25 +12,25 @@
         aria-labelledby="privacy-onboarding-title"
         aria-describedby="privacy-onboarding-description"
       >
-        <p class="privacy-onboarding-kicker">FIRST RUN</p>
-        <h1 id="privacy-onboarding-title">開始前，先確認翻譯內容會去哪裡</h1>
+        <p class="privacy-onboarding-kicker">{{ tr('options.firstRun') }}</p>
+        <h1 id="privacy-onboarding-title">{{ tr('options.onboardingTitle') }}</h1>
         <p id="privacy-onboarding-description">
-          Open Web Translate 本身不經營翻譯伺服器。你選擇的翻譯服務決定文字是否離開裝置。
+          {{ tr('options.onboardingDesc') }}
         </p>
 
         <div class="privacy-provider-grid">
           <article>
-            <strong>本機處理</strong>
-            <span>Chrome Built-in AI、Ollama、Local HTTP。Ollama 與 Local HTTP 僅允許 loopback。</span>
+            <strong>{{ tr('options.localProcessing') }}</strong>
+            <span>{{ tr('options.localProcessingDesc') }}</span>
           </article>
           <article>
-            <strong>外部服務</strong>
-            <span>Google Translate、Gemini、DeepL，以及你設定的 Custom HTTP。待翻譯文字會傳送到所選服務。</span>
+            <strong>{{ tr('options.remoteServices') }}</strong>
+            <span>{{ tr('options.remoteServicesDesc') }}</span>
           </article>
         </div>
 
         <p class="privacy-onboarding-note">
-          OWT 不含廣告、分析或遙測。API Key 儲存在瀏覽器擴充功能沙盒中，不會提供給網頁內容。
+          {{ tr('options.privacyNote') }}
         </p>
 
         <div class="privacy-onboarding-actions">
@@ -39,9 +39,9 @@
             target="_blank"
             rel="noreferrer"
             class="btn-stitch-secondary"
-          >查看完整隱私政策</a>
+          >{{ tr('options.viewPrivacy') }}</a>
           <button class="btn-stitch-accent" type="button" @click="acknowledgeRemoteDataNotice">
-            我了解資料傳輸方式
+            {{ tr('options.acceptPrivacy') }}
           </button>
         </div>
       </section>
@@ -65,28 +65,33 @@
           <input
             type="text"
             v-model="globalSearchQuery"
-            placeholder="搜尋設定…" aria-label="搜尋設定"
+            :placeholder="tr('options.searchPlaceholder')" :aria-label="tr('options.searchLabel')"
             class="search-input"
             @keydown.enter.prevent="openFirstSearchResult" @keydown.esc="globalSearchQuery = ''"
             ref="searchInputRef"
           />
           <kbd class="search-kbd">Ctrl K</kbd>
         </div>
-        <div v-if="globalSearchQuery.trim()" class="search-results" aria-label="搜尋結果">
+        <div v-if="globalSearchQuery.trim()" class="search-results" :aria-label="tr('options.searchResults')">
           <button v-for="item in searchResults" :key="item.tab" type="button" @click="selectSearchResult(item.tab)">
             <span>{{ item.label }}</span><span aria-hidden="true">↗</span>
           </button>
-          <p v-if="!searchResults.length" role="status">沒有符合的設定，試試「字幕」或「翻譯」。</p>
+          <p v-if="!searchResults.length" role="status">{{ tr('options.noSearchResults') }}</p>
         </div>
       </div>
 
       <div class="header-right">
 
         <div class="theme-select-box">
-          <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" aria-label="介面主題">
-            <option value="system">自動</option>
-            <option value="dark">深色</option>
-            <option value="light">淺色</option>
+          <select v-model="settings.uiLanguage" @change="save" class="stitch-theme-select" :aria-label="tr('ui.language')">
+            <option v-for="option in interfaceLanguageOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+          <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" :aria-label="tr('theme.label')">
+            <option value="system">{{ tr('common.system') }}</option>
+            <option value="dark">{{ tr('common.dark') }}</option>
+            <option value="light">{{ tr('common.light') }}</option>
           </select>
         </div>
       </div>
@@ -105,21 +110,21 @@
             @click="switchTab('general')"
             data-testid="tab-general"
           >
-            <span>閱讀設定</span>
+            <span>{{ tr('nav.reading') }}</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'subtitles' }]"
             @click="switchTab('subtitles')"
             data-testid="tab-subtitles"
           >
-            <span>字幕設定</span>
+            <span>{{ tr('nav.subtitles') }}</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'learning' }]"
             @click="switchTab('learning')"
             data-testid="tab-learning"
           >
-            <span>複習單字</span>
+            <span>{{ tr('nav.review') }}</span>
             <span v-if="vocabItems.length && dueCardsCount > 0" class="sidebar-count-chip">{{ dueCardsCount }}</span>
           </button>
           <button
@@ -127,14 +132,14 @@
             @click="switchTab('vocabulary')"
             data-testid="tab-vocabulary"
           >
-            <span>我的單字</span>
+            <span>{{ tr('nav.vocabulary') }}</span>
           </button>
           <button
             :class="['sidebar-nav-btn', { active: activeTab === 'models' }]"
             @click="switchTab('models')"
             data-testid="tab-providers"
           >
-            <span>翻譯服務</span>
+            <span>{{ tr('nav.providers') }}</span>
           </button>
 
         </div>
@@ -163,10 +168,10 @@
               <!-- Clean Cinema Preview Toolbar -->
               <div class="canvas-toolbar">
                 <div class="toolbar-chip active">
-                  <span>Netflix 外觀預覽</span>
+                  <span>{{ tr('options.previewNetflix') }}</span>
                 </div>
                 <div class="toolbar-sep"></div>
-                <span class="preview-hint">僅示意外觀，不代表影片已連線</span>
+                <span class="preview-hint">{{ tr('options.previewHint') }}</span>
               </div>
 
               <!-- Movie scene backdrop with live dynamic subtitles -->
@@ -195,7 +200,7 @@
                       color: settings.subtitleTranslatedColor || '#d4d4d4',
                     }"
                   >
-                    知識的起點，是發現我們所不理解的事物。
+                    {{ tr('options.previewQuote') }}
                   </div>
                 </div>
               </div>
@@ -204,20 +209,20 @@
             <!-- Netflix Configuration Section -->
             <section id="sub-netflix" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">Netflix 雙語字幕</h2>
-                <p class="section-lead">調整原文、譯文的大小與位置。影片必須有可用的文字字幕。</p>
+                <h2 class="section-heading">{{ tr('options.netflixTitle') }}</h2>
+                <p class="section-lead">{{ tr('options.netflixDesc') }}</p>
               </div>
 
               <div class="stitch-rows-container">
                 <!-- Toggle -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">啟用 Netflix 雙語字幕</span>
-                    <span class="row-desc">允許使用雙語字幕。在 Netflix 播放影片後，從擴充功能按「開啟雙語字幕」。</span>
+                    <span class="row-title">{{ tr('options.netflixEnable') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixEnableDesc') }}</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input aria-label="啟用 Netflix 雙語字幕"
+                      <input :aria-label="tr('options.netflixEnable')"
                         type="checkbox"
                         v-model="netflixConfig.enabled"
                         @change="saveNetflix"
@@ -231,11 +236,11 @@
                 <!-- Primary Subtitle Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">Netflix 原文大小</span>
-                    <span class="row-desc">影片原生字幕字體大小 (12px – 48px)。</span>
+                    <span class="row-title">{{ tr('options.netflixOriginalSize') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixOriginalSizeDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="Netflix 原文大小"
+                    <input :aria-label="tr('options.netflixOriginalSize')"
                       type="range"
                       min="12"
                       max="48"
@@ -249,11 +254,11 @@
                 <!-- Secondary Subtitle Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">Netflix 譯文大小</span>
-                    <span class="row-desc">雙語翻譯字幕字體大小 (12px – 48px)。</span>
+                    <span class="row-title">{{ tr('options.netflixTranslatedSize') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixTranslatedSizeDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="Netflix 譯文大小"
+                    <input :aria-label="tr('options.netflixTranslatedSize')"
                       type="range"
                       min="12"
                       max="48"
@@ -267,11 +272,11 @@
                 <!-- Bottom Position -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">距離畫面底部</span>
-                    <span class="row-desc">字幕距離畫面底部的邊距高度 (20px – 300px)。</span>
+                    <span class="row-title">{{ tr('options.netflixBottom') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixBottomDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="距離畫面底部"
+                    <input :aria-label="tr('options.netflixBottom')"
                       type="range"
                       min="20"
                       max="300"
@@ -285,11 +290,11 @@
                 <!-- Line Spacing -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">兩行字幕的間距</span>
-                    <span class="row-desc">主字幕與副字幕之間的垂直間隙 (0px – 40px)。</span>
+                    <span class="row-title">{{ tr('options.netflixSpacing') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixSpacingDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="兩行字幕的間距"
+                    <input :aria-label="tr('options.netflixSpacing')"
                       type="range"
                       min="0"
                       max="40"
@@ -303,12 +308,12 @@
                 <!-- Learning Mode -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">學習模式（單字逐詞點擊）</span>
-                    <span class="row-desc">在播放器字幕上點擊任一生詞即可立即查詢並存入生詞庫。</span>
+                    <span class="row-title">{{ tr('options.netflixLearning') }}</span>
+                    <span class="row-desc">{{ tr('options.netflixLearningDesc') }}</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input aria-label="學習模式（單字逐詞點擊）"
+                      <input :aria-label="tr('options.netflixLearning')"
                         type="checkbox"
                         v-model="netflixConfig.learningMode"
                         @change="saveNetflix"
@@ -323,19 +328,19 @@
             <!-- YouTube 字幕樣式 Section -->
             <section id="sub-youtube" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">YouTube 字幕外觀</h2>
-                <p class="section-lead">自訂 YouTube 原文字幕與譯文字幕的字體大小、顯示色彩與對比度。</p>
+                <h2 class="section-heading">{{ tr('options.youtubeAppearance') }}</h2>
+                <p class="section-lead">{{ tr('options.youtubeAppearanceDesc') }}</p>
               </div>
 
               <div class="stitch-rows-container">
                 <!-- Original Font Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">YouTube 原文字幕大小</span>
-                    <span class="row-desc">設定影片原文字幕字體大小 (12px – 32px)。</span>
+                    <span class="row-title">{{ tr('options.youtubeOriginalSize') }}</span>
+                    <span class="row-desc">{{ tr('options.youtubeOriginalSizeDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="YouTube 原文字幕大小"
+                    <input :aria-label="tr('options.youtubeOriginalSize')"
                       type="range"
                       min="12"
                       max="32"
@@ -349,11 +354,11 @@
                 <!-- Translated Font Size -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">YouTube 譯文字幕大小</span>
-                    <span class="row-desc">設定翻譯字幕字體大小 (14px – 40px)。</span>
+                    <span class="row-title">{{ tr('options.youtubeTranslatedSize') }}</span>
+                    <span class="row-desc">{{ tr('options.youtubeTranslatedSizeDesc') }}</span>
                   </div>
                   <div class="row-control slider-control">
-                    <input aria-label="YouTube 譯文字幕大小"
+                    <input :aria-label="tr('options.youtubeTranslatedSize')"
                       type="range"
                       min="14"
                       max="40"
@@ -367,11 +372,11 @@
                 <!-- Original Color -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">YouTube 原文字幕顏色</span>
-                    <span class="row-desc">設定影片原文字幕文字色彩。</span>
+                    <span class="row-title">{{ tr('options.youtubeOriginalColor') }}</span>
+                    <span class="row-desc">{{ tr('options.youtubeOriginalColorDesc') }}</span>
                   </div>
                   <div class="row-control color-control">
-                    <input aria-label="YouTube 原文字幕顏色"
+                    <input :aria-label="tr('options.youtubeOriginalColor')"
                       type="color"
                       v-model="settings.subtitleOriginalColor"
                       @change="save"
@@ -383,11 +388,11 @@
                 <!-- Translated Color -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">YouTube 譯文字幕顏色</span>
-                    <span class="row-desc">設定翻譯字幕文字色彩。</span>
+                    <span class="row-title">{{ tr('options.youtubeTranslatedColor') }}</span>
+                    <span class="row-desc">{{ tr('options.youtubeTranslatedColorDesc') }}</span>
                   </div>
                   <div class="row-control color-control">
-                    <input aria-label="YouTube 譯文字幕顏色"
+                    <input :aria-label="tr('options.youtubeTranslatedColor')"
                       type="color"
                       v-model="settings.subtitleTranslatedColor"
                       @change="save"
@@ -401,26 +406,26 @@
             <!-- Hotkeys Guide Section -->
             <section id="sub-hotkeys" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">操作與快捷鍵</h2>
-                <p class="section-lead">觀看影視雙語字幕時的專屬鍵盤快捷鍵。</p>
+                <h2 class="section-heading">{{ tr('options.hotkeysTitle') }}</h2>
+                <p class="section-lead">{{ tr('options.hotkeysDesc') }}</p>
               </div>
 
               <div class="hotkey-grid">
                 <div class="hotkey-card">
                   <div class="hk-keys"><kbd>Alt + Q</kbd> / <kbd>Alt + E</kbd></div>
-                  <span class="hk-desc">減慢 / 加快播放速度</span>
+                  <span class="hk-desc">{{ tr('options.slowerFaster') }}</span>
                 </div>
                 <div class="hotkey-card">
                   <div class="hk-keys"><kbd>Alt + A</kbd> / <kbd>Alt + D</kbd></div>
-                  <span class="hk-desc">上一個 / 下一個字幕</span>
+                  <span class="hk-desc">{{ tr('options.prevNext') }}</span>
                 </div>
                 <div class="hotkey-card">
                   <div class="hk-keys"><kbd>Alt + S</kbd></div>
-                  <span class="hk-desc">重複播放當前字幕</span>
+                  <span class="hk-desc">{{ tr('options.replay') }}</span>
                 </div>
                 <div class="hotkey-card">
                   <div class="hk-keys"><kbd>Alt + Z</kbd> / <kbd>Alt + C</kbd></div>
-                  <span class="hk-desc">開關主字幕 / 開關副字幕</span>
+                  <span class="hk-desc">{{ tr('options.toggleLines') }}</span>
                 </div>
               </div>
             </section>
@@ -440,11 +445,11 @@
 
             <section id="learn-anki" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">匯出至 Anki</h2>
-                <p class="section-lead">匯出單字、釋義與例句。在 Anki 匯入時選擇 Tab 分隔與「允許 HTML」。</p>
+                <h2 class="section-heading">{{ tr('options.ankiTitle') }}</h2>
+                <p class="section-lead">{{ tr('options.ankiDesc') }}</p>
               </div>
               <button :disabled="!learningCards.length" @click="onExportAnki" class="btn-stitch-accent">
-                匯出 Anki 牌組 (.txt)
+                {{ tr('options.ankiExport') }}
               </button>
             </section>
           </template>
@@ -471,28 +476,28 @@
           <template v-else-if="activeTab === 'models'">
             <section id="models-provider" class="stitch-section">
               <div class="section-header-block">
-                <h2 class="section-heading">選擇翻譯服務</h2>
-                <p class="section-lead">選擇預設翻譯提供商與進階模型配置。</p>
+                <h2 class="section-heading">{{ tr('options.providerTitle') }}</h2>
+                <p class="section-lead">{{ tr('options.providerDesc') }}</p>
               </div>
 
               <div class="stitch-rows-container">
                 <!-- Provider Select -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">使用的服務</span>
-                    <span class="row-desc">選擇翻譯服務提供商。</span>
+                    <span class="row-title">{{ tr('options.providerUsed') }}</span>
+                    <span class="row-desc">{{ tr('options.providerUsedDesc') }}</span>
                   </div>
                   <div class="row-control">
-                    <select aria-label="使用的服務" v-model="settings.activeProviderId" @change="save" class="stitch-select">
-                      <option value="google-provider">Google Translate (Free · unofficial web endpoint)</option>
-                      <option value="gemini-provider">Google Gemini API</option>
-                      <option value="deepl-provider">DeepL Translate API</option>
-                      <option value="openrouter-provider">OpenRouter</option>
-                      <option value="nvidia-nim-provider">NVIDIA NIM</option>
-                      <option value="ollama-provider">Local Ollama AI (loopback only)</option>
-                      <option value="local-http-provider">Local HTTP AI (loopback only)</option>
-                      <option value="custom-http-provider">Custom HTTP API (remote/self-hosted)</option>
-                      <option value="chrome-builtin-ai-provider" disabled>Chrome Built-in AI（暫不提供）</option>
+                    <select :aria-label="tr('options.providerUsed')" v-model="settings.activeProviderId" @change="save" class="stitch-select">
+                      <option value="google-provider">{{ tr('provider.google') }}</option>
+                      <option value="gemini-provider">{{ tr('provider.gemini') }}</option>
+                      <option value="deepl-provider">{{ tr('provider.deepl') }}</option>
+                      <option value="openrouter-provider">{{ tr('provider.openrouter') }}</option>
+                      <option value="nvidia-nim-provider">{{ tr('provider.nvidia') }}</option>
+                      <option value="ollama-provider">{{ tr('provider.ollama') }}</option>
+                      <option value="local-http-provider">{{ tr('provider.localHttp') }}</option>
+                      <option value="custom-http-provider">{{ tr('provider.customHttp') }}</option>
+                      <option value="chrome-builtin-ai-provider" disabled>{{ tr('provider.chromeUnavailable') }}</option>
                     </select>
                   </div>
                 </div>
@@ -500,13 +505,13 @@
                 <!-- Gemini Model -->
                 <div class="stitch-row" v-if="settings.activeProviderId === 'gemini-provider'">
                   <div class="row-info">
-                    <span class="row-title">Gemini 模型名稱</span>
-                    <span class="row-desc">選擇官方驗證模型或輸入自訂模型 ID。</span>
+                    <span class="row-title">{{ tr('options.geminiModel') }}</span>
+                    <span class="row-desc">{{ tr('options.geminiModelDesc') }}</span>
                   </div>
                   <div class="row-control">
                     <div class="input-group">
                       <input
-                        aria-label="Gemini 模型名稱"
+                        :aria-label="tr('options.geminiModel')"
                         v-model.trim="settings.geminiModel"
                         @change="save"
                         class="stitch-input"
@@ -528,154 +533,154 @@
                 <!-- Gemini API Key -->
                 <div class="stitch-row" v-if="settings.activeProviderId === 'gemini-provider'">
                   <div class="row-info">
-                    <span class="row-title">Gemini API 金鑰</span>
-                    <span class="row-desc">目前狀態：{{ settings.hasGeminiApiKey ? settings.geminiApiKeyMasked : '未設定' }}</span>
+                    <span class="row-title">Gemini {{ tr('options.apiKey') }}</span>
+                    <span class="row-desc">{{ tr('options.currentStatus', { status: settings.hasGeminiApiKey ? settings.geminiApiKeyMasked : tr('common.notConfigured') }) }}</span>
                   </div>
                   <div class="row-control input-group">
-                    <input aria-label="Gemini API 金鑰"
+                    <input :aria-label="`Gemini ${tr('options.apiKey')}`"
                       type="password"
                       v-model="geminiKeyInput"
-                      placeholder="貼上 Gemini 金鑰"
+                      :placeholder="tr('options.pasteGeminiKey')"
                       class="stitch-input"
                     />
                     <button class="btn-stitch-accent" @click="saveApiKey(geminiKeyInput)">
-                      {{ saveApiKeyStatus === 'success' ? '已儲存 ✓' : saveApiKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveApiKeyStatus === 'success' ? tr('common.saved') : saveApiKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearApiKey" v-if="settings.hasGeminiApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearApiKey" v-if="settings.hasGeminiApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
 
                 <!-- OpenRouter -->
                 <div v-if="settings.activeProviderId === 'openrouter-provider'" class="stitch-row vertical-row">
-                  <label for="openrouter-model" class="row-title">OpenRouter 模型 ID</label>
-                  <p class="row-desc">可直接輸入任何 OpenRouter model slug，例如 openai/gpt-5.6、anthropic/...，或使用 openrouter/auto 自動路由。</p>
+                  <label for="openrouter-model" class="row-title">{{ tr('options.openrouterModel') }}</label>
+                  <p class="row-desc">{{ tr('options.openrouterModelDesc') }}</p>
                   <input id="openrouter-model" class="stitch-input" v-model.trim="settings.openRouterModel" @change="save" list="openrouter-model-suggestions" placeholder="openrouter/auto" />
                   <datalist id="openrouter-model-suggestions">
                     <option value="openrouter/auto"></option>
                     <option value="openrouter/free"></option>
                   </datalist>
-                  <label for="openrouter-key" class="row-title">OpenRouter API 金鑰</label>
-                  <p class="row-desc">目前狀態：{{ settings.hasOpenRouterApiKey ? settings.openRouterApiKeyMasked : '未設定' }}</p>
+                  <label for="openrouter-key" class="row-title">OpenRouter {{ tr('options.apiKey') }}</label>
+                  <p class="row-desc">{{ tr('options.currentStatus', { status: settings.hasOpenRouterApiKey ? settings.openRouterApiKeyMasked : tr('common.notConfigured') }) }}</p>
                   <div class="input-group">
                     <input id="openrouter-key" class="stitch-input" type="password" v-model="openRouterKeyInput" placeholder="sk-or-v1-…" />
                     <button class="btn-stitch-accent" @click="saveOpenRouterKey(openRouterKeyInput)">
-                      {{ saveOpenRouterKeyStatus === 'success' ? '已儲存 ✓' : saveOpenRouterKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveOpenRouterKeyStatus === 'success' ? tr('common.saved') : saveOpenRouterKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearOpenRouterKey" v-if="settings.hasOpenRouterApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearOpenRouterKey" v-if="settings.hasOpenRouterApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
 
                 <!-- NVIDIA NIM -->
                 <div v-if="settings.activeProviderId === 'nvidia-nim-provider'" class="stitch-row vertical-row">
-                  <label for="nvidia-nim-url" class="row-title">NVIDIA NIM API 根位址</label>
-                  <p class="row-desc">預設使用 NVIDIA Hosted NIM。也可改成 loopback NIM；遠端自訂位址必須使用 HTTPS。</p>
+                  <label for="nvidia-nim-url" class="row-title">{{ tr('options.nvidiaEndpoint') }}</label>
+                  <p class="row-desc">{{ tr('options.nvidiaEndpointDesc') }}</p>
                   <input id="nvidia-nim-url" class="stitch-input" type="url" v-model.trim="settings.nvidiaNimEndpoint" @change="save" />
-                  <label for="nvidia-nim-model" class="row-title">NVIDIA NIM 模型 ID</label>
+                  <label for="nvidia-nim-model" class="row-title">{{ tr('options.nvidiaModel') }}</label>
                   <input id="nvidia-nim-model" class="stitch-input" v-model.trim="settings.nvidiaNimModel" @change="save" list="nvidia-nim-model-suggestions" placeholder="meta/llama-3.1-8b-instruct" />
                   <datalist id="nvidia-nim-model-suggestions">
                     <option value="meta/llama-3.1-8b-instruct"></option>
                     <option value="meta/llama-3.1-70b-instruct"></option>
                   </datalist>
-                  <label for="nvidia-nim-key" class="row-title">NVIDIA API 金鑰</label>
-                  <p class="row-desc">Hosted NIM 需要 API 金鑰；loopback NIM 可不填。狀態：{{ settings.hasNvidiaNimApiKey ? settings.nvidiaNimApiKeyMasked : '未設定' }}</p>
+                  <label for="nvidia-nim-key" class="row-title">NVIDIA {{ tr('options.apiKey') }}</label>
+                  <p class="row-desc">{{ tr('options.nvidiaKeyDesc', { status: settings.hasNvidiaNimApiKey ? settings.nvidiaNimApiKeyMasked : tr('common.notConfigured') }) }}</p>
                   <div class="input-group">
                     <input id="nvidia-nim-key" class="stitch-input" type="password" v-model="nvidiaNimKeyInput" placeholder="nvapi-…" />
                     <button class="btn-stitch-accent" @click="saveNvidiaNimKey(nvidiaNimKeyInput)">
-                      {{ saveNvidiaNimKeyStatus === 'success' ? '已儲存 ✓' : saveNvidiaNimKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveNvidiaNimKeyStatus === 'success' ? tr('common.saved') : saveNvidiaNimKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearNvidiaNimKey" v-if="settings.hasNvidiaNimApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearNvidiaNimKey" v-if="settings.hasNvidiaNimApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
 
                 <!-- DeepL API Key -->
                 <div class="stitch-row" v-if="settings.activeProviderId === 'deepl-provider'">
                   <div class="row-info">
-                    <span class="row-title">DeepL API 金鑰</span>
-                    <span class="row-desc">目前狀態：{{ settings.hasDeeplApiKey ? settings.deeplApiKeyMasked : '未設定' }}</span>
+                    <span class="row-title">DeepL {{ tr('options.apiKey') }}</span>
+                    <span class="row-desc">{{ tr('options.currentStatus', { status: settings.hasDeeplApiKey ? settings.deeplApiKeyMasked : tr('common.notConfigured') }) }}</span>
                   </div>
                   <div class="row-control input-group">
-                    <input aria-label="DeepL API 金鑰"
+                    <input :aria-label="`DeepL ${tr('options.apiKey')}`"
                       type="password"
                       v-model="deeplKeyInput"
-                      placeholder="貼上 DeepL 金鑰"
+                      :placeholder="tr('options.pasteDeepLKey')"
                       class="stitch-input"
                     />
                     <button class="btn-stitch-accent" @click="saveDeeplKey(deeplKeyInput)">
-                      {{ saveDeeplKeyStatus === 'success' ? '已儲存 ✓' : saveDeeplKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveDeeplKeyStatus === 'success' ? tr('common.saved') : saveDeeplKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearDeeplKey" v-if="settings.hasDeeplApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearDeeplKey" v-if="settings.hasDeeplApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
 
 
                 <div v-if="settings.activeProviderId === 'ollama-provider'" class="stitch-row vertical-row">
-                  <label for="ollama-url" class="row-title">Ollama 位址</label>
-                  <p class="row-desc">僅允許 localhost、127.0.0.0/8 或 ::1。請先啟動本機 Ollama，並下載要使用的模型。</p>
+                  <label for="ollama-url" class="row-title">{{ tr('options.ollamaEndpoint') }}</label>
+                  <p class="row-desc">{{ tr('options.ollamaEndpointDesc') }}</p>
                   <input id="ollama-url" class="stitch-input" type="url" v-model="settings.ollamaEndpoint" @change="save" />
-                  <label for="ollama-model" class="row-title">模型名稱</label>
+                  <label for="ollama-model" class="row-title">{{ tr('options.modelLabel') }}</label>
                   <input id="ollama-model" class="stitch-input" v-model="settings.ollamaModel" @change="save" />
                 </div>
                 <div v-if="settings.activeProviderId === 'local-http-provider'" class="stitch-row vertical-row">
-                  <label for="http-url" class="row-title">本機翻譯服務位址</label>
-                  <p class="row-desc">僅允許 localhost、127.0.0.0/8 或 ::1 的相容 OpenAI 本機服務。填入根位址，擴充功能會呼叫 /v1/chat/completions。</p>
+                  <label for="http-url" class="row-title">{{ tr('options.localHttpEndpoint') }}</label>
+                  <p class="row-desc">{{ tr('options.localHttpEndpointDesc') }}</p>
                   <input id="http-url" class="stitch-input" type="url" v-model="settings.localHttpEndpoint" @change="save" />
-                  <label for="http-model" class="row-title">模型名稱</label>
+                  <label for="http-model" class="row-title">{{ tr('options.modelLabel') }}</label>
                   <input id="http-model" class="stitch-input" v-model="settings.localHttpModel" @change="save" />
-                  <label for="http-key" class="row-title">服務金鑰（選填）</label>
-                  <p class="row-desc">目前狀態：{{ settings.hasLocalHttpApiKey ? settings.localHttpApiKeyMasked : '未設定' }}</p>
+                  <label for="http-key" class="row-title">{{ tr('options.serviceKeyOptional') }}</label>
+                  <p class="row-desc">{{ tr('options.currentStatus', { status: settings.hasLocalHttpApiKey ? settings.localHttpApiKeyMasked : tr('common.notConfigured') }) }}</p>
                   <div class="input-group">
-                    <input id="http-key" class="stitch-input" type="password" v-model="localHttpKeyInput" placeholder="貼上服務金鑰" />
+                    <input id="http-key" class="stitch-input" type="password" v-model="localHttpKeyInput" :placeholder="tr('options.pasteServiceKey')" />
                     <button class="btn-stitch-accent" @click="saveLocalHttpKey(localHttpKeyInput)">
-                      {{ saveLocalHttpKeyStatus === 'success' ? '已儲存 ✓' : saveLocalHttpKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveLocalHttpKeyStatus === 'success' ? tr('common.saved') : saveLocalHttpKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearLocalHttpKey" v-if="settings.hasLocalHttpApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearLocalHttpKey" v-if="settings.hasLocalHttpApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
                 <div v-if="settings.activeProviderId === 'custom-http-provider'" class="stitch-row vertical-row">
-                  <label for="custom-http-url" class="row-title">自訂 API 根位址</label>
-                  <p class="row-desc">相容 OpenAI Chat Completions。遠端位址必須使用 HTTPS；翻譯內容會傳送到你指定的服務。</p>
+                  <label for="custom-http-url" class="row-title">{{ tr('options.customEndpoint') }}</label>
+                  <p class="row-desc">{{ tr('options.customEndpointDesc') }}</p>
                   <input id="custom-http-url" class="stitch-input" type="url" v-model="settings.customHttpEndpoint" @change="save" placeholder="https://api.example.com" />
-                  <label for="custom-http-model" class="row-title">模型名稱</label>
+                  <label for="custom-http-model" class="row-title">{{ tr('options.modelLabel') }}</label>
                   <input id="custom-http-model" class="stitch-input" v-model="settings.customHttpModel" @change="save" placeholder="model-name" />
-                  <label for="custom-http-key" class="row-title">服務金鑰（選填）</label>
-                  <p class="row-desc">目前狀態：{{ settings.hasCustomHttpApiKey ? settings.customHttpApiKeyMasked : '未設定' }}</p>
+                  <label for="custom-http-key" class="row-title">{{ tr('options.serviceKeyOptional') }}</label>
+                  <p class="row-desc">{{ tr('options.currentStatus', { status: settings.hasCustomHttpApiKey ? settings.customHttpApiKeyMasked : tr('common.notConfigured') }) }}</p>
                   <div class="input-group">
-                    <input id="custom-http-key" class="stitch-input" type="password" v-model="customHttpKeyInput" placeholder="貼上服務金鑰" />
+                    <input id="custom-http-key" class="stitch-input" type="password" v-model="customHttpKeyInput" :placeholder="tr('options.pasteServiceKey')" />
                     <button class="btn-stitch-accent" @click="saveCustomHttpKey(customHttpKeyInput)">
-                      {{ saveCustomHttpKeyStatus === 'success' ? '已儲存 ✓' : saveCustomHttpKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                      {{ saveCustomHttpKeyStatus === 'success' ? tr('common.saved') : saveCustomHttpKeyStatus === 'error' ? tr('common.saveFailed') : tr('common.save') }}
                     </button>
-                    <button class="btn-stitch-secondary" @click="clearCustomHttpKey" v-if="settings.hasCustomHttpApiKey">清除</button>
+                    <button class="btn-stitch-secondary" @click="clearCustomHttpKey" v-if="settings.hasCustomHttpApiKey">{{ tr('common.clear') }}</button>
                   </div>
                 </div>
                 <div v-if="settings.activeProviderId === 'deepl-provider'" class="stitch-row">
-                  <label for="deepl-plan" class="row-title">DeepL API 方案</label>
+                  <label for="deepl-plan" class="row-title">{{ tr('options.deeplPlan') }}</label>
                   <select id="deepl-plan" v-model="settings.deeplApiIsPro" @change="save"><option :value="false">API Free</option><option :value="true">API Pro</option></select>
                 </div>
-                <p v-if="['chrome-ai-provider', 'chrome-builtin-ai-provider'].includes(settings.activeProviderId)" class="stitch-row row-desc">使用 Chrome 桌面版的內建 Translator API；是否可用取決於瀏覽器版本、語言組合與本機模型狀態。來源語言設為自動時會優先使用 LanguageDetector。</p>
+                <p v-if="['chrome-ai-provider', 'chrome-builtin-ai-provider'].includes(settings.activeProviderId)" class="stitch-row row-desc">{{ tr('options.chromeInfo') }}</p>
 
                 <div class="stitch-row vertical-row">
-                  <span class="row-title">確認服務是否可用</span>
-                  <p class="row-desc">將「Hello」送到目前選擇的服務試譯。付費服務可能計入用量。</p>
-                  <button type="button" class="btn-stitch-secondary" :disabled="testingProvider" @click="testProvider">{{ testingProvider ? '正在試譯…' : '試譯一句' }}</button>
+                  <span class="row-title">{{ tr('options.testProvider') }}</span>
+                  <p class="row-desc">{{ tr('options.testProviderDesc') }}</p>
+                  <button type="button" class="btn-stitch-secondary" :disabled="testingProvider" @click="testProvider">{{ testingProvider ? tr('options.testing') : tr('options.testOne') }}</button>
                   <p v-if="providerTestResult" role="status">{{ providerTestResult }}</p>
                 </div>
                 <!-- AI Translation Instructions -->
                 <div v-if="['gemini-provider', 'openrouter-provider', 'nvidia-nim-provider', 'ollama-provider', 'local-http-provider', 'custom-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
                   <div class="row-info">
-                    <span class="row-title">翻譯偏好</span>
-                    <span class="row-desc">提供給 Gemini、Ollama 等 AI 模型的風格與術語指引。</span>
+                    <span class="row-title">{{ tr('options.translationPrefs') }}</span>
+                    <span class="row-desc">{{ tr('options.translationPrefsDesc') }}</span>
                   </div>
                   <div class="textarea-wrapper">
                     <textarea
                       v-model="settings.aiTranslationInstructions"
                       rows="4"
                       class="stitch-textarea"
-                      placeholder="例：使用自然的繁體中文口語；遇到專有名詞保留原文並附帶中文譯名。"
+                      :placeholder="tr('options.instructionsPlaceholder')"
                       @blur="save"
                     ></textarea>
                     <div class="textarea-actions">
-                      <button class="btn-stitch-secondary" @click="clearAiInstructions">清空指示</button>
-                      <button class="btn-stitch-accent" @click="save">儲存指示</button>
+                      <button class="btn-stitch-secondary" @click="clearAiInstructions">{{ tr('options.clearInstructions') }}</button>
+                      <button class="btn-stitch-accent" @click="save">{{ tr('options.saveInstructions') }}</button>
                     </div>
                   </div>
                 </div>
@@ -693,12 +698,12 @@
                 <!-- Enable Translation -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">啟用網頁翻譯功能</span>
-                    <span class="row-desc">開啟或關閉全網頁的雙語翻譯服務。</span>
+                    <span class="row-title">{{ tr('options.enableWeb') }}</span>
+                    <span class="row-desc">{{ tr('options.enableWebDesc') }}</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input aria-label="啟用網頁翻譯功能"
+                      <input :aria-label="tr('options.enableWeb')"
                         type="checkbox"
                         v-model="settings.enabled"
                         @change="save"
@@ -711,12 +716,12 @@
                 <!-- Source Language -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">原文語言</span>
-                    <span class="row-desc">網頁與影片字幕共用的原始語言。</span>
+                    <span class="row-title">{{ tr('language.source') }}</span>
+                    <span class="row-desc">{{ tr('options.sourceDesc') }}</span>
                   </div>
                   <div class="row-control">
-                    <select aria-label="原文語言" v-model="settings.sourceLanguage" @change="save" class="stitch-select">
-                      <option value="auto">自動辨識</option>
+                    <select :aria-label="tr('language.source')" v-model="settings.sourceLanguage" @change="save" class="stitch-select">
+                      <option value="auto">{{ tr('language.detectAuto') }}</option>
                       <option value="en">English</option>
                       <option value="zh-Hant">繁體中文</option>
                       <option value="zh-Hans">簡體中文</option>
@@ -730,11 +735,11 @@
                 <!-- Target Language -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">翻譯成</span>
-                    <span class="row-desc">網頁與影片字幕共用的翻譯目標語言。</span>
+                    <span class="row-title">{{ tr('language.target') }}</span>
+                    <span class="row-desc">{{ tr('options.targetDesc') }}</span>
                   </div>
                   <div class="row-control">
-                    <select aria-label="翻譯成" v-model="settings.targetLanguage" @change="save" class="stitch-select">
+                    <select :aria-label="tr('language.target')" v-model="settings.targetLanguage" @change="save" class="stitch-select">
                       <option value="zh-Hant">繁體中文</option>
                       <option value="zh-Hans">簡體中文</option>
                       <option value="en">English</option>
@@ -748,14 +753,14 @@
                 <!-- Display Mode -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">閱讀方式</span>
-                    <span class="row-desc">選擇同時看原文與譯文，或以譯文為主。</span>
+                    <span class="row-title">{{ tr('options.readingMode') }}</span>
+                    <span class="row-desc">{{ tr('options.readingModeDesc') }}</span>
                   </div>
                   <div class="row-control">
-                    <select aria-label="閱讀方式" v-model="settings.displayMode" @change="save" class="stitch-select">
-                      <option value="bilingual">原文與譯文並列</option>
-                      <option value="translation-first">先看譯文</option>
-                      <option value="immersive">只看譯文，點擊看原文</option>
+                    <select :aria-label="tr('options.readingMode')" v-model="settings.displayMode" @change="save" class="stitch-select">
+                      <option value="bilingual">{{ tr('options.bilingual') }}</option>
+                      <option value="translation-first">{{ tr('options.translationFirst') }}</option>
+                      <option value="immersive">{{ tr('options.immersive') }}</option>
                     </select>
                   </div>
                 </div>
@@ -763,12 +768,12 @@
                 <!-- Floating Button -->
                 <div class="stitch-row">
                   <div class="row-info">
-                    <span class="row-title">網頁上的翻譯按鈕</span>
-                    <span class="row-desc">在網頁右下角顯示快速劃詞與翻譯按鈕。</span>
+                    <span class="row-title">{{ tr('options.floatingButton') }}</span>
+                    <span class="row-desc">{{ tr('options.floatingButtonDesc') }}</span>
                   </div>
                   <div class="row-control">
                     <label class="toggle">
-                      <input aria-label="網頁上的翻譯按鈕"
+                      <input :aria-label="tr('options.floatingButton')"
                         type="checkbox"
                         v-model="settings.showFloatingButton"
                         @change="save"
@@ -802,6 +807,7 @@ import {
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import GlossaryManager from '@/components/GlossaryManager.vue';
 import FlashcardWorkbench from '@/components/learning/FlashcardWorkbench.vue';
+import { translate, uiLanguageOptions, type TranslationKey } from '@/shared/i18n';
 
 const activeModels = getActiveVerifiedModels();
 const deprecatedModels = getDeprecatedButFunctionalModels();
@@ -860,7 +866,7 @@ const settings = ref({
   deeplApiKeyMasked: '',
   deeplApiIsPro: false,
   displayMode: 'bilingual' as 'bilingual' | 'translation-first' | 'immersive',
-  uiLanguage: 'zh-Hant',
+  uiLanguage: 'auto' as 'auto' | 'zh-Hant' | 'zh-Hans' | 'en' | 'ja',
   showFloatingButton: true,
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
@@ -882,6 +888,10 @@ const vocabItems = ref<LearningCard[]>([]);
 const feedback = ref('');
 const feedbackError = ref(false);
 function reportError(message: string) { feedback.value = message; feedbackError.value = true; }
+const tr = (key: TranslationKey, vars?: Record<string, string | number>) =>
+  translate(settings.value.uiLanguage, key, vars);
+const interfaceLanguageOptions = computed(() => uiLanguageOptions(settings.value.uiLanguage));
+
 const { theme, onThemeChange } = useUiTheme(reportError);
 watch(() => [settings.value.activeProviderId, settings.value.targetLanguage], () => { providerTestResult.value = ''; });
 
@@ -896,23 +906,23 @@ const dueCardsCount = computed(() => {
 
 const currentHeadline = computed(() => {
   switch (activeTab.value) {
-    case 'subtitles': return '字幕設定';
-    case 'learning': return '複習單字';
-    case 'vocabulary': return '我的單字';
-    case 'models': return '翻譯服務';
-    case 'general': return '閱讀設定';
+    case 'subtitles': return tr('options.subtitleHeadline');
+    case 'learning': return tr('options.learningHeadline');
+    case 'vocabulary': return tr('options.vocabHeadline');
+    case 'models': return tr('options.providersHeadline');
+    case 'general': return tr('options.readingHeadline');
     default: return 'Open Web Translate';
   }
 });
 
 const currentSubtitle = computed(() => {
   switch (activeTab.value) {
-    case 'subtitles': return '先在影片頁面開啟擴充功能，再按「開啟雙語字幕」。這裡可以調整字幕外觀。';
-    case 'learning': return '翻開卡片查看意思，再依記憶程度評分。我們會安排下次複習。';
-    case 'vocabulary': return '收藏的單字和例句都在這裡，也可以手動新增或匯出。';
-    case 'models': return 'Google 翻譯可免金鑰使用，但採非官方網頁端點；其他服務需先設定金鑰，或啟動本機模型。';
-    case 'general': return '選擇要翻成的語言，以及網頁上原文與譯文的顯示方式。';
-    default: return '次世代在地化、隱私優先、AI 驅動的開源網頁與影音翻譯工具。';
+    case 'subtitles': return tr('options.subtitleSubtitle');
+    case 'learning': return tr('options.learningSubtitle');
+    case 'vocabulary': return tr('options.vocabSubtitle');
+    case 'models': return tr('options.providersSubtitle');
+    case 'general': return tr('options.readingSubtitle');
+    default: return tr('options.defaultSubtitle');
   }
 });
 
@@ -921,39 +931,45 @@ const currentSubNavItems = computed(() => {
   switch (activeTab.value) {
     case 'subtitles':
       return [
-        { id: 'sub-preview', label: '總覽' },
-        { id: 'sub-netflix', label: 'Netflix 雙語字幕' },
-        { id: 'sub-youtube', label: 'YouTube 字幕樣式' },
-        { id: 'sub-hotkeys', label: '操作與快捷鍵' },
+        { id: 'sub-preview', label: tr('common.overview') },
+        { id: 'sub-netflix', label: tr('options.netflixTitle') },
+        { id: 'sub-youtube', label: tr('options.youtubeAppearance') },
+        { id: 'sub-hotkeys', label: tr('options.hotkeysTitle') },
       ];
     case 'learning':
       return [
-        { id: 'learn-stage', label: '總覽' },
-        { id: 'learn-anki', label: '匯出至 Anki' },
+        { id: 'learn-stage', label: tr('common.overview') },
+        { id: 'learn-anki', label: tr('options.ankiTitle') },
       ];
     case 'vocabulary':
       return [
-        { id: 'vocab-stage', label: '總覽' },
+        { id: 'vocab-stage', label: tr('common.overview') },
       ];
     case 'models':
       return [
-        { id: 'models-provider', label: '總覽' },
+        { id: 'models-provider', label: tr('common.overview') },
       ];
     case 'general':
       return [
-        { id: 'gen-settings', label: '總覽' },
+        { id: 'gen-settings', label: tr('common.overview') },
       ];
     default:
-      return [{ id: 'sub-preview', label: '總覽' }];
+      return [{ id: 'sub-preview', label: tr('common.overview') }];
   }
 });
 
 
 function t(key: string): string {
-  const dict: Record<string, string> = {
-    subtitleNetflixNote: 'Netflix 字幕軌道會在播放時自動擷取。',
-  };
-  return dict[key] || key;
+  if (key === 'subtitleNetflixNote') {
+    return settings.value.uiLanguage === 'ja'
+      ? 'Netflix の字幕トラックは再生中に自動取得されます。'
+      : settings.value.uiLanguage === 'zh-Hans'
+        ? 'Netflix 字幕轨道会在播放时自动获取。'
+        : settings.value.uiLanguage === 'en'
+          ? 'Netflix subtitle tracks are discovered automatically during playback.'
+          : 'Netflix 字幕軌道會在播放時自動擷取。';
+  }
+  return key;
 }
 
 function switchTab(tab: string) {
@@ -973,16 +989,16 @@ function scrollToAnchor(id: string) {
   }
 }
 
-const searchablePages = [
-  { tab: 'subtitles', label: '字幕設定', keywords: 'Netflix YouTube 字幕 字級 色彩 快捷鍵 subtitles typography' },
-  { tab: 'learning', label: '複習單字', keywords: '複習 學習 記憶 卡片 Anki SRS learning' },
-  { tab: 'vocabulary', label: '我的單字', keywords: '單字 生詞 術語 glossary vocabulary' },
-  { tab: 'models', label: '翻譯服務', keywords: '翻譯 金鑰 模型 Gemini Google DeepL Ollama AI API providers' },
-  { tab: 'general', label: '閱讀設定', keywords: '語言 外觀 主題 懸浮 general preferences language' },
-];
+const searchablePages = computed(() => [
+  { tab: 'subtitles', label: tr('nav.subtitles'), keywords: 'Netflix YouTube 字幕 字幕设置 subtitles typography' },
+  { tab: 'learning', label: tr('nav.review'), keywords: '複習 复习 学习 記憶 记忆 カード Anki SRS learning' },
+  { tab: 'vocabulary', label: tr('nav.vocabulary'), keywords: '單字 单词 生詞 生词 vocabulary glossary' },
+  { tab: 'models', label: tr('nav.providers'), keywords: '翻譯 翻译 API key 金鑰 密钥 model 模型 Gemini Google DeepL Ollama OpenRouter NVIDIA providers' },
+  { tab: 'general', label: tr('nav.reading'), keywords: '語言 语言 外觀 外观 主題 主题 language preferences' },
+]);
 const searchResults = computed(() => {
   const query = globalSearchQuery.value.trim().toLocaleLowerCase();
-  return searchablePages.filter(item => (item.label + ' ' + item.keywords).toLocaleLowerCase().includes(query));
+  return searchablePages.value.filter(item => (item.label + ' ' + item.keywords).toLocaleLowerCase().includes(query));
 });
 function selectSearchResult(tab: string) {
   switchTab(tab);
@@ -1013,7 +1029,7 @@ async function loadVocabulary() {
   try {
     vocabItems.value = (await messageRouter.sendMessage({ type: 'GET_VOCAB_ITEMS' })) || [];
   } catch (e) {
-    reportError('無法載入單字，請重新開啟設定頁。');
+    reportError(tr('options.loadVocabFailed'));
   }
 }
 
@@ -1029,7 +1045,7 @@ async function addVocabItem(term: any) {
     } as any);
     await loadVocabulary();
   } catch (e) {
-    reportError('單字未儲存，請再試一次。');
+    reportError(tr('options.saveVocabFailed'));
     throw e;
   }
 }
@@ -1039,17 +1055,17 @@ async function deleteVocabItem(id: string) {
     await messageRouter.sendMessage({ type: 'DELETE_VOCAB_ITEM' as any, id } as any);
     await loadVocabulary();
   } catch (e) {
-    reportError('刪除失敗，單字仍保留。請再試一次。');
+    reportError(tr('options.deleteVocabFailed'));
   }
 }
 
 async function clearVocabulary() {
-  if (confirm('確定清空所有單字與複習紀錄？此操作無法復原。')) {
+  if (confirm(tr('options.clearVocabConfirm'))) {
     try {
       await messageRouter.sendMessage({ type: 'CLEAR_VOCAB_ITEMS' as any } as any);
       await loadVocabulary();
     } catch (e) {
-      reportError('清空失敗，請再試一次。');
+      reportError(tr('options.clearVocabFailed'));
     }
   }
 }
@@ -1072,7 +1088,7 @@ async function recordSrsReview(id: string, grade: SrsGrade) {
     await messageRouter.sendMessage({ type: 'RECORD_SRS_REVIEW', id, grade });
     await loadVocabulary();
   } catch (e) {
-    reportError('複習紀錄未儲存，請重試。');
+    reportError(tr('options.reviewSaveFailed'));
     throw e;
   }
 }
@@ -1112,7 +1128,7 @@ async function loadSettings() {
       settings.value.deeplApiKeyMasked = s.deeplApiKeyMasked || '';
       settings.value.deeplApiIsPro = !!s.deeplApiIsPro;
       settings.value.displayMode = s.displayMode || 'bilingual';
-      settings.value.uiLanguage = s.uiLanguage || 'zh-Hant';
+      settings.value.uiLanguage = s.uiLanguage || 'auto';
       settings.value.showFloatingButton = s.showFloatingButton ?? true;
       settings.value.subtitleOriginalFontSize = s.subtitleOriginalFontSize || 18;
       settings.value.subtitleTranslatedFontSize = s.subtitleTranslatedFontSize || 22;
@@ -1141,18 +1157,18 @@ function formatProviderTestError(error: unknown): string {
     : typeof candidate?.message === 'string' ? candidate.message : '';
 
   if (candidate?.code === 'ABORTED' || /\babort(?:ed)?\b/i.test(message)) {
-    return '試譯已被取消。請保持設定頁開啟後再試一次。';
+    return tr('options.providerAbortedHelp');
   }
   if (/timed out|timeout|逾時/i.test(message)) {
-    return '連線逾時。請確認網路、模型名稱與服務狀態後再試一次。';
+    return tr('options.providerTimeoutHelp');
   }
   if (candidate?.code === 'CONFIGURATION_ERROR') {
-    return message || '設定無效，請檢查 API Key 與模型名稱。';
+    return message || tr('options.providerConfigHelp');
   }
   if (candidate?.code === 'QUOTA_EXCEEDED') {
-    return message || '服務額度或速率限制已達上限。';
+    return message || tr('options.providerQuotaHelp');
   }
-  return message || '請檢查金鑰、服務位址與網路。';
+  return message || tr('options.providerGenericHelp');
 }
 
 async function testProvider() {
@@ -1168,10 +1184,12 @@ async function testProvider() {
       forceProvider: settings.value.activeProviderId,
     });
     const translation = result.segments[0]?.translatedText;
-    if (!translation?.trim()) throw new Error('服務未回傳譯文');
-    providerTestResult.value = '收到譯文：' + translation;
+    if (!translation?.trim()) throw new Error(tr('options.providerNoTranslation'));
+    providerTestResult.value = tr('options.providerReply', { text: translation });
   } catch (error) {
-    providerTestResult.value = '試譯失敗：' + formatProviderTestError(error);
+    providerTestResult.value = tr('options.providerTestFailed', {
+      message: formatProviderTestError(error),
+    });
   } finally { testingProvider.value = false; }
 }
 async function save() {
@@ -1180,10 +1198,10 @@ async function save() {
       ...settings.value,
       netflix: netflixConfig.value,
     });
-    feedback.value = '設定已儲存'; feedbackError.value = false;
+    feedback.value = tr('options.settingsSaved'); feedbackError.value = false;
     return true;
   } catch (e) {
-    reportError('設定未儲存，請重試。');
+    reportError(tr('error.saveSettings'));
     return false;
   }
 }
@@ -1196,11 +1214,11 @@ async function acknowledgeRemoteDataNotice() {
   try {
     settings.value.remoteProviderDisclosureVersion = 1;
     await SettingsStorage.set({ remoteProviderDisclosureVersion: 1 });
-    feedback.value = '已確認資料傳輸說明';
+    feedback.value = tr('options.disclosureSaved');
     feedbackError.value = false;
   } catch {
     settings.value.remoteProviderDisclosureVersion = 0;
-    reportError('無法儲存確認狀態，請再試一次。');
+    reportError(tr('error.saveSettings'));
   }
 }
 

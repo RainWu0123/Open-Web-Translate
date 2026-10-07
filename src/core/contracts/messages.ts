@@ -67,7 +67,7 @@ export interface ExtensionSettings {
   hasDeeplApiKey?: boolean;
   deeplApiIsPro?: boolean;
   displayMode?: 'bilingual' | 'translation-first' | 'immersive';
-  uiLanguage?: string;
+  uiLanguage?: 'auto' | 'zh-Hant' | 'zh-Hans' | 'en' | 'ja';
   showFloatingButton?: boolean;
   subtitleOriginalFontSize?: number;
   subtitleTranslatedFontSize?: number;

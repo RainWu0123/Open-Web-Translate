@@ -8,7 +8,7 @@ vi.mock('@/infrastructure/messaging/message-router', () => ({ messageRouter: { s
 import Options from '@/entrypoints/options/App.vue';
 
 beforeEach(() => {
-  mocks.get.mockResolvedValue({ ...DEFAULT_SETTINGS, theme: 'light' });
+  mocks.get.mockResolvedValue({ ...DEFAULT_SETTINGS, theme: 'light', uiLanguage: 'zh-Hant' });
   mocks.set.mockReset().mockResolvedValue(DEFAULT_SETTINGS);
   mocks.sendMessage.mockReset().mockResolvedValue([]);
   Element.prototype.scrollTo = vi.fn();

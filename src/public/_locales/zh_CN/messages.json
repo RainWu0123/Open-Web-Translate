@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "Open Web Translate"
+  },
+  "appDescription": {
+    "message": "开源、注重隐私的浏览器翻译扩展。"
+  },
+  "actionTitle": {
+    "message": "打开 Open Web Translate"
+  }
+}

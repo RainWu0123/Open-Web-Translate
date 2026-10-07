@@ -16,10 +16,20 @@
       </div>
 
       <div class="header-right">
-        <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" aria-label="介面主題">
-          <option value="system">自動</option>
-          <option value="dark">深色</option>
-          <option value="light">淺色</option>
+        <select
+          v-model="settings.uiLanguage"
+          @change="save"
+          class="stitch-theme-select"
+          :aria-label="t('ui.language')"
+        >
+          <option v-for="option in interfaceLanguageOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" :aria-label="t('theme.label')">
+          <option value="system">{{ t('common.system') }}</option>
+          <option value="dark">{{ t('common.dark') }}</option>
+          <option value="light">{{ t('common.light') }}</option>
         </select>
       </div>
     </header>
@@ -32,8 +42,8 @@
       <div v-if="!isSubtitleTab" class="stitch-rows-container">
         <div class="stitch-row">
           <div class="row-info">
-            <span class="row-title">啟用網頁翻譯</span>
-            <span class="row-desc">開啟後可翻譯網頁與選取的文字</span>
+            <span class="row-title">{{ t('popup.enableTitle') }}</span>
+            <span class="row-desc">{{ t('popup.enableDesc') }}</span>
           </div>
           <div class="row-control">
             <label class="toggle">
@@ -41,7 +51,7 @@
                 type="checkbox"
                 :checked="settings.enabled"
                 @change="onToggleEnabled"
-                data-testid="popup-toggle-enabled" aria-label="啟用網頁翻譯"
+                data-testid="popup-toggle-enabled" :aria-label="t('popup.enableTitle')"
               />
               <span class="slider"></span>
             </label>
@@ -54,14 +64,14 @@
         <!-- Horizontal Capsule Language Selector -->
         <div class="lang-capsule-row">
           <div class="lang-select-box">
-            <span class="lang-label">原文語言</span>
+            <span class="lang-label">{{ t('language.source') }}</span>
             <select
               class="stitch-select lang-dropdown"
               :value="settings.sourceLanguage"
               @change="onSourceLanguageChange"
-              data-testid="source-language-select" aria-label="來源語言"
+              data-testid="source-language-select" :aria-label="t('language.source')"
             >
-              <option value="auto">自動偵測</option>
+              <option value="auto">{{ t('language.detectAuto') }}</option>
               <option value="en">English</option>
               <option value="zh-Hant">繁體中文</option>
               <option value="zh-Hans">简体中文</option>
@@ -75,7 +85,7 @@
             class="lang-swap-btn"
             @click="swapLanguages"
             :disabled="settings.sourceLanguage === 'auto'"
-            title="對調語言"
+            :title="t('language.swap')"
             type="button"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -84,12 +94,12 @@
           </button>
 
           <div class="lang-select-box">
-            <span class="lang-label">翻譯成</span>
+            <span class="lang-label">{{ t('language.target') }}</span>
             <select
               class="stitch-select lang-dropdown"
               :value="settings.targetLanguage"
               @change="onTargetLanguageChange"
-              data-testid="target-language-select" aria-label="目標語言"
+              data-testid="target-language-select" :aria-label="t('language.target')"
             >
               <option value="zh-Hant">繁體中文</option>
               <option value="zh-Hans">简体中文</option>
@@ -104,25 +114,25 @@
         <!-- Provider Select -->
         <div class="stitch-row" data-testid="active-provider-card">
           <div class="row-info">
-            <span class="row-title">翻譯服務</span>
-            <span class="row-desc">選擇翻譯方式</span>
+            <span class="row-title">{{ t('provider.title') }}</span>
+            <span class="row-desc">{{ t('provider.choose') }}</span>
           </div>
           <div class="row-control">
             <select
               class="stitch-select"
               :value="settings.activeProviderId"
               @change="onProviderChange"
-              data-testid="popup-provider-select" aria-label="翻譯服務"
+              data-testid="popup-provider-select" :aria-label="t('provider.title')"
             >
-              <option value="google-provider">Google 翻譯（免金鑰 · 非官方端點）</option>
-              <option value="gemini-provider">Google Gemini AI</option>
-              <option value="deepl-provider">DeepL 翻譯</option>
-              <option value="openrouter-provider">OpenRouter</option>
-              <option value="nvidia-nim-provider">NVIDIA NIM</option>
-              <option value="chrome-builtin-ai-provider" disabled>Chrome 內建 AI（暫不提供）</option>
-              <option value="ollama-provider">Ollama 本機端</option>
-              <option value="local-http-provider">本機 HTTP API</option>
-              <option value="custom-http-provider">自訂 HTTP API</option>
+              <option value="google-provider">{{ t('provider.google') }}</option>
+              <option value="gemini-provider">{{ t('provider.gemini') }}</option>
+              <option value="deepl-provider">{{ t('provider.deepl') }}</option>
+              <option value="openrouter-provider">{{ t('provider.openrouter') }}</option>
+              <option value="nvidia-nim-provider">{{ t('provider.nvidia') }}</option>
+              <option value="chrome-builtin-ai-provider" disabled>{{ t('provider.chromeUnavailable') }}</option>
+              <option value="ollama-provider">{{ t('provider.ollama') }}</option>
+              <option value="local-http-provider">{{ t('provider.localHttp') }}</option>
+              <option value="custom-http-provider">{{ t('provider.customHttp') }}</option>
             </select>
           </div>
         </div>
@@ -134,10 +144,10 @@
             <span>{{ activeProviderDetail }}</span>
           </div>
           <button v-if="needsApiKeySetup" class="provider-config-btn" @click="openOptions">
-            設定金鑰 ➔
+            {{ t('provider.configureKey') }}
           </button>
-          <span v-else-if="providerUnavailable" class="status-badge">暫不提供</span>
-          <span v-else class="status-badge">尚未測試連線</span>
+          <span v-else-if="providerUnavailable" class="status-badge">{{ t('provider.unavailable') }}</span>
+          <span v-else class="status-badge">{{ t('provider.notTested') }}</span>
         </div>
       </div>
 
@@ -146,9 +156,9 @@
         <div class="stitch-row subtitle-head-row">
           <div class="row-info">
             <span class="row-title highlight">
-              {{ isNetflixTab ? 'Netflix 雙語字幕' : 'YouTube 雙語字幕' }}
+              {{ isNetflixTab ? t('subtitle.netflixTitle') : t('subtitle.youtubeTitle') }}
             </span>
-            <span class="row-desc">播放影片後開啟，需有可用字幕</span>
+            <span class="row-desc">{{ t('subtitle.requiresCaptions') }}</span>
           </div>
           <div class="row-control">
             <span
@@ -156,14 +166,14 @@
               :class="['sub-state-pill', netflixHud.isActive ? 'active' : 'inactive']"
               data-testid="netflix-summary"
             >
-              {{ netflixHud.isActive ? (netflixHud.dualTrack ? '雙軌已對齊' : '執行中') : '未啟用' }}
+              {{ netflixHud.isActive ? (netflixHud.dualTrack ? t('subtitle.dualAligned') : t('subtitle.running')) : t('subtitle.disabled') }}
             </span>
             <span
               v-else-if="isYouTubeTab"
               :class="['sub-state-pill', ytActive ? 'active' : 'inactive']"
               data-testid="youtube-summary"
             >
-              {{ ytActive ? '雙語字幕運行中' : '未啟用' }}
+              {{ ytActive ? t('subtitle.bilingualRunning') : t('subtitle.disabled') }}
             </span>
           </div>
         </div>
@@ -178,8 +188,8 @@
             <span v-if="subtitleTogglePending" class="spinner"></span>
             {{
               subtitleTogglePending
-                ? (subtitleActive ? '關閉中…' : '開啟中…')
-                : (subtitleActive ? '關閉雙語字幕' : '開啟雙語字幕')
+                ? (subtitleActive ? t('subtitle.disabling') : t('subtitle.enabling'))
+                : (subtitleActive ? t('subtitle.disable') : t('subtitle.enable'))
             }}
           </button>
         </div>
@@ -187,8 +197,8 @@
         <!-- Netflix Learning Mode -->
         <div v-if="isNetflixTab" class="stitch-row">
           <div class="row-info">
-            <span class="row-title">學習模式 (逐句暫停・點詞查詢)</span>
-            <span class="row-desc">字幕點擊即查生詞庫</span>
+            <span class="row-title">{{ t('subtitle.learningTitle') }}</span>
+            <span class="row-desc">{{ t('subtitle.learningDesc') }}</span>
           </div>
           <div class="row-control">
             <label class="toggle">
@@ -206,8 +216,8 @@
         <!-- Netflix Subtitle Source -->
         <div v-if="isNetflixTab" class="stitch-row">
           <div class="row-info">
-            <span class="row-title">字幕來源</span>
-            <span class="row-desc">優先選取軌道</span>
+            <span class="row-title">{{ t('subtitle.source') }}</span>
+            <span class="row-desc">{{ t('subtitle.preferTrack') }}</span>
           </div>
           <div class="row-control">
             <select
@@ -216,8 +226,8 @@
               @change="onSourceSelectionChange"
               data-testid="subtitle-source-select"
             >
-              <option value="auto">自動（優先原生）</option>
-              <option value="ai">僅 AI / 機翻</option>
+              <option value="auto">{{ t('subtitle.autoNative') }}</option>
+              <option value="ai">{{ t('subtitle.aiOnly') }}</option>
               <option v-for="t in netflixHud.tracks" :key="t.id" :value="`track:${t.id}`">
                 {{ t.label }}{{ t.isCC ? ' (CC)' : '' }}
               </option>
@@ -228,8 +238,8 @@
         <!-- YouTube Subtitle Source -->
         <div v-if="isYouTubeTab && ytTracks.length > 0" class="stitch-row">
           <div class="row-info">
-            <span class="row-title">字幕來源</span>
-            <span class="row-desc">優先選取軌道</span>
+            <span class="row-title">{{ t('subtitle.source') }}</span>
+            <span class="row-desc">{{ t('subtitle.preferTrack') }}</span>
           </div>
           <div class="row-control">
             <select
@@ -238,9 +248,9 @@
               @change="onYouTubeTrackChange"
               data-testid="youtube-track-select"
             >
-              <option value="auto">自動（優先原生）</option>
-              <option v-for="t in ytTracks" :key="t.id" :value="t.languageCode">
-                {{ t.label }}{{ t.kind === 'asr' ? ' (自動產生)' : '' }}
+              <option value="auto">{{ t('subtitle.autoNative') }}</option>
+              <option v-for="track in ytTracks" :key="track.id" :value="track.languageCode">
+                {{ track.label }}{{ track.kind === 'asr' ? ` (${t('subtitle.autoGenerated')})` : '' }}
               </option>
             </select>
           </div>
@@ -249,7 +259,7 @@
         <!-- Original Subtitle Size -->
         <div class="stitch-row">
           <div class="row-info">
-            <span class="row-title">原文字幕大小</span>
+            <span class="row-title">{{ t('subtitle.originalSize') }}</span>
             <span class="row-desc">{{ settings.subtitleOriginalFontSize }}px</span>
           </div>
           <div class="row-control slider-control">
@@ -268,7 +278,7 @@
         <!-- Translated Subtitle Size -->
         <div class="stitch-row">
           <div class="row-info">
-            <span class="row-title">譯文字幕大小</span>
+            <span class="row-title">{{ t('subtitle.translationSize') }}</span>
             <span class="row-desc">{{ settings.subtitleTranslatedFontSize }}px</span>
           </div>
           <div class="row-control slider-control">
@@ -286,25 +296,25 @@
 
         <div v-if="isYouTubeTab" class="stitch-callout" style="margin: 8px 12px 12px;">
           <span class="callout-icon">💡</span>
-          <span>需開啟影片「CC 字幕」。若兩行皆為中文，請至播放器「⚙️ 設定 ➔ 字幕」切換為「原文語言」，勿選「自動翻譯」。</span>
+          <span>{{ t('subtitle.youtubeTip') }}</span>
         </div>
       </div>
 
       <!-- Warning Banner if Gemini API Key not set -->
       <div v-if="isGeminiUnconfigured" class="stitch-warning-banner" data-testid="gemini-unconfigured-banner">
-        <span>Gemini API Key 未設定，請至設定頁面配置金鑰。</span>
-        <button class="banner-link-btn" @click="openOptions">前往設定 ➔</button>
+        <span>{{ t('popup.geminiWarning') }}</span>
+        <button class="banner-link-btn" @click="openOptions">{{ t('popup.openSettings') }}</button>
       </div>
 
       <div v-if="providerUnavailable" class="stitch-warning-banner" data-testid="provider-unavailable-banner">
-        <span>Chrome 內建 AI 目前暫不提供，請改選其他翻譯服務。</span>
-        <button class="banner-link-btn" @click="openOptions">前往設定 ➔</button>
+        <span>{{ t('popup.chromeWarning') }}</span>
+        <button class="banner-link-btn" @click="openOptions">{{ t('popup.openSettings') }}</button>
       </div>
 
       <!-- Tip Callout (Regular Webpage) -->
       <div v-if="!isSubtitleTab" class="stitch-callout" data-testid="selection-hint">
         <span class="callout-icon">💡</span>
-        <span>反白選取文字即可劃詞翻譯；亦可透過右鍵選單快速翻譯目前頁面。</span>
+        <span>{{ t('popup.selectionHint') }}</span>
       </div>
 
       <!-- Action Buttons (Regular Webpage) -->
@@ -316,7 +326,7 @@
           data-testid="translate-page-btn"
         >
           <span v-if="isTranslating" class="spinner"></span>
-          <span>{{ isTranslating ? '翻譯中...' : '翻譯目前頁面' }}</span>
+          <span>{{ isTranslating ? t('popup.translating') : t('popup.translatePage') }}</span>
         </button>
 
         <button
@@ -326,7 +336,7 @@
           data-testid="restore-page-btn"
         >
           <span v-if="isRestoring" class="spinner"></span>
-          <span>{{ isRestoring ? '還原中...' : '還原頁面' }}</span>
+          <span>{{ isRestoring ? t('popup.restoring') : t('popup.restorePage') }}</span>
         </button>
       </div>
 
@@ -349,7 +359,7 @@
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
-        <span>更多設定</span>
+        <span>{{ t('popup.moreSettings') }}</span>
       </button>
     </footer>
   </div>
@@ -364,12 +374,14 @@ import { SettingsStorage } from '@/infrastructure/storage/extension-storage/sett
 import { useNetflixSession } from '@/core/session/subtitle-session-store';
 import { DEFAULT_MODEL_ID } from '@/infrastructure/providers/gemini/model-registry';
 import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
+import { translate, uiLanguageOptions, type TranslationKey } from '@/shared/i18n';
 
 const settings = ref({
   enabled: true,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',
   activeProviderId: 'google-provider',
+  uiLanguage: 'auto' as 'auto' | 'zh-Hant' | 'zh-Hans' | 'en' | 'ja',
   hasGeminiApiKey: false,
   geminiModel: DEFAULT_MODEL_ID,
   hasDeeplApiKey: false,
@@ -382,6 +394,10 @@ const settings = ref({
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
 });
+
+const t = (key: TranslationKey, vars?: Record<string, string | number>) =>
+  translate(settings.value.uiLanguage, key, vars);
+const interfaceLanguageOptions = computed(() => uiLanguageOptions(settings.value.uiLanguage));
 
 const { theme, onThemeChange } = useUiTheme(message => { errorMessage.value = message; });
 const isTranslating = ref(false);
@@ -418,18 +434,13 @@ async function toggleSubtitles() {
   try {
     const tabId = await extensionBridge.queryActiveTabId();
     if (!tabId) {
-      errorMessage.value = '找不到目前分頁';
+      errorMessage.value = t('error.activeTabMissing');
       return;
     }
     if (isNetflixTab.value) {
       await extensionBridge.sendTabCommand(tabId, { type: 'SET_NETFLIX_ACTIVE', active: target });
-      // Give immediate tactile feedback instead of waiting for the session
-      // poller, then reconcile with the adapter's authoritative state.
       netflixHud.value = { ...netflixHud.value, isActive: target };
-      const state = await extensionBridge.sendTabCommand<typeof netflixHud.value>(
-        tabId,
-        { type: 'GET_NETFLIX_STATE' },
-      );
+      const state = await extensionBridge.sendTabCommand<typeof netflixHud.value>(tabId, { type: 'GET_NETFLIX_STATE' });
       if (state) netflixHud.value = state;
     } else {
       await extensionBridge.sendTabCommand(tabId, { type: 'SET_YOUTUBE_ACTIVE', active: target });
@@ -444,9 +455,9 @@ async function toggleSubtitles() {
         await refreshYouTubeState();
       }
     }
-    statusMessage.value = target ? '雙語字幕已開啟' : '雙語字幕已關閉';
+    statusMessage.value = target ? t('subtitle.enabledStatus') : t('subtitle.disabledStatus');
   } catch {
-    errorMessage.value = '無法切換雙語字幕（分頁未回應）';
+    errorMessage.value = t('error.toggleSubtitles');
   } finally {
     subtitleTogglePending.value = false;
   }
@@ -492,7 +503,7 @@ async function onYouTubeTrackChange(e: Event) {
     if (!tabId) return;
     await extensionBridge.sendTabCommand(tabId, { type: 'SET_YOUTUBE_TRACK', trackId: code });
   } catch {
-    errorMessage.value = '無法切換 YouTube 字幕軌道';
+    errorMessage.value = t('error.youtubeTrack');
   }
 }
 
@@ -532,30 +543,30 @@ const activeProviderDetail = computed(() => {
     case 'gemini-provider':
       return settings.value.hasGeminiApiKey
         ? `Gemini (${settings.value.geminiModel || 'gemini-2.5-flash'})`
-        : `Gemini 尚未設定金鑰`;
+        : t('provider.geminiNoKey');
     case 'deepl-provider':
       return settings.value.hasDeeplApiKey
         ? `DeepL (${settings.value.deeplApiIsPro ? 'Pro' : 'Free'})`
-        : `DeepL 尚未設定金鑰`;
+        : t('provider.deeplNoKey');
     case 'openrouter-provider':
       return settings.value.hasOpenRouterApiKey
         ? `OpenRouter (${settings.value.openRouterModel || 'openrouter/auto'})`
-        : 'OpenRouter 尚未設定金鑰';
+        : t('provider.openrouterNoKey');
     case 'nvidia-nim-provider':
       return settings.value.hasNvidiaNimApiKey
         ? `NVIDIA NIM (${settings.value.nvidiaNimModel || 'model'})`
-        : 'NVIDIA NIM · Hosted 模式需金鑰';
+        : t('provider.nvidiaNoKey');
     case 'chrome-builtin-ai-provider':
-      return 'Chrome 內建 AI';
+      return t('provider.chrome');
     case 'ollama-provider':
-      return 'Ollama 本機端（僅 loopback）';
+      return t('provider.ollamaDetail');
     case 'local-http-provider':
-      return '本機 HTTP API（僅 loopback）';
+      return t('provider.localHttpDetail');
     case 'custom-http-provider':
-      return '自訂 HTTP API · 遠端內容傳輸';
+      return t('provider.customHttpDetail');
     case 'google-provider':
     default:
-      return 'Google 翻譯 · 免金鑰 · 非官方網頁端點';
+      return t('provider.googleDetail');
   }
 });
 
@@ -601,7 +612,7 @@ async function saveSubtitleSizes() {
       subtitleTranslatedFontSize: settings.value.subtitleTranslatedFontSize,
     });
   } catch {
-    errorMessage.value = '儲存字幕設定失敗';
+    errorMessage.value = t('error.saveSubtitle');
   }
 }
 
@@ -621,7 +632,7 @@ async function onLearningModeToggle(e: Event) {
     await SettingsStorage.set({ netflix: { ...current, learningMode: enabled } });
   } catch {
     learningMode.value = !enabled;
-    errorMessage.value = '無法更新學習模式設定，已恢復原本狀態';
+    errorMessage.value = t('error.learningModeRestored');
   }
 }
 
@@ -636,7 +647,7 @@ async function setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: stri
       selectedTrackId: source === 'ai' ? 'ai-translate' : trackId ?? netflixHud.value.selectedTrackId,
     };
   } catch {
-    errorMessage.value = '無法切換字幕來源（分頁未回應）';
+    errorMessage.value = t('error.subtitleSource');
   }
 }
 
@@ -692,6 +703,7 @@ onMounted(async () => {
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage;
       settings.value.activeProviderId = s.activeProviderId || 'google-provider';
+      settings.value.uiLanguage = s.uiLanguage || 'auto';
       settings.value.hasGeminiApiKey = Boolean(s.hasGeminiApiKey);
       settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
       settings.value.hasDeeplApiKey = Boolean(s.hasDeeplApiKey);
@@ -716,9 +728,10 @@ async function save() {
       sourceLanguage: settings.value.sourceLanguage,
       targetLanguage: settings.value.targetLanguage,
       activeProviderId: settings.value.activeProviderId,
+      uiLanguage: settings.value.uiLanguage,
     });
   } catch {
-    errorMessage.value = '儲存設定失敗';
+    errorMessage.value = t('error.saveSettings');
   }
 }
 
@@ -729,12 +742,12 @@ async function translateCurrentPage() {
   try {
     const res = await messageRouter.sendMessage({ type: 'TRANSLATE_ACTIVE_TAB' });
     if (res?.success) {
-      statusMessage.value = `翻譯完成 (共 ${res.translatedCount || 0} 個段落)`;
+      statusMessage.value = t('status.translationDone', { count: res.translatedCount || 0 });
     } else {
-      errorMessage.value = res?.error?.message || '頁面翻譯失敗';
+      errorMessage.value = res?.error?.message || t('error.pageTranslation');
     }
   } catch (err: any) {
-    errorMessage.value = err?.message || '通訊錯誤，請確認頁面已載入';
+    errorMessage.value = err?.message || t('error.communicationLoaded');
   } finally {
     isTranslating.value = false;
   }
@@ -747,12 +760,12 @@ async function restorePage() {
   try {
     const res = await messageRouter.sendMessage({ type: 'RESTORE_ACTIVE_TAB' });
     if (res?.success) {
-      statusMessage.value = `已還原頁面 (共 ${res.restoredCount || 0} 個段落)`;
+      statusMessage.value = t('status.restoreDone', { count: res.restoredCount || 0 });
     } else {
-      errorMessage.value = res?.error?.message || '頁面還原失敗';
+      errorMessage.value = res?.error?.message || t('error.pageRestore');
     }
   } catch (err: any) {
-    errorMessage.value = err?.message || '通訊錯誤';
+    errorMessage.value = err?.message || t('error.communication');
   } finally {
     isRestoring.value = false;
   }

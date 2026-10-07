@@ -4,7 +4,10 @@
  * Listens for user text selection on standard web pages and displays
  * an interactive quick-action pill ("譯") to trigger selection translation.
  */
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { translate } from '@/shared/i18n';
 
+let selectionUiLanguage: string = 'auto';
 let selectionPill: HTMLElement | null = null;
 let selectionHideTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -30,8 +33,8 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
   const pill = document.createElement('button');
   pill.id = 'owt-selection-pill';
   pill.type = 'button';
-  pill.title = '劃詞翻譯';
-  pill.textContent = '譯';
+  pill.title = translate(selectionUiLanguage, 'selection.translateTitle');
+  pill.textContent = translate(selectionUiLanguage, 'selection.pill');
   pill.style.cssText = `
     position: fixed;
     z-index: 2147483600;
@@ -79,6 +82,13 @@ export function showSelectionPill(rect: DOMRect, onTranslate: (selection: Select
 }
 
 export function setupSelectionTranslate(onTranslate: (selection: Selection) => Promise<void> | void, isEnabled: () => boolean = () => true): () => void {
+  void SettingsStorage.get().then((settings) => {
+    selectionUiLanguage = settings.uiLanguage || 'auto';
+  }).catch(() => {});
+  const unwatchSettings = SettingsStorage.watch((settings) => {
+    selectionUiLanguage = settings.uiLanguage || 'auto';
+  });
+
   const onPointerUp = () => {
     if (selectionHideTimer) clearTimeout(selectionHideTimer);
     selectionHideTimer = setTimeout(() => {
@@ -125,5 +135,6 @@ export function setupSelectionTranslate(onTranslate: (selection: Selection) => P
     document.removeEventListener('keydown', onKeyDown);
     document.removeEventListener('scroll', onScroll);
     hideSelectionPill();
+    unwatchSettings();
   };
 }

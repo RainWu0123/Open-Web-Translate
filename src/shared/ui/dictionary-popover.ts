@@ -12,6 +12,8 @@
  */
 import { ttsPlayer } from '@/shared/audio/tts-player';
 import type { WordAnalysisResult, GrammarExplanation } from '@/core/domain/learning-types';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { translate } from '@/shared/i18n';
 
 export interface DictionaryPopoverEntry {
   surface: string;
@@ -48,8 +50,21 @@ export class DictionaryPopover {
   private escapeListener: ((e: KeyboardEvent) => void) | null = null;
   private current: DictionaryPopoverEntry | null = null;
   private currentAnalysis: WordAnalysisResult | null = null;
+  private uiLanguage = 'auto';
+  private unwatchSettings: (() => void) | null = null;
 
-  constructor(private callbacks: DictionaryPopoverCallbacks) {}
+  constructor(private callbacks: DictionaryPopoverCallbacks) {
+    void SettingsStorage.get().then((settings) => {
+      this.uiLanguage = settings.uiLanguage || 'auto';
+    }).catch(() => {});
+    this.unwatchSettings = SettingsStorage.watch((settings) => {
+      this.uiLanguage = settings.uiLanguage || 'auto';
+    });
+  }
+
+  private tr(key: Parameters<typeof translate>[1], vars?: Record<string, string | number>): string {
+    return translate(this.uiLanguage, key, vars);
+  }
 
   public show(entry: DictionaryPopoverEntry): void {
     this.current = entry;
@@ -77,7 +92,7 @@ export class DictionaryPopover {
 
     const ttsBtn = document.createElement('button');
     ttsBtn.className = 'owt-dp-icon-btn owt-dp-tts';
-    ttsBtn.title = '朗讀發音 (快速鍵: V)';
+    ttsBtn.title = this.tr('dictionary.speak');
     ttsBtn.innerHTML = `
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
@@ -95,7 +110,7 @@ export class DictionaryPopover {
     const closeBtn = document.createElement('button');
     closeBtn.className = 'owt-dp-close';
     closeBtn.textContent = '✕';
-    closeBtn.title = '關閉 (Esc)';
+    closeBtn.title = this.tr('dictionary.close');
     closeBtn.addEventListener('click', () => this.hide());
     head.appendChild(closeBtn);
     el.appendChild(head);
@@ -109,7 +124,7 @@ export class DictionaryPopover {
     // ── 3. Meaning / Gloss in Context ──
     const gloss = document.createElement('div');
     gloss.className = 'owt-dp-gloss';
-    gloss.textContent = '語境分析中…';
+    gloss.textContent = this.tr('dictionary.analyzing');
     el.appendChild(gloss);
 
     // Trigger async lookup
@@ -119,10 +134,10 @@ export class DictionaryPopover {
         if (this.current !== entry) return;
 
         if (typeof res === 'string') {
-          gloss.textContent = res || '（無查詞結果）';
+          gloss.textContent = res || this.tr('dictionary.noResult');
         } else if (res && typeof res === 'object') {
           this.currentAnalysis = res;
-          gloss.textContent = res.meaningInContext || '（無查詞結果）';
+          gloss.textContent = res.meaningInContext || this.tr('dictionary.noResult');
 
           if (res.phonetic) {
             phoneticSpan.textContent = `[${res.phonetic}]`;
@@ -141,14 +156,14 @@ export class DictionaryPopover {
             if (res.lemma && res.lemma.toLowerCase() !== res.word.toLowerCase()) {
               const lemmaText = document.createElement('span');
               lemmaText.className = 'owt-dp-lemma';
-              lemmaText.textContent = `原形: ${res.lemma}`;
+              lemmaText.textContent = this.tr('dictionary.lemma', { lemma: res.lemma });
               morphBar.appendChild(lemmaText);
             }
           }
         }
       })
       .catch(() => {
-        if (this.current === entry) gloss.textContent = '（查詞失敗）';
+        if (this.current === entry) gloss.textContent = this.tr('dictionary.lookupFailed');
       });
 
     // ── 4. Sentence context ──
@@ -172,7 +187,7 @@ export class DictionaryPopover {
 
       const grammarToggle = document.createElement('button');
       grammarToggle.className = 'owt-dp-grammar-toggle';
-      grammarToggle.innerHTML = `<span>🔍 AI 文法解析</span> <span class="arrow">▼</span>`;
+      grammarToggle.innerHTML = `<span>🔍 ${this.tr('dictionary.grammar')}</span> <span class="arrow">▼</span>`;
 
       const grammarBody = document.createElement('div');
       grammarBody.className = 'owt-dp-grammar-body';
@@ -185,7 +200,7 @@ export class DictionaryPopover {
         grammarToggle.querySelector('.arrow')!.textContent = isHidden ? '▲' : '▼';
 
         if (isHidden && !loaded && this.callbacks.onExplainGrammar) {
-          grammarBody.innerHTML = '<div class="owt-dp-grammar-loading">正在拆解文法句構…</div>';
+          grammarBody.innerHTML = `<div class="owt-dp-grammar-loading">${this.tr('dictionary.grammarLoading')}</div>`;
           void this.callbacks
             .onExplainGrammar(entry.sentence, entry.surface)
             .then((explanation) => {
@@ -194,7 +209,7 @@ export class DictionaryPopover {
               this.renderGrammarBody(grammarBody, explanation);
             })
             .catch(() => {
-              grammarBody.innerHTML = '<div class="owt-dp-grammar-err">文法解析失敗</div>';
+              grammarBody.innerHTML = `<div class="owt-dp-grammar-err">${this.tr('dictionary.grammarFailed')}</div>`;
             });
         }
       });
@@ -210,8 +225,8 @@ export class DictionaryPopover {
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'owt-dp-save';
-    saveBtn.textContent = '⭐ 存入生字庫';
-    saveBtn.title = '快速鍵: S';
+    saveBtn.textContent = this.tr('dictionary.save');
+    saveBtn.title = this.tr('dictionary.saveShortcut');
 
     const performSave = () => {
       void this.callbacks
@@ -225,11 +240,11 @@ export class DictionaryPopover {
           sentenceTranslation: entry.sentenceTranslation,
         })
         .then(() => {
-          saveBtn.textContent = '✅ 已存入生字庫';
+          saveBtn.textContent = this.tr('dictionary.saved');
           saveBtn.disabled = true;
         })
         .catch(() => {
-          saveBtn.textContent = '⚠ 儲存失敗';
+          saveBtn.textContent = this.tr('dictionary.saveFailed');
         });
     };
 
@@ -293,7 +308,7 @@ export class DictionaryPopover {
 
     if (exp.keyPoints && exp.keyPoints.length > 0) {
       const kp = el('div', 'owt-dp-keypoints');
-      kp.appendChild(el('b', undefined, '重點總結：'));
+      kp.appendChild(el('b', undefined, this.tr('dictionary.keyPoints')));
       for (const k of exp.keyPoints) {
         kp.appendChild(el('span', undefined, `• ${String(k)}`));
       }
@@ -312,6 +327,8 @@ export class DictionaryPopover {
     this.hide();
     this.el?.remove();
     this.el = null;
+    this.unwatchSettings?.();
+    this.unwatchSettings = null;
   }
 
   // ── Internals ──────────────────────────────────────────────────────

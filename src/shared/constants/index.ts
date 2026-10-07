@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   aiTranslationInstructions: '',
   deeplApiIsPro: false,
   displayMode: 'bilingual',
-  uiLanguage: 'zh-Hant',
+  uiLanguage: 'auto',
   showFloatingButton: false,
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
