@@ -57,6 +57,12 @@ Netflix and YouTube adapters interact with DOM/runtime/network surfaces exposed 
 
 The Google Translate "Free" provider uses an undocumented web endpoint (`translate.googleapis.com/translate_a/single?client=gtx`). This is not the documented Google Cloud Translation API.
 
+OpenRouter integration uses OpenRouter's documented OpenAI-compatible API (`https://openrouter.ai/api/v1`) and user-provided model slugs/API keys. Reference: https://openrouter.ai/docs
+
+NVIDIA NIM integration uses the documented OpenAI-compatible NIM API shape, including `/v1/chat/completions`; the default hosted base URL is `https://integrate.api.nvidia.com/v1`, while users may configure an allowed loopback NIM endpoint. Reference: https://docs.nvidia.com/nim/large-language-models/latest/api-reference.html
+
+No OpenRouter or NVIDIA source code is bundled.
+
 Product/service names and trademarks belong to their respective owners. Their mention describes interoperability only and does not imply sponsorship or affiliation.
 
 ## Project artwork
