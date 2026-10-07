@@ -16,6 +16,7 @@ import { aiLearningEngine } from '@/core/pipeline/ai-learning-engine';
 import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
+import { translate } from '@/shared/i18n';
 
 const logger = createLogger('Background');
 
@@ -245,17 +246,18 @@ export default defineBackground(() => {
   async function registerContextMenus(): Promise<void> {
     try {
       // removeAll first to ensure idempotent re-registration on update,
-      // restart, and service-worker revival.
+      // restart, service-worker revival, and UI-language changes.
       await browser.contextMenus.removeAll();
+      const settings = await SettingsStorage.get();
       browser.contextMenus.create({
         id: 'owt-translate-page',
-        title: '用 OWT 翻譯這個分頁',
+        title: translate(settings.uiLanguage, 'context.translatePage'),
         contexts: ['page'],
         documentUrlPatterns: ['http://*/*', 'https://*/*'],
       });
       browser.contextMenus.create({
         id: 'owt-translate-selection',
-        title: '翻譯選取的文字',
+        title: translate(settings.uiLanguage, 'context.translateSelection'),
         contexts: ['selection'],
         documentUrlPatterns: ['http://*/*', 'https://*/*'],
       });
@@ -284,6 +286,10 @@ export default defineBackground(() => {
   // Service workers can be revived without onInstalled firing; make sure
   // the menus exist in every session.
   void registerContextMenus();
+
+  SettingsStorage.watch((settings) => {
+    if (settings.uiLanguage) void registerContextMenus();
+  });
 
   // ── Context Menu Click Handler ─────────────────────────────────
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
