@@ -1,0 +1,11 @@
+{
+  "appName": {
+    "message": "Open Web Translate"
+  },
+  "appDescription": {
+    "message": "An open-source browser translation extension."
+  },
+  "actionTitle": {
+    "message": "Open Open Web Translate"
+  }
+}
