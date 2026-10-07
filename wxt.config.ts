@@ -14,10 +14,11 @@ export default defineConfig({
   publicDir: 'src/public',
   modules: ['@wxt-dev/module-vue'],
   manifest: () => ({
-    name: 'Open Web Translate',
+    default_locale: 'en',
+    name: '__MSG_appName__',
     // `version` is intentionally omitted: WXT derives it from package.json,
     // so the manifest can no longer drift from the released version.
-    description: 'An open-source browser translation extension.',
+    description: '__MSG_appDescription__',
     // Declare icons explicitly instead of relying on framework inference.
     // Firefox/AMO uses manifest.icons for the add-on listing and about:addons;
     // action.default_icon covers the browser toolbar.
@@ -45,7 +46,7 @@ export default defineConfig({
       },
     },
     action: {
-      default_title: '開啟 Open Web Translate 設定',
+      default_title: '__MSG_actionTitle__',
       default_icon: EXTENSION_ICONS,
     },
     web_accessible_resources: [
