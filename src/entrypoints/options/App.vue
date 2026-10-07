@@ -1134,6 +1134,27 @@ async function loadSettings() {
   }
 }
 
+function formatProviderTestError(error: unknown): string {
+  const candidate = error as { message?: unknown; code?: unknown } | null;
+  const message = error instanceof Error
+    ? error.message
+    : typeof candidate?.message === 'string' ? candidate.message : '';
+
+  if (candidate?.code === 'ABORTED' || /\babort(?:ed)?\b/i.test(message)) {
+    return '試譯已被取消。請保持設定頁開啟後再試一次。';
+  }
+  if (/timed out|timeout|逾時/i.test(message)) {
+    return '連線逾時。請確認網路、模型名稱與服務狀態後再試一次。';
+  }
+  if (candidate?.code === 'CONFIGURATION_ERROR') {
+    return message || '設定無效，請檢查 API Key 與模型名稱。';
+  }
+  if (candidate?.code === 'QUOTA_EXCEEDED') {
+    return message || '服務額度或速率限制已達上限。';
+  }
+  return message || '請檢查金鑰、服務位址與網路。';
+}
+
 async function testProvider() {
   testingProvider.value = true;
   providerTestResult.value = '';
@@ -1150,7 +1171,7 @@ async function testProvider() {
     if (!translation?.trim()) throw new Error('服務未回傳譯文');
     providerTestResult.value = '收到譯文：' + translation;
   } catch (error) {
-    providerTestResult.value = '試譯失敗：' + (error instanceof Error ? error.message : '請檢查金鑰、服務位址與網路。');
+    providerTestResult.value = '試譯失敗：' + formatProviderTestError(error);
   } finally { testingProvider.value = false; }
 }
 async function save() {
