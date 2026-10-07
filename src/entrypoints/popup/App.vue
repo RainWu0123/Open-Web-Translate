@@ -117,6 +117,8 @@
               <option value="google-provider">Google 翻譯（免金鑰 · 非官方端點）</option>
               <option value="gemini-provider">Google Gemini AI</option>
               <option value="deepl-provider">DeepL 翻譯</option>
+              <option value="openrouter-provider">OpenRouter</option>
+              <option value="nvidia-nim-provider">NVIDIA NIM</option>
               <option value="chrome-builtin-ai-provider" disabled>Chrome 內建 AI（暫不提供）</option>
               <option value="ollama-provider">Ollama 本機端</option>
               <option value="local-http-provider">本機 HTTP API</option>
@@ -355,6 +357,7 @@ import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { useNetflixSession } from '@/core/session/subtitle-session-store';
 import { DEFAULT_MODEL_ID } from '@/infrastructure/providers/gemini/model-registry';
+import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
 
 const settings = ref({
   enabled: true,
@@ -365,6 +368,11 @@ const settings = ref({
   geminiModel: DEFAULT_MODEL_ID,
   hasDeeplApiKey: false,
   deeplApiIsPro: false,
+  hasOpenRouterApiKey: false,
+  openRouterModel: 'openrouter/auto',
+  hasNvidiaNimApiKey: false,
+  nvidiaNimEndpoint: 'https://integrate.api.nvidia.com/v1',
+  nvidiaNimModel: 'meta/llama-3.1-8b-instruct',
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
 });
@@ -482,6 +490,11 @@ function onProviderChange(e: Event) {
 const needsApiKeySetup = computed(() => {
   if (settings.value.activeProviderId === 'gemini-provider' && !settings.value.hasGeminiApiKey) return true;
   if (settings.value.activeProviderId === 'deepl-provider' && !settings.value.hasDeeplApiKey) return true;
+  if (settings.value.activeProviderId === 'openrouter-provider' && !settings.value.hasOpenRouterApiKey) return true;
+  if (settings.value.activeProviderId === 'nvidia-nim-provider' && !settings.value.hasNvidiaNimApiKey) {
+    const inspection = inspectHttpEndpoint(settings.value.nvidiaNimEndpoint);
+    return !(inspection.isValid && inspection.isLocal);
+  }
   return false;
 });
 
@@ -500,6 +513,14 @@ const activeProviderDetail = computed(() => {
       return settings.value.hasDeeplApiKey
         ? `DeepL (${settings.value.deeplApiIsPro ? 'Pro' : 'Free'})`
         : `DeepL 尚未設定金鑰`;
+    case 'openrouter-provider':
+      return settings.value.hasOpenRouterApiKey
+        ? `OpenRouter (${settings.value.openRouterModel || 'openrouter/auto'})`
+        : 'OpenRouter 尚未設定金鑰';
+    case 'nvidia-nim-provider':
+      return settings.value.hasNvidiaNimApiKey
+        ? `NVIDIA NIM (${settings.value.nvidiaNimModel || 'model'})`
+        : 'NVIDIA NIM · Hosted 模式需金鑰';
     case 'chrome-builtin-ai-provider':
       return 'Chrome 內建 AI';
     case 'ollama-provider':
@@ -650,6 +671,11 @@ onMounted(async () => {
       settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
       settings.value.hasDeeplApiKey = Boolean(s.hasDeeplApiKey);
       settings.value.deeplApiIsPro = Boolean(s.deeplApiIsPro);
+      settings.value.hasOpenRouterApiKey = Boolean(s.hasOpenRouterApiKey);
+      settings.value.openRouterModel = s.openRouterModel || 'openrouter/auto';
+      settings.value.hasNvidiaNimApiKey = Boolean(s.hasNvidiaNimApiKey);
+      settings.value.nvidiaNimEndpoint = s.nvidiaNimEndpoint || 'https://integrate.api.nvidia.com/v1';
+      settings.value.nvidiaNimModel = s.nvidiaNimModel || 'meta/llama-3.1-8b-instruct';
       settings.value.subtitleOriginalFontSize = s.subtitleOriginalFontSize ?? 18;
       settings.value.subtitleTranslatedFontSize = s.subtitleTranslatedFontSize ?? 22;
     }

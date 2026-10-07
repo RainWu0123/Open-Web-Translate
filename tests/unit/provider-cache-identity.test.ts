@@ -55,6 +55,28 @@ describe('provider cache identity', () => {
     expect(second.fingerprint).not.toBe(first.fingerprint);
   });
 
+  it('tracks OpenRouter and NVIDIA NIM output-affecting settings', () => {
+    const openRouterA = getProviderCacheIdentity('openrouter-provider', {
+      openRouterModel: 'openrouter/auto',
+      aiTranslationInstructions: 'Use concise subtitles',
+    });
+    const openRouterB = getProviderCacheIdentity('openrouter-provider', {
+      openRouterModel: 'openrouter/free',
+      aiTranslationInstructions: 'Use concise subtitles',
+    });
+    expect(openRouterB.fingerprint).not.toBe(openRouterA.fingerprint);
+
+    const nimA = getProviderCacheIdentity('nvidia-nim-provider', {
+      nvidiaNimEndpoint: 'https://integrate.api.nvidia.com/v1',
+      nvidiaNimModel: 'meta/llama-3.1-8b-instruct',
+    });
+    const nimB = getProviderCacheIdentity('nvidia-nim-provider', {
+      nvidiaNimEndpoint: 'http://127.0.0.1:8000/v1',
+      nvidiaNimModel: 'meta/llama-3.1-70b-instruct',
+    });
+    expect(nimB.fingerprint).not.toBe(nimA.fingerprint);
+  });
+
   it('distinguishes Local HTTP endpoints and models', () => {
     const first = getProviderCacheIdentity('local-http-provider', {
       localHttpEndpoint: 'http://127.0.0.1:8080',

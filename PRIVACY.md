@@ -37,6 +37,8 @@ The selected provider determines where text is processed:
 - **Google Translate**: text requested for translation is sent to Google's translation web endpoint. OWT's free Google provider uses an undocumented web endpoint rather than the contractual Google Cloud Translation API.
 - **Gemini**: text requested for translation is sent to Google's Gemini API when selected.
 - **DeepL**: text requested for translation is sent to DeepL when selected.
+- **OpenRouter**: text requested for translation is sent to OpenRouter when selected; the user chooses the model ID or OpenRouter router.
+- **NVIDIA NIM**: the default hosted configuration sends requested text to NVIDIA. If the user changes the NIM endpoint to an allowed loopback address, processing remains on that local service.
 - **Custom HTTP API**: text requested for translation is sent to the endpoint explicitly configured by the user. Remote endpoints must use HTTPS.
 
 Third-party providers process requests under their own terms and privacy policies. OWT never silently changes from a local provider to a remote provider after a failure.

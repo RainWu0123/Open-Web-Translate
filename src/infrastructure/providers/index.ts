@@ -16,6 +16,9 @@ export * from './mock-provider';
 export * from './ollama-provider';
 export * from './local-http-provider';
 export * from './custom-http-provider';
+export * from './openai-compatible-provider';
+export * from './openrouter-provider';
+export * from './nvidia-nim-provider';
 export * from './chrome-builtin-ai-provider';
 export * from './model-registry';
 

@@ -44,6 +44,18 @@ export function getProviderCacheIdentity(
         fingerprint: `v1:endpoint=${normalized(settings.customHttpEndpoint, '')};model=${normalized(settings.customHttpModel, 'default')};instructions=${instructions}`,
       };
 
+    case 'openrouter-provider':
+      return {
+        providerId: resolvedProviderId,
+        fingerprint: `v1:endpoint=https://openrouter.ai/api/v1;model=${normalized(settings.openRouterModel, 'openrouter/auto')};instructions=${instructions}`,
+      };
+
+    case 'nvidia-nim-provider':
+      return {
+        providerId: resolvedProviderId,
+        fingerprint: `v1:endpoint=${normalized(settings.nvidiaNimEndpoint, 'https://integrate.api.nvidia.com/v1')};model=${normalized(settings.nvidiaNimModel, 'meta/llama-3.1-8b-instruct')};instructions=${instructions}`,
+      };
+
     case 'google-provider':
       return {
         providerId: resolvedProviderId,

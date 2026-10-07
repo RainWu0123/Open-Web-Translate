@@ -487,6 +487,8 @@
                       <option value="google-provider">Google Translate (Free · unofficial web endpoint)</option>
                       <option value="gemini-provider">Google Gemini API</option>
                       <option value="deepl-provider">DeepL Translate API</option>
+                      <option value="openrouter-provider">OpenRouter</option>
+                      <option value="nvidia-nim-provider">NVIDIA NIM</option>
                       <option value="ollama-provider">Local Ollama AI (loopback only)</option>
                       <option value="local-http-provider">Local HTTP AI (loopback only)</option>
                       <option value="custom-http-provider">Custom HTTP API (remote/self-hosted)</option>
@@ -502,11 +504,24 @@
                     <span class="row-desc">選擇官方驗證模型或輸入自訂模型 ID。</span>
                   </div>
                   <div class="row-control">
-                    <select aria-label="Gemini 模型名稱" v-model="settings.geminiModel" @change="save" class="stitch-select">
-                      <option v-for="m in activeModels" :key="m.id" :value="m.id">
-                        {{ m.displayName }}{{ m.isDefaultCandidate ? ' (Recommended)' : '' }}
-                      </option>
-                    </select>
+                    <div class="input-group">
+                      <input
+                        aria-label="Gemini 模型名稱"
+                        v-model.trim="settings.geminiModel"
+                        @change="save"
+                        class="stitch-input"
+                        list="gemini-model-suggestions"
+                        placeholder="例：gemini-3.5-flash"
+                      />
+                      <datalist id="gemini-model-suggestions">
+                        <option v-for="m in activeModels" :key="m.id" :value="m.id">
+                          {{ m.displayName }}{{ m.isDefaultCandidate ? ' (Recommended)' : '' }}
+                        </option>
+                        <option v-for="m in deprecatedModels" :key="m.id" :value="m.id">
+                          {{ m.displayName }} (Deprecated)
+                        </option>
+                      </datalist>
+                    </div>
                   </div>
                 </div>
 
@@ -527,6 +542,48 @@
                       {{ saveApiKeyStatus === 'success' ? '已儲存 ✓' : saveApiKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
                     </button>
                     <button class="btn-stitch-secondary" @click="clearApiKey" v-if="settings.hasGeminiApiKey">清除</button>
+                  </div>
+                </div>
+
+                <!-- OpenRouter -->
+                <div v-if="settings.activeProviderId === 'openrouter-provider'" class="stitch-row vertical-row">
+                  <label for="openrouter-model" class="row-title">OpenRouter 模型 ID</label>
+                  <p class="row-desc">可直接輸入任何 OpenRouter model slug，例如 openai/gpt-5.6、anthropic/...，或使用 openrouter/auto 自動路由。</p>
+                  <input id="openrouter-model" class="stitch-input" v-model.trim="settings.openRouterModel" @change="save" list="openrouter-model-suggestions" placeholder="openrouter/auto" />
+                  <datalist id="openrouter-model-suggestions">
+                    <option value="openrouter/auto"></option>
+                    <option value="openrouter/free"></option>
+                  </datalist>
+                  <label for="openrouter-key" class="row-title">OpenRouter API 金鑰</label>
+                  <p class="row-desc">目前狀態：{{ settings.hasOpenRouterApiKey ? settings.openRouterApiKeyMasked : '未設定' }}</p>
+                  <div class="input-group">
+                    <input id="openrouter-key" class="stitch-input" type="password" v-model="openRouterKeyInput" placeholder="sk-or-v1-…" />
+                    <button class="btn-stitch-accent" @click="saveOpenRouterKey(openRouterKeyInput)">
+                      {{ saveOpenRouterKeyStatus === 'success' ? '已儲存 ✓' : saveOpenRouterKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
+                    <button class="btn-stitch-secondary" @click="clearOpenRouterKey" v-if="settings.hasOpenRouterApiKey">清除</button>
+                  </div>
+                </div>
+
+                <!-- NVIDIA NIM -->
+                <div v-if="settings.activeProviderId === 'nvidia-nim-provider'" class="stitch-row vertical-row">
+                  <label for="nvidia-nim-url" class="row-title">NVIDIA NIM API 根位址</label>
+                  <p class="row-desc">預設使用 NVIDIA Hosted NIM。也可改成 loopback NIM；遠端自訂位址必須使用 HTTPS。</p>
+                  <input id="nvidia-nim-url" class="stitch-input" type="url" v-model.trim="settings.nvidiaNimEndpoint" @change="save" />
+                  <label for="nvidia-nim-model" class="row-title">NVIDIA NIM 模型 ID</label>
+                  <input id="nvidia-nim-model" class="stitch-input" v-model.trim="settings.nvidiaNimModel" @change="save" list="nvidia-nim-model-suggestions" placeholder="meta/llama-3.1-8b-instruct" />
+                  <datalist id="nvidia-nim-model-suggestions">
+                    <option value="meta/llama-3.1-8b-instruct"></option>
+                    <option value="meta/llama-3.1-70b-instruct"></option>
+                  </datalist>
+                  <label for="nvidia-nim-key" class="row-title">NVIDIA API 金鑰</label>
+                  <p class="row-desc">Hosted NIM 需要 API 金鑰；loopback NIM 可不填。狀態：{{ settings.hasNvidiaNimApiKey ? settings.nvidiaNimApiKeyMasked : '未設定' }}</p>
+                  <div class="input-group">
+                    <input id="nvidia-nim-key" class="stitch-input" type="password" v-model="nvidiaNimKeyInput" placeholder="nvapi-…" />
+                    <button class="btn-stitch-accent" @click="saveNvidiaNimKey(nvidiaNimKeyInput)">
+                      {{ saveNvidiaNimKeyStatus === 'success' ? '已儲存 ✓' : saveNvidiaNimKeyStatus === 'error' ? '儲存失敗' : '儲存' }}
+                    </button>
+                    <button class="btn-stitch-secondary" @click="clearNvidiaNimKey" v-if="settings.hasNvidiaNimApiKey">清除</button>
                   </div>
                 </div>
 
@@ -603,7 +660,7 @@
                   <p v-if="providerTestResult" role="status">{{ providerTestResult }}</p>
                 </div>
                 <!-- AI Translation Instructions -->
-                <div v-if="['gemini-provider', 'ollama-provider', 'local-http-provider', 'custom-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
+                <div v-if="['gemini-provider', 'openrouter-provider', 'nvidia-nim-provider', 'ollama-provider', 'local-http-provider', 'custom-http-provider'].includes(settings.activeProviderId)" class="stitch-row vertical-row">
                   <div class="row-info">
                     <span class="row-title">翻譯偏好</span>
                     <span class="row-desc">提供給 Gemini、Ollama 等 AI 模型的風格與術語指引。</span>
@@ -760,12 +817,16 @@ const geminiKeyInput = ref('');
 const deeplKeyInput = ref('');
 const localHttpKeyInput = ref('');
 const customHttpKeyInput = ref('');
+const openRouterKeyInput = ref('');
+const nvidiaNimKeyInput = ref('');
 const testingProvider = ref(false);
 const providerTestResult = ref('');
 const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveLocalHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveCustomHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
+const saveOpenRouterKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
+const saveNvidiaNimKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 
 const settings = ref({
   ollamaEndpoint: 'http://localhost:11434',
@@ -778,6 +839,13 @@ const settings = ref({
   hasCustomHttpApiKey: false,
   customHttpApiKeyMasked: '',
   customHttpModel: 'default',
+  openRouterModel: 'openrouter/auto',
+  hasOpenRouterApiKey: false,
+  openRouterApiKeyMasked: '',
+  nvidiaNimEndpoint: 'https://integrate.api.nvidia.com/v1',
+  nvidiaNimModel: 'meta/llama-3.1-8b-instruct',
+  hasNvidiaNimApiKey: false,
+  nvidiaNimApiKeyMasked: '',
   enabled: true,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',
@@ -1023,6 +1091,13 @@ async function loadSettings() {
       settings.value.hasCustomHttpApiKey = !!s.hasCustomHttpApiKey;
       settings.value.customHttpApiKeyMasked = s.customHttpApiKeyMasked || '';
       settings.value.customHttpModel = s.customHttpModel || 'default';
+      settings.value.openRouterModel = s.openRouterModel || 'openrouter/auto';
+      settings.value.hasOpenRouterApiKey = !!s.hasOpenRouterApiKey;
+      settings.value.openRouterApiKeyMasked = s.openRouterApiKeyMasked || '';
+      settings.value.nvidiaNimEndpoint = s.nvidiaNimEndpoint || 'https://integrate.api.nvidia.com/v1';
+      settings.value.nvidiaNimModel = s.nvidiaNimModel || 'meta/llama-3.1-8b-instruct';
+      settings.value.hasNvidiaNimApiKey = !!s.hasNvidiaNimApiKey;
+      settings.value.nvidiaNimApiKeyMasked = s.nvidiaNimApiKeyMasked || '';
       settings.value.enabled = s.enabled ?? true;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage || 'zh-Hant';
@@ -1225,6 +1300,62 @@ async function clearCustomHttpKey() {
     await loadSettings();
   } catch (e) {
     console.error('Failed to clear Custom HTTP key', e);
+  }
+}
+
+async function saveOpenRouterKey(key: string) {
+  try {
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'openrouter', apiKey: trimmed });
+    settings.value.hasOpenRouterApiKey = true;
+    settings.value.openRouterApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
+    openRouterKeyInput.value = '';
+    saveOpenRouterKeyStatus.value = 'success';
+    setTimeout(() => { saveOpenRouterKeyStatus.value = 'idle'; }, 2500);
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to save OpenRouter key', e);
+    saveOpenRouterKeyStatus.value = 'error';
+  }
+}
+
+async function clearOpenRouterKey() {
+  try {
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'openrouter' });
+    settings.value.hasOpenRouterApiKey = false;
+    settings.value.openRouterApiKeyMasked = '';
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to clear OpenRouter key', e);
+  }
+}
+
+async function saveNvidiaNimKey(key: string) {
+  try {
+    const trimmed = (key || '').trim();
+    if (!trimmed) return;
+    await messageRouter.sendMessage({ type: 'SET_API_KEY', provider: 'nvidia-nim', apiKey: trimmed });
+    settings.value.hasNvidiaNimApiKey = true;
+    settings.value.nvidiaNimApiKeyMasked = SettingsStorage.maskApiKey(trimmed);
+    nvidiaNimKeyInput.value = '';
+    saveNvidiaNimKeyStatus.value = 'success';
+    setTimeout(() => { saveNvidiaNimKeyStatus.value = 'idle'; }, 2500);
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to save NVIDIA NIM key', e);
+    saveNvidiaNimKeyStatus.value = 'error';
+  }
+}
+
+async function clearNvidiaNimKey() {
+  try {
+    await messageRouter.sendMessage({ type: 'CLEAR_API_KEY', provider: 'nvidia-nim' });
+    settings.value.hasNvidiaNimApiKey = false;
+    settings.value.nvidiaNimApiKeyMasked = '';
+    await loadSettings();
+  } catch (e) {
+    console.error('Failed to clear NVIDIA NIM key', e);
   }
 }
 

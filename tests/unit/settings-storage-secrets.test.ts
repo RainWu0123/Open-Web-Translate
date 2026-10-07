@@ -42,6 +42,8 @@ describe('SettingsStorage secret boundary', () => {
         deeplApiKey: 'deepl-secret-123456789',
         localHttpApiKey: 'local-secret-123456789',
         customHttpApiKey: 'custom-secret-123456789',
+        openRouterApiKey: 'or-secret-123456789',
+        nvidiaNimApiKey: 'nv-secret-123456789',
       },
     };
     state.listeners.length = 0;
@@ -55,10 +57,14 @@ describe('SettingsStorage secret boundary', () => {
     expect('deeplApiKey' in settings).toBe(false);
     expect('localHttpApiKey' in settings).toBe(false);
     expect('customHttpApiKey' in settings).toBe(false);
+    expect('openRouterApiKey' in settings).toBe(false);
+    expect('nvidiaNimApiKey' in settings).toBe(false);
     expect(settings.hasGeminiApiKey).toBe(true);
     expect(settings.hasDeeplApiKey).toBe(true);
     expect(settings.hasLocalHttpApiKey).toBe(true);
     expect(settings.hasCustomHttpApiKey).toBe(true);
+    expect(settings.hasOpenRouterApiKey).toBe(true);
+    expect(settings.hasNvidiaNimApiKey).toBe(true);
     expect(settings.geminiApiKeyMasked).not.toContain('gem-secret-123456789');
   });
 
@@ -69,6 +75,8 @@ describe('SettingsStorage secret boundary', () => {
     expect(settings.deeplApiKey).toBe('deepl-secret-123456789');
     expect(settings.localHttpApiKey).toBe('local-secret-123456789');
     expect(settings.customHttpApiKey).toBe('custom-secret-123456789');
+    expect(settings.openRouterApiKey).toBe('or-secret-123456789');
+    expect(settings.nvidiaNimApiKey).toBe('nv-secret-123456789');
   });
 
   it('preserves existing secrets when public settings are updated', async () => {
@@ -80,6 +88,8 @@ describe('SettingsStorage secret boundary', () => {
     expect(raw.deeplApiKey).toBe('deepl-secret-123456789');
     expect(raw.localHttpApiKey).toBe('local-secret-123456789');
     expect(raw.customHttpApiKey).toBe('custom-secret-123456789');
+    expect(raw.openRouterApiKey).toBe('or-secret-123456789');
+    expect(raw.nvidiaNimApiKey).toBe('nv-secret-123456789');
   });
 
   it('drops secret and derived fields from untyped public patches', async () => {
