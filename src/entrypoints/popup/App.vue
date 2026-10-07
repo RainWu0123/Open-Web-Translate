@@ -114,7 +114,7 @@
               @change="onProviderChange"
               data-testid="popup-provider-select" aria-label="翻譯服務"
             >
-              <option value="google-provider">Google 翻譯 (免金鑰)</option>
+              <option value="google-provider">Google 翻譯（免金鑰 · 非官方端點）</option>
               <option value="gemini-provider">Google Gemini AI</option>
               <option value="deepl-provider">DeepL 翻譯</option>
               <option value="chrome-builtin-ai-provider" disabled>Chrome 內建 AI（暫不提供）</option>
@@ -510,7 +510,7 @@ const activeProviderDetail = computed(() => {
       return '自訂 HTTP API · 遠端內容傳輸';
     case 'google-provider':
     default:
-      return 'Google 翻譯 · 預設免金鑰';
+      return 'Google 翻譯 · 免金鑰 · 非官方網頁端點';
   }
 });
 
