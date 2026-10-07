@@ -84,6 +84,13 @@ export interface ExtensionSettings {
   customHttpApiKeyMasked?: string;
   hasCustomHttpApiKey?: boolean;
   customHttpModel?: string;
+  openRouterApiKeyMasked?: string;
+  hasOpenRouterApiKey?: boolean;
+  openRouterModel?: string;
+  nvidiaNimEndpoint?: string;
+  nvidiaNimApiKeyMasked?: string;
+  hasNvidiaNimApiKey?: boolean;
+  nvidiaNimModel?: string;
   smartBlurSubtitles?: boolean;
   /** Netflix subtitle card settings; persisted inside the single settings store. */
   netflix?: NetflixConfig;
@@ -94,10 +101,18 @@ export interface SecretSettings {
   deeplApiKey?: string;
   localHttpApiKey?: string;
   customHttpApiKey?: string;
+  openRouterApiKey?: string;
+  nvidiaNimApiKey?: string;
 }
 
 export type InternalExtensionSettings = ExtensionSettings & SecretSettings;
-export type ApiKeyProvider = 'gemini' | 'deepl' | 'local-http' | 'custom-http';
+export type ApiKeyProvider =
+  | 'gemini'
+  | 'deepl'
+  | 'local-http'
+  | 'custom-http'
+  | 'openrouter'
+  | 'nvidia-nim';
 
 export interface NetflixConfig {
   enabled: boolean;
