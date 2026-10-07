@@ -707,6 +707,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       if (this.selectedTrackId === native.id && this.secondaryCues.length > 0) return;
       this.autoSelectionRunning = true;
       try {
+        this.aiPrefetch.reset();
         // Learning mode core: when a second native track (the video's
         // original language) exists, download BOTH tracks and pair cues by
         // maximum time overlap — the LR dual-subtitle layout.
