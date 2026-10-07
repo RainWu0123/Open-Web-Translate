@@ -114,13 +114,15 @@ export async function httpTranslationFetch(
         signal: composed,
       });
     } catch (err: any) {
-      onTimeout();
+      const timedOut = onTimeout();
       if (signal?.aborted) {
         throw new Error('Translation aborted');
       }
-      lastError = new NetworkError(
-        sanitize(`[${providerId}] network request failed: ${err?.message || 'unknown error'}`),
-      );
+      lastError = timedOut
+        ? new NetworkError(`[${providerId}] request timed out after ${timeoutMs}ms`)
+        : new NetworkError(
+            sanitize(`[${providerId}] network request failed: ${err?.message || 'unknown error'}`),
+          );
       continue; // transient → maybe retry
     }
     const timedOut = onTimeout();
