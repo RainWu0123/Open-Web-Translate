@@ -29,7 +29,7 @@
     <!-- ================================================================= -->
     <div class="popup-body">
       <!-- Master Toggle Row -->
-      <div class="stitch-rows-container">
+      <div v-if="!isSubtitleTab" class="stitch-rows-container">
         <div class="stitch-row">
           <div class="row-info">
             <span class="row-title">啟用網頁翻譯</span>
@@ -170,11 +170,17 @@
 
         <div class="toggle-btn-wrapper">
           <button
-            :class="['btn-main-toggle', { active: subtitleActive }]"
+            :class="['btn-main-toggle', { active: subtitleActive, pending: subtitleTogglePending }]"
+            :disabled="subtitleTogglePending"
             @click="toggleSubtitles"
             data-testid="subtitle-toggle"
           >
-            {{ subtitleActive ? '關閉雙語字幕' : '開啟雙語字幕' }}
+            <span v-if="subtitleTogglePending" class="spinner"></span>
+            {{
+              subtitleTogglePending
+                ? (subtitleActive ? '關閉中…' : '開啟中…')
+                : (subtitleActive ? '關閉雙語字幕' : '開啟雙語字幕')
+            }}
           </button>
         </div>
 
@@ -392,6 +398,7 @@ const learningMode = ref(true);
 const ytActive = ref(false);
 const ytTracks = ref<Array<{ id: string; label: string; languageCode: string; kind?: string }>>([]);
 const ytSelectedTrackId = ref<string | null>(null);
+const subtitleTogglePending = ref(false);
 const subtitleActive = computed(() => (isNetflixTab.value ? netflixHud.value.isActive : ytActive.value));
 
 const sourceSelectionValue = computed(() =>
@@ -405,11 +412,25 @@ const sourceSelectionValue = computed(() =>
 
 async function toggleSubtitles() {
   const target = !subtitleActive.value;
+  subtitleTogglePending.value = true;
+  errorMessage.value = '';
+  statusMessage.value = '';
   try {
     const tabId = await extensionBridge.queryActiveTabId();
-    if (!tabId) return;
+    if (!tabId) {
+      errorMessage.value = '找不到目前分頁';
+      return;
+    }
     if (isNetflixTab.value) {
       await extensionBridge.sendTabCommand(tabId, { type: 'SET_NETFLIX_ACTIVE', active: target });
+      // Give immediate tactile feedback instead of waiting for the session
+      // poller, then reconcile with the adapter's authoritative state.
+      netflixHud.value = { ...netflixHud.value, isActive: target };
+      const state = await extensionBridge.sendTabCommand<typeof netflixHud.value>(
+        tabId,
+        { type: 'GET_NETFLIX_STATE' },
+      );
+      if (state) netflixHud.value = state;
     } else {
       await extensionBridge.sendTabCommand(tabId, { type: 'SET_YOUTUBE_ACTIVE', active: target });
       ytActive.value = target;
@@ -423,8 +444,11 @@ async function toggleSubtitles() {
         await refreshYouTubeState();
       }
     }
+    statusMessage.value = target ? '雙語字幕已開啟' : '雙語字幕已關閉';
   } catch {
     errorMessage.value = '無法切換雙語字幕（分頁未回應）';
+  } finally {
+    subtitleTogglePending.value = false;
   }
 }
 
@@ -596,7 +620,8 @@ async function onLearningModeToggle(e: Event) {
     };
     await SettingsStorage.set({ netflix: { ...current, learningMode: enabled } });
   } catch {
-    errorMessage.value = '無法更新學習模式設定';
+    learningMode.value = !enabled;
+    errorMessage.value = '無法更新學習模式設定，已恢復原本狀態';
   }
 }
 

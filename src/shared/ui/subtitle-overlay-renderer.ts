@@ -10,6 +10,7 @@ export interface OverlayToken {
 
 export interface OverlayRenderOptions {
   isError?: boolean;
+  isPending?: boolean;
   /** Clickable tokens (whole-text offsets) for the original-language line. */
   tokens?: OverlayToken[];
 }
@@ -98,16 +99,34 @@ export class SubtitleOverlayRenderer {
     container.style.pointerEvents = 'none';
     container.style.textAlign = 'center';
 
-    if (options.isError) {
-      container.appendChild(
-        this.createLine({
+    if (options.isPending || options.isError) {
+      // Translation latency/failure must never make subtitles disappear.
+      // Always keep the source line visible, regardless of immersive mode
+      // or temporary learning-mode line visibility.
+      for (const text of (primaryText || '').split('\n').filter(Boolean)) {
+        container.appendChild(
+          this.createLine({
+            kind: 'original',
+            text,
+            color: this.settings.subtitleOriginalColor || '#ffffff',
+            bold: false,
+            fontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
+          }),
+        );
+      }
+
+      if (secondaryText) {
+        const statusLine = this.createLine({
           kind: 'translated',
-          text: secondaryText || primaryText,
-          color: '#ef4444',
-          bold: true,
-          fontSize: '16px',
-        }),
-      );
+          text: secondaryText,
+          color: options.isError ? '#ef4444' : (this.settings.subtitleTranslatedColor || '#d4d4d4'),
+          bold: options.isError === true,
+          fontSize: `${Math.max(14, Number(this.settings.subtitleTranslatedFontSize || 22) - 4)}px`,
+        });
+        statusLine.style.opacity = options.isError ? '1' : '0.78';
+        container.appendChild(statusLine);
+      }
+      container.setAttribute('aria-live', options.isError ? 'assertive' : 'polite');
       target.appendChild(container);
       return;
     }
