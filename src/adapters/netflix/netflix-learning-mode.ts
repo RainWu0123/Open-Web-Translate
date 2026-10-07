@@ -114,6 +114,10 @@ export class NetflixLearningMode {
     this.controller?.detach();
     this.popover?.hide();
     document.removeEventListener('owt-token-clicked', this.onTokenClicked);
+
+    // Learning-mode hotkeys may hide either subtitle line. Disabling the
+    // learning layer must never leave the base subtitle renderer hidden.
+    this.host.setLineVisibility({ original: true, translated: true });
   }
 
   public notifyTimelineChanged(): void {
