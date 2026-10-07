@@ -25,7 +25,7 @@ export interface LearningModeHost {
 }
 
 export class NetflixLearningMode {
-  private enabled = true;
+  private enabled = false;
   private controller: SentenceController | null = null;
   private popover: DictionaryPopover | null = null;
 
