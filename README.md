@@ -63,7 +63,7 @@ OWT 內建強大的翻譯管線（`TranslationPipeline`），支援隨時在彈�
 
 | 翻譯引擎 | 類型 | 特點與說明 |
 |---|---|---|
-| **Google 翻譯** | 免費免金鑰 | 內建連線頻率控制（Concurrency Limiter）與自動重試，開箱即用 |
+| **Google 翻譯** | 免費免金鑰 / 非官方網頁端點 | 使用未文件化的 Google 翻譯 web endpoint；免金鑰但不提供 Google Cloud API 的相容性或 SLA 保證 |
 | **Google Gemini AI** | 雲端大模型 | 支援 `gemini-2.5-flash`、`gemini-3.5-flash`，具備對話記憶上下文（Context）與智慧熔斷機制 |
 | **DeepL 翻譯** | 專業翻譯 API | 支援 DeepL Free 與 Pro API 金鑰，翻譯自然度高 |
 | **Chrome 內建 AI** | 瀏覽器本機端 | 使用 Chrome Translator API；可用性取決於桌面版 Chrome、語言組合與本機模型狀態 |
@@ -195,6 +195,7 @@ graph TD
 - Netflix、YouTube、Google、DeepL、Chrome、Gemini、Ollama 等名稱與商標均屬其各自權利人；OWT 與這些服務沒有官方隸屬或背書關係。
 - 若未來引入改編程式碼，PR 必須保留來源 URL、原授權與必要 notice。
 - 商店上架文案、權限說明與 reviewer notes 見 [`STORE_LISTING.md`](./STORE_LISTING.md)；Firefox source review 步驟見 [`FIREFOX_REVIEW.md`](./FIREFOX_REVIEW.md)。
+- 發布前人工驗證與版本檢查見 [`RELEASE_CHECKLIST.md`](./RELEASE_CHECKLIST.md)；使用條款見 [`TERMS.md`](./TERMS.md)。
 
 ---
 

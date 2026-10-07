@@ -484,7 +484,7 @@
                   </div>
                   <div class="row-control">
                     <select aria-label="使用的服務" v-model="settings.activeProviderId" @change="save" class="stitch-select">
-                      <option value="google-provider">Google Translate (Free)</option>
+                      <option value="google-provider">Google Translate (Free · unofficial web endpoint)</option>
                       <option value="gemini-provider">Google Gemini API</option>
                       <option value="deepl-provider">DeepL Translate API</option>
                       <option value="ollama-provider">Local Ollama AI (loopback only)</option>
@@ -842,7 +842,7 @@ const currentSubtitle = computed(() => {
     case 'subtitles': return '先在影片頁面開啟擴充功能，再按「開啟雙語字幕」。這裡可以調整字幕外觀。';
     case 'learning': return '翻開卡片查看意思，再依記憶程度評分。我們會安排下次複習。';
     case 'vocabulary': return '收藏的單字和例句都在這裡，也可以手動新增或匯出。';
-    case 'models': return 'Google 翻譯可直接使用。其他服務需先設定金鑰，或啟動本機模型。';
+    case 'models': return 'Google 翻譯可免金鑰使用，但採非官方網頁端點；其他服務需先設定金鑰，或啟動本機模型。';
     case 'general': return '選擇要翻成的語言，以及網頁上原文與譯文的顯示方式。';
     default: return '次世代在地化、隱私優先、AI 驅動的開源網頁與影音翻譯工具。';
   }

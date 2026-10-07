@@ -22,7 +22,7 @@ Open Web Translate 是一款開源、local-first 的瀏覽器翻譯與語言學�
 - 一般網頁雙語對照翻譯與劃詞翻譯
 - YouTube 雙語字幕
 - Netflix 雙語字幕、逐句重播與學習工具
-- Google Translate、Gemini、DeepL、Chrome Built-in AI、Ollama、Local HTTP、Custom HTTP 等 provider
+- Google Translate（免費、非官方網頁端點）、Gemini、DeepL、Chrome Built-in AI、Ollama、Local HTTP、Custom HTTP 等 provider
 - 本機生詞本、複習與翻譯快取
 - 深色／淺色介面
 
@@ -43,7 +43,7 @@ Features:
 - Bilingual webpage translation and selected-text translation
 - YouTube bilingual subtitles
 - Netflix bilingual subtitles, sentence replay, and learning tools
-- Google Translate, Gemini, DeepL, Chrome Built-in AI, Ollama, Local HTTP, and Custom HTTP providers
+- Google Translate (free, undocumented web endpoint), Gemini, DeepL, Chrome Built-in AI, Ollama, Local HTTP, and Custom HTTP providers
 - Local vocabulary, review state, and translation cache
 - Light and dark interface
 
@@ -84,7 +84,7 @@ The extension’s primary feature is translating selected text or page text dire
 
 ### Provider hosts
 
-The extension sends translation requests only when a matching remote provider is explicitly selected. Gemini and DeepL use their provider API hosts. Google Translate uses its translation web endpoint. Custom HTTP sends data only to the endpoint configured by the user and requires HTTPS for remote endpoints.
+The extension sends translation requests only when a matching remote provider is explicitly selected. Gemini and DeepL use their provider API hosts. Google Translate uses an undocumented translation web endpoint rather than the supported Google Cloud Translation API; availability is not guaranteed. Custom HTTP sends data only to the endpoint configured by the user and requires HTTPS for remote endpoints.
 
 ## Privacy policy URL
 
@@ -127,7 +127,7 @@ Basic webpage test:
 6. The translated text is rendered near the source text.
 
 Provider test:
-- Google Translate requires no API key.
+- Google Translate requires no API key, but uses an undocumented web endpoint and has no Google Cloud API SLA/compatibility guarantee.
 - Gemini and DeepL require user-provided credentials.
 - Ollama / Local HTTP require a loopback service running on the reviewer machine.
 - Chrome Built-in AI depends on Chrome version, supported languages, and local model availability.
@@ -138,3 +138,13 @@ YouTube / Netflix:
 - They depend on browser-visible web-player/runtime surfaces and are not official platform SDK integrations.
 
 The extension contains no analytics or telemetry.
+
+## Release submission checklist
+
+Before copying this listing into a store submission:
+
+1. Confirm `package.json` version matches the package being uploaded.
+2. Run the release smoke test in `RELEASE_CHECKLIST.md`.
+3. Confirm `PRIVACY.md`, permissions, and provider behavior still match this document.
+4. If a release adds a new permission or remote data flow, update the listing/privacy answers before submission.
+5. Upload the new ZIP to the existing store item; do not create a new listing for an ordinary update.
