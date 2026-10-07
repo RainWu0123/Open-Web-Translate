@@ -54,7 +54,7 @@ export class OpenAiCompatibleProvider implements TranslationProvider {
   private readonly apiKey?: string;
   private readonly instructions: string;
   private readonly apiKeyPolicy: 'required' | 'remote-only' | 'optional';
-  private readonly logger;
+  private readonly logger: ReturnType<typeof createLogger>;
 
   constructor(config: OpenAiCompatibleProviderConfig) {
     const endpointInfo = normalizeEndpoint(config.endpoint);
