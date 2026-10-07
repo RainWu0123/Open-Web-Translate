@@ -9,6 +9,7 @@
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { translate } from '@/shared/i18n';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { GenericDomAdapter } from '@/adapters/generic/generic-dom-adapter';
 import { MessageErrorCode, ErrorPayload } from '@/core/contracts/messages';
@@ -576,7 +577,7 @@ function removeFloatingBadge(): void {
 async function executePageTranslation(): Promise<{ success: boolean; translatedCount?: number; error?: ErrorPayload }> {
   try {
     const settings = await SettingsStorage.get();
-    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: '網頁翻譯已關閉，請先在擴充功能中開啟。' } };
+    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: translate(settings.uiLanguage, 'content.translationDisabled') } };
     const targetLanguage = settings.targetLanguage || 'zh-Hant';
     const sourceLanguage = settings.sourceLanguage || 'auto';
 
@@ -593,7 +594,7 @@ async function executePageTranslation(): Promise<{ success: boolean; translatedC
         return response.segments;
       },
     });
-    return { success: result.success, translatedCount: result.translatedCount, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: '這個頁面沒有可翻譯的文字。請在一般文章網頁使用。' } } : {}) };
+    return { success: result.success, translatedCount: result.translatedCount, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: translate(settings.uiLanguage, 'content.noPageText') } } : {}) };
   } catch (err: any) {
     logger.error('Page translation failed:', err);
     return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Page translation failed' } };
@@ -632,7 +633,7 @@ async function executeSelectionTranslation(
         return response.segments;
       },
     });
-    return { success: result.success, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: '請先選取可翻譯的文字。' } } : {}) };
+    return { success: result.success, ...(!result.success ? { error: { code: 'NO_TARGETS_FOUND', message: translate(settings.uiLanguage, 'content.selectText') } } : {}) };
   } catch (err: any) {
     logger.error('Selection translation failed:', err);
     return { success: false, error: { code: MessageErrorCode.TRANSLATION_FAILED, message: err?.message || 'Selection translation failed' } };
