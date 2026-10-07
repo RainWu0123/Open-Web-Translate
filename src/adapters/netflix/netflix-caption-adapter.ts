@@ -337,8 +337,9 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
     this.isActive = true;
     document.body?.classList.add('owt-netflix-active');
-    this.applyNativeSubtitleMask(true);
-    
+
+    // Keep Netflix's native subtitles visible until OWT has an actual source
+    // line ready to render. The mask is applied only after renderOverlay().
     const host = this.getOverlayHost();
     this.overlayRenderer.mount(host);
 
@@ -543,7 +544,11 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     const activeCue = this.secondaryCues.find(
       (cue) => currentMs >= cue.startMs - 300 && currentMs <= cue.endMs + 400,
     );
-    this.renderOverlay(primaryText, activeCue?.text || '');
+    this.renderOverlay(
+      primaryText,
+      activeCue?.text || '等待譯文…',
+      activeCue ? 'ready' : 'pending',
+    );
   }
 
   private async fetchAndRenderOverlay(text: string, generation: number) {
@@ -566,6 +571,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (this.pendingTranslationFingerprints.has(fingerprint)) return;
     this.pendingTranslationFingerprints.add(fingerprint);
 
+    // Render the source line immediately. AI/network latency should affect
+    // only the translated line, never the availability of subtitles.
+    this.renderOverlay(text, '翻譯中…', 'pending');
+
     try {
       const response = await messageRouter.sendMessage({
         type: 'TRANSLATE_REQUEST',
@@ -579,25 +588,32 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
       const translatedText = response?.segments?.[0]?.translatedText;
       if (!translatedText) {
-        this.renderOverlay(text, '⚠️ 翻譯失敗: 無法取得翻譯結果');
+        this.renderOverlay(text, '翻譯失敗：無法取得翻譯結果', 'error');
         return;
       }
 
       this.inlineTranslationCache.set(fingerprint, translatedText);
       this.recentAiContext.push({ source: text, translation: translatedText });
       if (this.recentAiContext.length > 8) this.recentAiContext.shift();
-      this.renderOverlay(text, translatedText);
+      this.renderOverlay(text, translatedText, 'ready');
     } catch (error: any) {
       logger.error('Overlay translation failed', error);
-      if (this.isActive && this.routeGeneration === generation) {
-        this.renderOverlay(text, `⚠️ 翻譯失敗: ${error?.message || 'API 請求失敗'}`);
+      if (this.isActive && this.routeGeneration === generation && this.lastProcessedText === text) {
+        this.renderOverlay(text, `翻譯失敗：${error?.message || 'API 請求失敗'}`, 'error');
       }
     } finally {
       this.pendingTranslationFingerprints.delete(fingerprint);
     }
   }
 
-  private renderOverlay(originalText: string, translatedText: string, isError = false) {
+  private renderOverlay(
+    originalText: string,
+    translatedText: string,
+    state: 'ready' | 'pending' | 'error' = 'ready',
+  ) {
+    const effectiveState = state === 'ready' && !translatedText.trim() ? 'pending' : state;
+    const effectiveTranslatedText =
+      effectiveState === 'pending' && !translatedText.trim() ? '等待譯文…' : translatedText;
     const host = this.getOverlayHost();
     this.overlayRenderer.mount(host);
     this.overlayRenderer.updateSettings({
@@ -608,16 +624,19 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       displayMode: this.displayMode as any,
     });
 
-    if (isError) {
-      this.overlayRenderer.render(originalText, translatedText, { isError: true });
-    } else {
-      this.lastRenderedSentence = { original: originalText, translated: translatedText };
-      const tokens = this.learningMode.isEnabled()
-        ? tokenizeText(`cue-${this.routeGeneration}-${originalText.length}`, originalText, this.targetLang)
-        : undefined;
-      this.overlayRenderer.render(originalText, translatedText, { tokens });
-      this.applyNativeSubtitleMask(true);
-    }
+    this.lastRenderedSentence = {
+      original: originalText,
+      translated: effectiveState === 'ready' ? effectiveTranslatedText : '',
+    };
+    const tokens = effectiveState === 'ready' && this.learningMode.isEnabled()
+      ? tokenizeText(`cue-${this.routeGeneration}-${originalText.length}`, originalText, this.sourceLang)
+      : undefined;
+    this.overlayRenderer.render(originalText, effectiveTranslatedText, {
+      tokens,
+      isPending: effectiveState === 'pending',
+      isError: effectiveState === 'error',
+    });
+    this.applyNativeSubtitleMask(true);
   }
 
 
