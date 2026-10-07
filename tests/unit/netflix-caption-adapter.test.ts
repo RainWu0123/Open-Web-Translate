@@ -48,6 +48,10 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
 
     await adapter.start('zh-Hant');
     const generation = (adapter as any).routeGeneration;
+    // fetchAndRenderOverlay normally runs after onNewSubtitleText records the
+    // active cue. Mirror that precondition so the stale-response guard accepts
+    // the resolved translation instead of intentionally discarding it.
+    (adapter as any).lastProcessedText = 'Hello';
     const translationPromise = (adapter as any).fetchAndRenderOverlay('Hello', generation);
     await Promise.resolve();
 
