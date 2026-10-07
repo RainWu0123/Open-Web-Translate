@@ -20,6 +20,8 @@ const SECRET_KEYS: Array<keyof SecretSettings> = [
   'deeplApiKey',
   'localHttpApiKey',
   'customHttpApiKey',
+  'openRouterApiKey',
+  'nvidiaNimApiKey',
 ];
 
 export class SettingsStorage {
@@ -129,6 +131,22 @@ export class SettingsStorage {
     await this.setSecret('customHttpApiKey', '');
   }
 
+  static async saveOpenRouterApiKey(key: string): Promise<void> {
+    await this.setSecret('openRouterApiKey', key);
+  }
+
+  static async clearOpenRouterApiKey(): Promise<void> {
+    await this.setSecret('openRouterApiKey', '');
+  }
+
+  static async saveNvidiaNimApiKey(key: string): Promise<void> {
+    await this.setSecret('nvidiaNimApiKey', key);
+  }
+
+  static async clearNvidiaNimApiKey(): Promise<void> {
+    await this.setSecret('nvidiaNimApiKey', '');
+  }
+
   // ── internals ──────────────────────────────────────────────────
 
   private static async setSecret(key: keyof SecretSettings, value: string): Promise<void> {
@@ -156,6 +174,8 @@ export class SettingsStorage {
       deeplApiKey: typeof raw.deeplApiKey === 'string' ? raw.deeplApiKey : '',
       localHttpApiKey: typeof raw.localHttpApiKey === 'string' ? raw.localHttpApiKey : '',
       customHttpApiKey: typeof raw.customHttpApiKey === 'string' ? raw.customHttpApiKey : '',
+      openRouterApiKey: typeof raw.openRouterApiKey === 'string' ? raw.openRouterApiKey : '',
+      nvidiaNimApiKey: typeof raw.nvidiaNimApiKey === 'string' ? raw.nvidiaNimApiKey : '',
     };
   }
 
@@ -170,6 +190,10 @@ export class SettingsStorage {
     delete clean.hasLocalHttpApiKey;
     delete clean.customHttpApiKeyMasked;
     delete clean.hasCustomHttpApiKey;
+    delete clean.openRouterApiKeyMasked;
+    delete clean.hasOpenRouterApiKey;
+    delete clean.nvidiaNimApiKeyMasked;
+    delete clean.hasNvidiaNimApiKey;
     return clean as Partial<ExtensionSettings>;
   }
 
@@ -179,12 +203,16 @@ export class SettingsStorage {
     const deeplKey = typeof s.deeplApiKey === 'string' ? s.deeplApiKey : '';
     const localHttpKey = typeof s.localHttpApiKey === 'string' ? s.localHttpApiKey : '';
     const customHttpKey = typeof s.customHttpApiKey === 'string' ? s.customHttpApiKey : '';
+    const openRouterKey = typeof s.openRouterApiKey === 'string' ? s.openRouterApiKey : '';
+    const nvidiaNimKey = typeof s.nvidiaNimApiKey === 'string' ? s.nvidiaNimApiKey : '';
 
     const {
       geminiApiKey: _geminiApiKey,
       deeplApiKey: _deeplApiKey,
       localHttpApiKey: _localHttpApiKey,
       customHttpApiKey: _customHttpApiKey,
+      openRouterApiKey: _openRouterApiKey,
+      nvidiaNimApiKey: _nvidiaNimApiKey,
       ...publicFields
     } = s;
 
@@ -199,6 +227,10 @@ export class SettingsStorage {
       localHttpApiKeyMasked: this.maskApiKey(localHttpKey),
       hasCustomHttpApiKey: customHttpKey.trim().length > 0,
       customHttpApiKeyMasked: this.maskApiKey(customHttpKey),
+      hasOpenRouterApiKey: openRouterKey.trim().length > 0,
+      openRouterApiKeyMasked: this.maskApiKey(openRouterKey),
+      hasNvidiaNimApiKey: nvidiaNimKey.trim().length > 0,
+      nvidiaNimApiKeyMasked: this.maskApiKey(nvidiaNimKey),
     } as ExtensionSettings;
   }
 }
