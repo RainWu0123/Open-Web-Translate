@@ -881,7 +881,7 @@ const netflixConfig = ref({
   bottomPosition: 80,
   lineSpacing: 4,
   enableBitmapRescue: true,
-  learningMode: true,
+  learningMode: false,
 });
 
 const vocabItems = ref<LearningCard[]>([]);
@@ -1142,7 +1142,7 @@ async function loadSettings() {
         netflixConfig.value.bottomPosition = s.netflix.bottomPosition || 80;
         netflixConfig.value.lineSpacing = s.netflix.lineSpacing ?? 4;
         netflixConfig.value.enableBitmapRescue = s.netflix.enableBitmapRescue ?? true;
-        netflixConfig.value.learningMode = s.netflix.learningMode ?? true;
+        netflixConfig.value.learningMode = s.netflix.learningMode ?? false;
       }
     }
   } catch (e) {
