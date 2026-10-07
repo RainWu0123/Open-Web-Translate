@@ -89,6 +89,10 @@ export default defineBackground(() => {
       await SettingsStorage.saveLocalHttpApiKey(msg.apiKey);
     } else if (msg.provider === 'custom-http') {
       await SettingsStorage.saveCustomHttpApiKey(msg.apiKey);
+    } else if (msg.provider === 'openrouter') {
+      await SettingsStorage.saveOpenRouterApiKey(msg.apiKey);
+    } else if (msg.provider === 'nvidia-nim') {
+      await SettingsStorage.saveNvidiaNimApiKey(msg.apiKey);
     }
     return true;
   });
@@ -103,6 +107,10 @@ export default defineBackground(() => {
       await SettingsStorage.clearLocalHttpApiKey();
     } else if (msg.provider === 'custom-http') {
       await SettingsStorage.clearCustomHttpApiKey();
+    } else if (msg.provider === 'openrouter') {
+      await SettingsStorage.clearOpenRouterApiKey();
+    } else if (msg.provider === 'nvidia-nim') {
+      await SettingsStorage.clearNvidiaNimApiKey();
     }
     return true;
   });
