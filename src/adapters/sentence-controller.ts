@@ -61,11 +61,14 @@ export class SentenceController {
       this.video.removeEventListener('play', this.onPlay);
       this.video.removeEventListener('seeking', this.onSeeking);
     }
+    if (this.video && this.currentSpeedIndex !== SPEED_STEPS.indexOf(1.0)) {
+      this.video.playbackRate = 1.0;
+    }
     this.video = null;
     this.autoPauseArmed = false;
-    if (this.currentSpeedIndex !== SPEED_STEPS.indexOf(1.0)) {
-      this.setSpeed(1.0);
-    }
+    this.wasAutoPaused = false;
+    this.currentSpeedIndex = SPEED_STEPS.indexOf(1.0);
+    this.lineVisibility = { original: true, translated: true };
   }
 
   /** Call when the active timeline changes (track loaded / navigation). */
