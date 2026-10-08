@@ -25,6 +25,13 @@ describe('UI i18n', () => {
     expect(translate('ja', 'popup.translatePage')).toBe('現在のページを翻訳');
   });
 
+  it('localizes Netflix translation progress and errors', () => {
+    expect(translate('zh-Hant', 'subtitle.translatingLine')).toBe('翻譯中…');
+    expect(translate('zh-Hans', 'subtitle.prefetchUnavailable')).toBe('暂时无法获取译文');
+    expect(translate('en', 'subtitle.prefetchRetrying')).toContain('retrying');
+    expect(translate('ja', 'subtitle.translationTimeout')).toContain('タイムアウト');
+  });
+
   it('interpolates dynamic values', () => {
     expect(translate('en', 'status.translationDone', { count: 12 }))
       .toBe('Translation complete (12 segments)');

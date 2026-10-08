@@ -295,4 +295,65 @@ describe('NetflixAiPrefetchController', () => {
     sync.emit(0, 0);
     expect(renderCueLine).not.toHaveBeenCalledWith('Line 0', 'old:Line 0', 'ready');
   });
+
+  it('uses the active interface language for pending subtitle feedback', async () => {
+    const sync = new FakeSyncEngine();
+    let complete!: (result: Array<{ id: string; translatedText: string }>) => void;
+    const translateBatch = vi.fn(() => new Promise<Array<{ id: string; translatedText: string }>>(resolve => {
+      complete = resolve;
+    }));
+    const renderCueLine = vi.fn();
+    const getStatusText = vi.fn((key: string) => `localized:${key}`);
+    const controller = new NetflixAiPrefetchController({
+      fetchTtml: async () => '<tt/>', parseTtml: () => makeCues(12), isActive: () => true,
+      routeGeneration: () => 1, currentVideoMs: () => 0, targetLanguage: () => 'en',
+      translateBatch, renderCueLine, clearLine: vi.fn(), onTimelineChanged: vi.fn(),
+      getStatusText,
+    }, sync as any);
+    await controller.load(makeTrack());
+    sync.emit(0, 0);
+    expect(renderCueLine).toHaveBeenLastCalledWith('Line 0', 'localized:subtitle.translatingLine', 'pending');
+    expect(getStatusText).toHaveBeenCalledWith('subtitle.translatingLine');
+    controller.reset();
+    complete([]);
+    await flushAsyncWork();
+  });
+
+  it('drops a batch response after the target language changes', async () => {
+    const sync = new FakeSyncEngine();
+    let target = 'zh-Hant';
+    let complete!: (result: Array<{ id: string; translatedText: string }>) => void;
+    const translateBatch = vi.fn(() => new Promise<Array<{ id: string; translatedText: string }>>(resolve => {
+      complete = resolve;
+    }));
+    const renderCueLine = vi.fn();
+    const controller = new NetflixAiPrefetchController({
+      fetchTtml: async () => '<tt/>', parseTtml: () => makeCues(12), isActive: () => true,
+      routeGeneration: () => 1, currentVideoMs: () => 0, targetLanguage: () => target,
+      translateBatch, renderCueLine, clearLine: vi.fn(), onTimelineChanged: vi.fn(),
+    }, sync as any);
+    await controller.load(makeTrack());
+    target = 'ja';
+    complete([{ id: 'nf-ai-1-0', translatedText: 'outdated text' }]);
+    await flushAsyncWork();
+    expect(controller.getTranslatedCount()).toBe(0);
+    expect(renderCueLine).not.toHaveBeenCalledWith('Line 0', 'outdated text', 'ready');
+    controller.reset();
+  });
+
+  it('does not accept returned subtitle IDs from outside the requested batch', async () => {
+    const sync = new FakeSyncEngine();
+    const translateBatch = vi.fn(async () => [
+      { id: 'nf-ai-1-90', translatedText: 'unrequested result' },
+    ]);
+    const controller = new NetflixAiPrefetchController({
+      fetchTtml: async () => '<tt/>', parseTtml: () => makeCues(100), isActive: () => true,
+      routeGeneration: () => 1, currentVideoMs: () => 0, targetLanguage: () => 'en',
+      translateBatch, renderCueLine: vi.fn(), clearLine: vi.fn(), onTimelineChanged: vi.fn(),
+    }, sync as any);
+    await controller.load(makeTrack());
+    await flushAsyncWork();
+    expect(controller.getTranslatedCount()).toBe(0);
+    controller.reset();
+  });
 });

@@ -13,6 +13,7 @@ import { NetflixTrackManager, trackMatchesTargetLanguage, type DiscoveredTrack }
 import { NetflixSyncEngine } from './netflix-sync-engine';
 import { NetflixAiPrefetchController } from './netflix-ai-prefetch';
 import type { TranslationContext } from '@/core/contracts/translation';
+import { translate, type TranslationKey } from '@/shared/i18n';
 
 const logger = createLogger('NetflixCaptionAdapter');
 
@@ -30,6 +31,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private selectedTrackId = 'ai-translate';
   /** 'auto' = prefer a native track matching targetLang, else AI; 'manual' = user's explicit pick. */
   private selectionMode: 'auto' | 'manual' = 'auto';
+  private uiLanguage: string = 'auto';
   private lastReconciledTargetLang: string | null = null;
   private autoSelectionRunning = false;
   private aiLoading: Promise<boolean> | null = null;
@@ -69,6 +71,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         this.renderOverlay(primaryText, secondaryText, state),
       clearLine: () => this.clearOverlay(),
       onTimelineChanged: () => this.learningMode.notifyTimelineChanged(),
+      getStatusText: (key) => this.subtitleStatus(key),
     },
     this.syncEngine,
   );
@@ -333,6 +336,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   protected onSharedSettingsApplied(settings: import('@/core/contracts/messages').ExtensionSettings): void {
+    this.uiLanguage = settings.uiLanguage ?? 'auto';
     // Netflix card settings now live inside the single settings store; apply
     // them through the same path the old UPDATE_NETFLIX_CONFIG message used.
     if (settings.netflix) {
@@ -606,6 +610,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     }
   }
 
+  private subtitleStatus(key: TranslationKey): string {
+    return translate(this.uiLanguage, key);
+  }
+
   private renderSecondaryCueForTime(primaryText: string) {
     const video = document.querySelector('video') as HTMLVideoElement | null;
     const currentMs = video ? Math.round(video.currentTime * 1000) : 0;
@@ -615,14 +623,14 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     );
     this.renderOverlay(
       primaryText,
-      activeCue?.text || '等待譯文…',
+      activeCue?.text || this.subtitleStatus('subtitle.waitingTranslation'),
       activeCue ? 'ready' : 'pending',
     );
   }
 
   private async fetchAndRenderOverlay(text: string, generation: number) {
     if (this.aiLoading) {
-      this.renderOverlay(text, '正在預讀字幕與前後文…', 'pending');
+      this.renderOverlay(text, this.subtitleStatus('subtitle.readingContext'), 'pending');
       const loaded = await this.aiLoading;
       if (loaded || !this.isActive || generation !== this.routeGeneration || this.lastProcessedText !== text) return;
     }
@@ -638,7 +646,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
     // Render the source line immediately. AI/network latency should affect
     // only the translated line, never the availability of subtitles.
-    this.renderOverlay(text, '翻譯中…', 'pending');
+    this.renderOverlay(text, this.subtitleStatus('subtitle.translatingLine'), 'pending');
 
     try {
       const response = await messageRouter.sendMessage({
@@ -653,7 +661,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
       const translatedText = response?.segments?.[0]?.translatedText;
       if (!translatedText) {
-        this.renderOverlay(text, '暫時沒有取得譯文，下一句會自動重試', 'error');
+        this.renderOverlay(text, this.subtitleStatus('subtitle.translationMissing'), 'error');
         return;
       }
 
@@ -667,7 +675,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
         const timedOut = /timed?\s*out|timeout|逾時/i.test(String(error?.message || ''));
         this.renderOverlay(
           text,
-          timedOut ? '翻譯暫時逾時，下一句會自動重試' : '翻譯暫時無法使用，下一句會自動重試',
+          timedOut ? this.subtitleStatus('subtitle.translationTimeout') : this.subtitleStatus('subtitle.translationUnavailable'),
           'error',
         );
       }
@@ -683,7 +691,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   ) {
     const effectiveState = state === 'ready' && !translatedText.trim() ? 'pending' : state;
     const effectiveTranslatedText =
-      effectiveState === 'pending' && !translatedText.trim() ? '等待譯文…' : translatedText;
+      effectiveState === 'pending' && !translatedText.trim() ? this.subtitleStatus('subtitle.waitingTranslation') : translatedText;
     const host = this.getOverlayHost();
     this.overlayRenderer.mount(host);
     this.overlayRenderer.updateSettings({

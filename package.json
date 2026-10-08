@@ -3,7 +3,7 @@
   "description": "An open-source browser translation extension.",
   "private": true,
   "packageManager": "pnpm@9.15.0",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "wxt",
