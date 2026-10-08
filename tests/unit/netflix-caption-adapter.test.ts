@@ -153,7 +153,12 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the source subtitle visible while AI translation is pending', async () => {
+  it.each([
+    ['zh-Hant', '翻譯中'],
+    ['en', 'Translating…'],
+  ])('keeps the source subtitle visible while AI translation is pending (%s)', async (uiLanguage, pendingText) => {
+    // Pin the interface locale: caption target language is independent.
+    (adapter as any).onSharedSettingsApplied({ uiLanguage });
     let resolveTranslation!: (value: unknown) => void;
     vi.mocked(messageRouter.sendMessage).mockImplementationOnce(
       () => new Promise((resolve) => { resolveTranslation = resolve; }) as any,
@@ -171,7 +176,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
 
     const host = document.getElementById('owt-netflix-overlay-host');
     expect(host?.shadowRoot?.textContent).toContain('Hello');
-    expect(host?.shadowRoot?.textContent).toContain('翻譯中');
+    expect(host?.shadowRoot?.textContent).toContain(pendingText);
     expect(host?.shadowRoot?.querySelector('.owt-token')?.textContent).toBe('Hello');
 
     resolveTranslation({
@@ -181,7 +186,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
 
     expect(host?.shadowRoot?.textContent).toContain('Hello');
     expect(host?.shadowRoot?.textContent).toContain('你好');
-    expect(host?.shadowRoot?.textContent).not.toContain('翻譯中');
+    expect(host?.shadowRoot?.textContent).not.toContain(pendingText);
   });
 
   it('restores both subtitle lines when learning mode is disabled', async () => {
