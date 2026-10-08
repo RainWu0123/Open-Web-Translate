@@ -10,6 +10,8 @@
  * The timeline is supplied by the host adapter as cue boundaries in video
  * milliseconds; without a timeline only speed and line toggles work.
  */
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { translate } from '@/shared/i18n';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('SentenceController');
@@ -33,6 +35,9 @@ const SPEED_STEPS = [0.5, 0.75, 0.9, 1.0, 1.25, 1.5];
 export class SentenceController {
   private video: HTMLVideoElement | null = null;
   private attached = false;
+  private toolbar: HTMLElement | null = null;
+  private initialRate = 1;
+  private previousEntry: SentenceTimelineEntry | null = null;
   private autoPauseArmed = false;
   private currentSpeedIndex = SPEED_STEPS.indexOf(1.0);
   private lineVisibility = { original: true, translated: true };
@@ -40,9 +45,13 @@ export class SentenceController {
   constructor(private hooks: SentenceControllerHooks) {}
 
   public attach(): void {
-    if (this.attached) return;
+    if (this.attached && this.video === document.querySelector('video')) return;
+    if (this.attached) this.detach();
     this.attached = true;
     this.video = document.querySelector('video');
+    if (!this.video) { this.attached = false; return; }
+    this.initialRate = this.video.playbackRate;
+    this.mountToolbar();
     document.addEventListener('keydown', this.onKeyDown);
     if (this.video) {
       this.video.addEventListener('timeupdate', this.onTimeUpdate);
@@ -56,13 +65,17 @@ export class SentenceController {
     if (!this.attached) return;
     this.attached = false;
     document.removeEventListener('keydown', this.onKeyDown);
+    document.removeEventListener('fullscreenchange', this.placeToolbar);
+    this.toolbar?.remove();
+    this.toolbar = null;
+    this.previousEntry = null;
     if (this.video) {
       this.video.removeEventListener('timeupdate', this.onTimeUpdate);
       this.video.removeEventListener('play', this.onPlay);
       this.video.removeEventListener('seeking', this.onSeeking);
     }
     if (this.video && this.currentSpeedIndex !== SPEED_STEPS.indexOf(1.0)) {
-      this.video.playbackRate = 1.0;
+      this.video.playbackRate = this.initialRate;
     }
     this.video = null;
     this.autoPauseArmed = false;
@@ -74,6 +87,8 @@ export class SentenceController {
   /** Call when the active timeline changes (track loaded / navigation). */
   public setTimeline(): void {
     this.autoPauseArmed = false;
+    this.previousEntry = null;
+    this.updateToolbar();
   }
 
   // ── actions ────────────────────────────────────────────────────────
@@ -94,7 +109,7 @@ export class SentenceController {
       if (before.length > 0) this.seekTo(before[before.length - 1].startMs);
       return;
     }
-    const idx = timeline.indexOf(entry);
+    const idx = timeline.findIndex(c => c.startMs === entry.startMs && c.endMs === entry.endMs);
     this.seekTo(idx > 0 ? timeline[idx - 1].startMs : entry.startMs);
   }
 
@@ -107,7 +122,7 @@ export class SentenceController {
       if (next) this.seekTo(next.startMs);
       return;
     }
-    const idx = timeline.indexOf(entry);
+    const idx = timeline.findIndex(c => c.startMs === entry.startMs && c.endMs === entry.endMs);
     if (idx >= 0 && idx < timeline.length - 1) {
       this.seekTo(timeline[idx + 1].startMs);
     } else {
@@ -134,6 +149,67 @@ export class SentenceController {
     this.hooks.setLineVisibility({ ...this.lineVisibility });
   }
 
+  private placeToolbar = (): void => {
+    if (this.toolbar) (document.fullscreenElement || document.body).appendChild(this.toolbar);
+  };
+
+  private mountToolbar(): void {
+    this.toolbar = document.createElement('div');
+    this.toolbar.id = 'owt-learning-controls';
+    const root = this.toolbar.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = `
+      :host { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:2147483599; }
+      nav { display:flex; gap:4px; padding:5px; border-radius:24px; background:rgba(18,18,22,.9); color:white; font:13px system-ui; box-shadow:0 3px 18px #0004; max-width:calc(100vw - 24px); }
+      button { background:none; border:0; border-radius:18px; color:inherit; padding:8px 10px; font:inherit; white-space:nowrap; cursor:pointer; }
+      button:hover, button:focus-visible { background:#ffffff20; outline:2px solid #aaa; outline-offset:-2px; }
+      button:disabled { opacity:.4; cursor:default; }
+      button[aria-pressed=false] { opacity:.55; }
+    `;
+    root.appendChild(style);
+    const nav = document.createElement('nav');
+    nav.setAttribute('aria-label', 'Subtitle learning controls');
+    const actions = [
+      ['learning.previous', () => this.previousSentence(), 'Alt+A'],
+      ['learning.replay', () => this.replaySentence(), 'Alt+S'],
+      ['learning.next', () => this.nextSentence(), 'Alt+D'],
+      ['learning.original', () => this.toggleLine('original'), 'Alt+Z'],
+      ['learning.translation', () => this.toggleLine('translated'), 'Alt+C'],
+    ] as const;
+    for (const [key, action, shortcut] of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.key = key;
+      button.textContent = translate('auto', key);
+      button.title = shortcut;
+      button.setAttribute('aria-keyshortcuts', shortcut);
+      button.onclick = () => { action(); this.updateToolbar(); };
+      nav.appendChild(button);
+    }
+    root.appendChild(nav);
+    this.placeToolbar();
+    document.addEventListener('fullscreenchange', this.placeToolbar);
+    this.updateToolbar();
+    void SettingsStorage.get().then(settings => {
+      for (const [key] of actions) {
+        const button = root.querySelector<HTMLElement>(`[data-key="${key}"]`);
+        if (button) button.textContent = translate(settings.uiLanguage || 'auto', key);
+      }
+    }).catch(() => {});
+  }
+
+  private updateToolbar(): void {
+    const buttons = this.toolbar?.shadowRoot?.querySelectorAll('button');
+    if (!buttons) return;
+    const timeline = this.hooks.getTimeline();
+    const ms = this.videoMs();
+    buttons[0].disabled = !timeline.some(c => c.startMs <= ms);
+    buttons[1].disabled = !this.activeEntry();
+    buttons[2].disabled = !timeline.some(c => c.startMs > ms);
+    buttons[3].setAttribute('aria-pressed', String(this.lineVisibility.original));
+    buttons[4].setAttribute('aria-pressed', String(this.lineVisibility.translated));
+  }
+
   // ── internals ──────────────────────────────────────────────────────
 
   private videoMs(): number {
@@ -145,7 +221,7 @@ export class SentenceController {
     this.video.currentTime = ms / 1000;
     // A seek within the same cue would not re-fire our cue-change path by
     // itself; nudge play state so the host's timeupdate logic re-renders.
-    if (this.video.paused && this.wasAutoPaused) {
+    if (this.video.paused) {
       void this.video.play().catch(() => {});
     }
   }
@@ -205,12 +281,25 @@ export class SentenceController {
 
   private onSeeking = (): void => {
     this.autoPauseArmed = true;
+    this.previousEntry = null;
   };
 
   private onTimeUpdate = (): void => {
-    if (!this.video || !this.hooks.isAutoPauseEnabled() || this.video.paused) return;
+    this.updateToolbar();
+    if (!this.video || !this.hooks.isAutoPauseEnabled() || this.video.paused) {
+      this.previousEntry = null;
+      return;
+    }
 
     const entry = this.activeEntry();
+    const previous = this.previousEntry;
+    this.previousEntry = entry;
+    if (previous && this.autoPauseArmed && this.videoMs() >= previous.endMs) {
+      this.autoPauseArmed = false;
+      this.wasAutoPaused = true;
+      this.video.pause();
+      return;
+    }
     if (!entry) {
       this.autoPauseArmed = true; // gap → arm for the next cue
       return;

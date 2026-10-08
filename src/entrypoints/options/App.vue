@@ -53,6 +53,7 @@
     <header class="stitch-header">
       <div class="header-left">
         <button type="button" class="stitch-brand" @click="switchTab('subtitles')">
+          <BrandMark width="20" height="20" />
           <span class="brand-name">Open Web Translate</span>
         </button>
       </div>
@@ -82,18 +83,7 @@
 
       <div class="header-right">
 
-        <div class="theme-select-box">
-          <select v-model="settings.uiLanguage" @change="save" class="stitch-theme-select" :aria-label="tr('ui.language')">
-            <option v-for="option in interfaceLanguageOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-          <select v-model="theme" @change="onThemeChange" class="stitch-theme-select" :aria-label="tr('theme.label')">
-            <option value="system">{{ tr('common.system') }}</option>
-            <option value="dark">{{ tr('common.dark') }}</option>
-            <option value="light">{{ tr('common.light') }}</option>
-          </select>
-        </div>
+        <ThemeButton :language="settings.uiLanguage" :dark="resolvedTheme === 'dark'" @toggle="toggleTheme" />
       </div>
     </header>
 
@@ -149,7 +139,19 @@
       <!-- 2B. CENTER MAIN CANVAS -->
       <main class="stitch-main" ref="mainCanvasRef">
         <div class="canvas-content-flow">
-          <p v-if="feedback" :role="feedbackError ? 'alert' : 'status'" :class="['feedback', { error: feedbackError }]">{{ feedback }}</p>
+          <div
+            v-if="feedback"
+            :role="feedbackError ? 'alert' : 'status'"
+            :class="['feedback', { error: feedbackError }]"
+          >
+            <span>{{ feedback }}</span>
+            <button
+              type="button"
+              class="feedback-close-btn"
+              aria-label="Close"
+              @click="clearFeedback"
+            >×</button>
+          </div>
 
 
           <!-- Main Title -->
@@ -318,6 +320,18 @@
                         v-model="netflixConfig.learningMode"
                         @change="saveNetflix"
                       />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                </div>
+                <div v-if="netflixConfig.learningMode" class="stitch-row">
+                  <div class="row-info">
+                    <span class="row-title">{{ tr('options.autoPause') }}</span>
+                    <span class="row-desc">{{ tr('options.autoPauseDesc') }}</span>
+                  </div>
+                  <div class="row-control">
+                    <label class="toggle">
+                      <input type="checkbox" :aria-label="tr('options.autoPause')" v-model="netflixConfig.autoPause" @change="saveNetflix" />
                       <span class="slider"></span>
                     </label>
                   </div>
@@ -784,6 +798,29 @@
                 </div>
               </div>
             </section>
+            <section class="stitch-section interface-section">
+              <h2 class="section-heading">{{ tr('ui.preferences') }}</h2>
+              <div class="stitch-rows-container">
+                <div class="stitch-row">
+                  <label class="row-title" for="interface-language">{{ tr('ui.language') }}</label>
+                  <div class="row-control">
+                    <select id="interface-language" :aria-label="tr('ui.language')" v-model="settings.uiLanguage" @change="save" class="stitch-select">
+                      <option v-for="option in uiLanguageOptions(settings.uiLanguage)" :key="option.value" :value="option.value">{{ option.label }}</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="stitch-row">
+                  <label class="row-title" for="interface-theme">{{ tr('theme.label') }}</label>
+                  <div class="row-control">
+                    <select id="interface-theme" :value="theme" :aria-label="tr('theme.label')" @change="onThemeChange" class="stitch-select">
+                      <option value="system">{{ tr('common.system') }}</option>
+                      <option value="dark">{{ tr('common.dark') }}</option>
+                      <option value="light">{{ tr('common.light') }}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </section>
           </template>
         </div>
       </main>
@@ -799,6 +836,8 @@ import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { LearningRepository } from '@/infrastructure/storage/repositories/learning-repository';
 import { useUiTheme } from '@/shared/ui/use-ui-theme';
+import ThemeButton from '@/components/ThemeButton.vue';
+import BrandMark from '@/components/BrandMark.vue';
 import {
   getActiveVerifiedModels,
   getDeprecatedButFunctionalModels,
@@ -882,17 +921,41 @@ const netflixConfig = ref({
   lineSpacing: 4,
   enableBitmapRescue: true,
   learningMode: false,
+  autoPause: false,
 });
 
 const vocabItems = ref<LearningCard[]>([]);
 const feedback = ref('');
 const feedbackError = ref(false);
-function reportError(message: string) { feedback.value = message; feedbackError.value = true; }
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearFeedback() {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer);
+    feedbackTimer = null;
+  }
+  feedback.value = '';
+  feedbackError.value = false;
+}
+
+function showFeedback(message: string, isError = false, durationMs = 3500) {
+  clearFeedback();
+  feedback.value = message;
+  feedbackError.value = isError;
+  if (durationMs > 0) {
+    feedbackTimer = setTimeout(() => {
+      clearFeedback();
+    }, durationMs);
+  }
+}
+
+function reportError(message: string) {
+  showFeedback(message, true, 5000);
+}
 const tr = (key: TranslationKey, vars?: Record<string, string | number>) =>
   translate(settings.value.uiLanguage, key, vars);
-const interfaceLanguageOptions = computed(() => uiLanguageOptions(settings.value.uiLanguage));
 
-const { theme, onThemeChange } = useUiTheme(reportError);
+const { theme, resolvedTheme, onThemeChange, toggleTheme } = useUiTheme(reportError);
 watch(() => [settings.value.activeProviderId, settings.value.targetLanguage], () => { providerTestResult.value = ''; });
 
 const learningCards = computed(() => vocabItems.value);
@@ -973,6 +1036,7 @@ function t(key: string): string {
 }
 
 function switchTab(tab: string) {
+  clearFeedback();
   activeTab.value = tab;
   activeAnchor.value = currentSubNavItems.value[0]?.id || '';
   if (mainCanvasRef.value) {
@@ -1015,7 +1079,10 @@ function handleSearchShortcut(event: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener('keydown', handleSearchShortcut));
-onUnmounted(() => window.removeEventListener('keydown', handleSearchShortcut));
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleSearchShortcut);
+  clearFeedback();
+});
 
 function focusSearch() {
   if (searchInputRef.value) {
@@ -1143,6 +1210,7 @@ async function loadSettings() {
         netflixConfig.value.lineSpacing = s.netflix.lineSpacing ?? 4;
         netflixConfig.value.enableBitmapRescue = s.netflix.enableBitmapRescue ?? true;
         netflixConfig.value.learningMode = s.netflix.learningMode ?? false;
+        netflixConfig.value.autoPause = s.netflix.autoPause ?? false;
       }
     }
   } catch (e) {
@@ -1198,7 +1266,7 @@ async function save() {
       ...settings.value,
       netflix: netflixConfig.value,
     });
-    feedback.value = tr('options.settingsSaved'); feedbackError.value = false;
+    showFeedback(tr('options.settingsSaved'), false, 3000);
     return true;
   } catch (e) {
     reportError(tr('error.saveSettings'));
@@ -1214,8 +1282,7 @@ async function acknowledgeRemoteDataNotice() {
   try {
     settings.value.remoteProviderDisclosureVersion = 1;
     await SettingsStorage.set({ remoteProviderDisclosureVersion: 1 });
-    feedback.value = tr('options.disclosureSaved');
-    feedbackError.value = false;
+    showFeedback(tr('options.disclosureSaved'), false, 3000);
   } catch {
     settings.value.remoteProviderDisclosureVersion = 0;
     reportError(tr('error.saveSettings'));
@@ -1512,7 +1579,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 28px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-primary);
   position: sticky;
@@ -1563,7 +1630,7 @@ onMounted(async () => {
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   border-radius: 999px;
-  padding: 5px 14px;
+  padding: 9px 14px;
   gap: 8px;
   transition: border-color 0.15s ease;
 }
@@ -1665,7 +1732,7 @@ onMounted(async () => {
   width: 216px;
   background: var(--bg-primary);
   border-right: 1px solid var(--border-color);
-  padding: 24px 16px;
+  padding: 28px 16px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -1705,9 +1772,14 @@ onMounted(async () => {
 }
 
 .sidebar-nav-btn.active {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--nav-active-text);
+  background: var(--nav-active-bg);
   font-weight: 600;
+}
+
+.sidebar-nav-btn.active .sidebar-count-chip {
+  color: var(--nav-active-text);
+  background: color-mix(in srgb, var(--nav-active-text) 14%, transparent);
 }
 
 .sidebar-count-chip {
@@ -1762,7 +1834,7 @@ onMounted(async () => {
 /* ── 2B. Center Main Canvas ─────────────────────────────────────── */
 .stitch-main {
   flex: 1;
-  padding: 52px clamp(24px, 4vw, 64px) 80px;
+  padding: 44px clamp(24px, 4vw, 64px) 72px;
   min-width: 0;
   overflow-y: auto;
   background: var(--bg-primary);
@@ -1789,12 +1861,12 @@ onMounted(async () => {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.03em;
-  line-height: 1.6;
+  line-height: 1.25;
   margin: 0;
 }
 
 .canvas-subtitle {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--text-secondary);
   margin: 0 0 12px 0;
   line-height: 1.5;
@@ -1933,7 +2005,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border-color);
   gap: 20px;
 }
@@ -2318,8 +2390,8 @@ kbd {
 .metric-row { gap: 12px; align-items: flex-start; }
 .m-label { flex-shrink: 0; }
 .m-val { text-align: right; overflow-wrap: anywhere; font-family: var(--font-ui); }
-.sidebar-nav-btn { padding: 10px 12px; }
-.sidebar-nav-btn.active { background: var(--nav-active-bg); color: var(--nav-active-text); }
+.sidebar-nav-btn { padding: 11px 14px; }
+.sidebar-nav-btn.active { background: var(--nav-active-bg); color: var(--nav-active-text); box-shadow: none; }
 .sub-nav-link.active-pill { background: var(--bg-hover); color: var(--text-primary); }
 @media (max-width: 1200px) {
   .stitch-sidebar-right { display: none; }
@@ -2351,14 +2423,43 @@ kbd {
   .hotkey-grid { grid-template-columns: 1fr; }
 }
 
-.feedback { padding: 12px 16px; background: var(--bg-hover); border-radius: var(--radius-sm); font-size: 14px; }
+.feedback { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: var(--bg-hover); border-radius: var(--radius-sm); font-size: 14px; }
 .feedback.error { color: var(--danger-text); background: var(--danger-bg); }
-.canvas-title { font-size: 28px; }
+.feedback-close-btn { background: transparent; border: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.6; padding: 0 4px; }
+.feedback-close-btn:hover { opacity: 1; }
+.canvas-title { font-size: 26px; font-weight: 600; }
 .canvas-subtitle { margin-bottom: 0; }
 .row-title { font-size: 14px; }
 .row-desc, .section-lead { font-size: 13px; color: var(--text-secondary); }
-.stitch-main { padding-top: 32px; }
-.stitch-sidebar-left { width: 200px; }
+.stitch-main { padding-top: 44px; }
+.stitch-sidebar-left { width: 208px; }
 .btn-stitch-accent:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 760px) { .stitch-sidebar-left { width: 100%; } }
+.stitch-header { display: grid; grid-template-columns: 208px minmax(0, 440px) 208px; justify-content: space-between; gap: 24px; }
+.header-center { width: 100%; margin: 0; }
+.header-right { justify-content: flex-end; }
+.canvas-content-flow { max-width: 760px; gap: 12px; }
+.canvas-subtitle { max-width: 60ch; color: var(--text-muted); line-height: 1.7; }
+.stitch-section { margin-top: 20px; gap: 14px; }
+.stitch-row:not(.vertical-row) { min-height: 76px; }
+.row-info { gap: 5px; }
+.row-title { font-size: 13px; font-weight: 600; }
+.row-desc { font-size: 12px; color: var(--text-muted); }
+.stitch-select { min-height: 36px; min-width: 200px; border-radius: 7px; background-color: var(--bg-input); }
+.stitch-input { min-height: 36px; }
+.section-heading { font-size: 17px; font-weight: 600; }
+.stitch-rows-container { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.stitch-row { border-bottom-color: color-mix(in srgb, var(--border-color) 55%, transparent); padding-left: 0; padding-right: 0; }
+.interface-section .stitch-row { min-height: 60px; }
+.stitch-row.vertical-row .row-info { max-width: 100%; }
+@media (max-width: 980px) {
+  .stitch-header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 24px; }
+}
+@media (max-width: 760px) {
+  .stitch-header { grid-template-columns: minmax(0, 1fr) auto; gap: 14px; padding: 16px 20px; }
+  .header-center { grid-column: 1 / -1; grid-row: 2; }
+  .stitch-main { padding-top: 28px; }
+  .stitch-section { margin-top: 12px; }
+  .stitch-row:not(.vertical-row) { min-height: 0; }
+}
 </style>

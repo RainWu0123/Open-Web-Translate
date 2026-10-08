@@ -70,8 +70,8 @@ export abstract class CaptionAdapterBase {
     try {
       SettingsStorage.watch((newSettings) => {
         this.applySharedSettings(newSettings);
+        this.onSharedSettingsApplied(newSettings);
         if (this.isActive) {
-          this.onSharedSettingsApplied(newSettings);
           this.processCaptions();
         }
       });

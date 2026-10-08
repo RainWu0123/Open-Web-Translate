@@ -93,11 +93,9 @@ export default defineUnlistedScript({
         // Navigation may have invalidated previous captures: re-arm hooks
         // and poller, then answer from the store or a fresh poll.
         discovery.rearm();
-        if (discovery.lastPayload().tracks.length > 0) {
+        if (!discovery.pollOnce() && discovery.lastPayload().tracks.length > 0) {
           // force re-broadcast of the current store at a new revision
           discovery.rebroadcast();
-        } else {
-          discovery.pollOnce();
         }
         return;
       }

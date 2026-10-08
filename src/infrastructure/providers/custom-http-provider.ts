@@ -1,3 +1,5 @@
+import { dialogueContextPrompt } from './dialogue-context';
+import { languageOutputInstruction } from './language-output-instructions';
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
 import type {
@@ -140,9 +142,10 @@ export class CustomHttpProvider implements TranslationProvider {
       ? ` User style instructions: ${this.instructions}.`
       : '';
     const isSingle = request.segments.length === 1;
+    const languageRule = languageOutputInstruction(request.targetLanguage);
     const promptContent = isSingle
-      ? `Translate the following text to target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
-      : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase:\n\n${request.segments.map((segment, idx) => `[${idx}] ${segment.text}`).join('\n')}`;
+      ? `Translate the following text to target language code "${request.targetLanguage}".${languageRule}${glossaryPrompt}${userInstructions}${dialogueContextPrompt(request.context)} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
+      : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${languageRule}${glossaryPrompt}${userInstructions}${dialogueContextPrompt(request.context)} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase:\n\n${request.segments.map((segment, idx) => `[${idx}] ${segment.text}`).join('\n')}`;
 
     logger.debug('Sending Custom HTTP translation request', {
       endpoint: url,

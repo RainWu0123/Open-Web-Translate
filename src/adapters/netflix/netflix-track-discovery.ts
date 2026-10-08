@@ -140,7 +140,7 @@ export function extractTrackUrlUniversal(t: any): string {
     }
 
     for (const [prof, entry] of Object.entries(downloadables as Record<string, any>)) {
-      if (entry && !entry.isImage && !prof.includes('imsc')) {
+      if (entry && !entry.isImage && !/imsc.*(?:image|bitmap)/i.test(prof)) {
         const urls = getUrlsFromEntry(entry);
         if (urls.length > 0) return urls[0];
       }
@@ -177,7 +177,7 @@ export function extractCandidateRepresentations(t: any): TrackCandidate[] {
       if (entry) {
         const urls = getUrlsFromEntry(entry);
         if (urls.length > 0) {
-          const isText = !entry.isImage && !prof.includes('imsc');
+          const isText = !entry.isImage && !/imsc.*(?:image|bitmap)/i.test(prof);
           candidates.push({ profile: prof, url: urls[0], isText });
         }
       }
@@ -257,6 +257,8 @@ export class NetflixTrackDiscovery {
   private fetchHookInstalled = false;
   private originalFetch: typeof window.fetch | null = null;
   private patchedFetch: typeof window.fetch | null = null;
+  private originalXhrOpen: typeof XMLHttpRequest.prototype.open | null = null;
+  private patchedXhrOpen: typeof XMLHttpRequest.prototype.open | null = null;
 
   /** Diagnostic snapshot for __OWT_DEBUG__. */
   public lastPayload(): { tracks: any[]; source: string; revision: number } {
@@ -295,8 +297,7 @@ export class NetflixTrackDiscovery {
 
       if (tracks.length > 0 && perfTracks.length > 0) {
         const hydratedTracks = tracks.map((t, idx) => {
-          const hasOwnUrl =
-            Boolean(t.url) || getUrlsFromEntry(t.ttDownloadables || t.downloadables).length > 0;
+          const hasOwnUrl = Boolean(extractTrackUrlUniversal(t));
           if (!hasOwnUrl) {
             const langKey = String(t.bcp47 || t.language || '').toLowerCase();
             const idKey = String(t.trackId || t.id || '').toLowerCase();
@@ -305,7 +306,7 @@ export class NetflixTrackDiscovery {
                 (p) =>
                   (langKey && p.url.toLowerCase().includes(langKey)) ||
                   (idKey && p.url.toLowerCase().includes(idKey)),
-              ) || perfTracks[idx % perfTracks.length];
+              );
             if (matchedPerf) {
               return { ...t, url: matchedPerf.url };
             }
@@ -335,7 +336,7 @@ export class NetflixTrackDiscovery {
     if (!capturedUrl || this.capturedTracksStore.length === 0) return;
     const updatedTracks = this.capturedTracksStore.map((t) => {
       if (
-        String(t.id) === String(trackId) ||
+        String(t.id) === String(trackId) || String(t.trackId) === String(trackId) ||
         String(t.rawTrack?.trackId) === String(trackId) ||
         String(t.language) === String(trackId)
       ) {
@@ -351,24 +352,26 @@ export class NetflixTrackDiscovery {
   private emit(sourceLabel: string, tracks: any[], force: boolean = false): void {
     if (!tracks || tracks.length === 0) return;
 
-    const normalizedTracks = tracks.map((t: any) => {
-      const candidates = extractCandidateRepresentations(t);
+    const normalizedTracks = tracks.filter((t: any) => !t.isNoneTrack && !t.rawTrack?.isNoneTrack).map((t: any) => {
+      const existing = this.capturedTracksStore.find(saved => String(saved.id) === String(t.id ?? t.trackId ?? t.language));
+      const foundCandidates = extractCandidateRepresentations(t);
+      const candidates: TrackCandidate[] = foundCandidates.length ? foundCandidates : existing?.candidates || [];
       const bestCandidate = candidates.find((c) => c.isText) || candidates[0];
       const url = bestCandidate ? bestCandidate.url : '';
       return {
         id: t.id ?? t.trackId ?? t.language,
-        label: t.label || t.languageDescription || t.language,
+        label: t.label || t.displayName || t.languageDescription || t.language || t.bcp47,
         language: t.language || t.bcp47 || 'unknown',
         url,
-        isCC: Boolean(t.isCC || t.isClosedCaptions || t.isCaption),
-        rawTrack: t,
+        isCC: Boolean(t.isCC || t.isClosedCaptions || t.isCaption || t.rawTrackType === 'CLOSEDCAPTIONS'),
+        rawTrack: t.rawTrack || t,
         downloadables: t.downloadables || t.ttDownloadables,
         candidates,
       };
     });
 
     const fingerprint = normalizedTracks
-      .map((t) => `${t.id}:${t.language}:${Boolean(t.url)}`)
+      .map((t) => `${t.id}:${t.language}:${t.url}`)
       .sort()
       .join('|');
 
@@ -408,7 +411,7 @@ export class NetflixTrackDiscovery {
 
     // Mission accomplished: stop burning CPU once text tracks with real
     // download URLs are in hand.
-    if (tracksWithUrl > 0) {
+    if (tracksWithUrl > 0 && sourceLabel === 'JSON.parse deep intercept') {
       this.uninstallManifestJsonHook();
       this.stopPoller();
     }
@@ -445,7 +448,7 @@ export class NetflixTrackDiscovery {
         // JSON.parse constantly, and almost no payload contains manifests.
         if (
           typeof text === 'string' &&
-          text.includes('timedtexttracks') &&
+          (text.includes('timedtexttracks') || text.includes('ttDownloadables')) &&
           result &&
           typeof result === 'object'
         ) {
@@ -481,10 +484,16 @@ export class NetflixTrackDiscovery {
 
       try {
         const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-        if (urlStr.includes('/manifest') || urlStr.includes('/cadmium/')) {
+        const mime = response.headers.get('content-type') || '';
+        const subtitleResponse = urlStr.includes('nflxvideo.net') && /xml|vtt|text\/plain/i.test(mime);
+        if (subtitleResponse || urlStr.includes('/manifest') || urlStr.includes('/cadmium/')) {
           const clone = response.clone();
           clone.text().then((text) => {
             try {
+              if (subtitleResponse) {
+                this.captureSubtitleDocument(urlStr, text);
+                return;
+              }
               if (!text.includes('timedtexttracks')) return;
               const data = JSON.parse(text);
               const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
@@ -501,6 +510,46 @@ export class NetflixTrackDiscovery {
     };
     this.patchedFetch = patchedFetch;
     window.fetch = patchedFetch;
+
+    const discovery = this;
+    const originalOpen = XMLHttpRequest.prototype.open;
+    this.originalXhrOpen = originalOpen;
+    const patchedOpen = function(this: XMLHttpRequest, ...args: Parameters<typeof originalOpen>) {
+      const url = String(args[1]);
+      this.addEventListener('load', function() {
+        if (!discovery.fetchHookInstalled || !url.includes('nflxvideo.net')) return;
+        try {
+          const mime = this.getResponseHeader('content-type') || '';
+          if (this.status >= 200 && this.status < 300 && /xml|vtt|text\/plain/i.test(mime)) {
+            const text = this.responseType === 'arraybuffer' && this.response
+              ? new TextDecoder().decode(this.response)
+              : this.responseType === 'document' && this.responseXML
+                ? new XMLSerializer().serializeToString(this.responseXML)
+                : !this.responseType || this.responseType === 'text' ? this.responseText : '';
+            if (text) discovery.captureSubtitleDocument(this.responseURL || url, text);
+          }
+        } catch { /* Binary media responses must not be read as text. */ }
+      }, { once: true });
+      return originalOpen.apply(this, args);
+    } as typeof originalOpen;
+    this.patchedXhrOpen = patchedOpen;
+    XMLHttpRequest.prototype.open = patchedOpen;
+  }
+
+  private captureSubtitleDocument(url: string, text: string): void {
+    const xml = new DOMParser().parseFromString(text, 'application/xml');
+    const root = xml.documentElement;
+    if (root.localName !== 'tt' || xml.getElementsByTagName('parsererror').length > 0 ||
+        xml.getElementsByTagNameNS('*', 'p').length === 0) return;
+    const language = root.getAttribute('xml:lang') || root.getAttribute('lang') || 'auto';
+    const playerTracks = extractRawCadmiumTracks().filter(t => !t.isNoneTrack);
+    const match = playerTracks.find(t => (t.bcp47 || t.language) === language);
+    const id = String(match?.trackId || match?.id || `captured-${language}`);
+    const others = this.capturedTracksStore.filter(t => String(t.id) !== id);
+    this.emit('subtitle response body', [...others, {
+      ...match, id, language, url,
+      candidates: [{ profile: 'imsc-text', url, isText: true }],
+    }]);
   }
 
   private uninstallNetworkHooks(): void {
@@ -512,6 +561,11 @@ export class NetflixTrackDiscovery {
     }
 
     this.originalFetch = null;
+    if (this.patchedXhrOpen && XMLHttpRequest.prototype.open === this.patchedXhrOpen && this.originalXhrOpen) {
+      XMLHttpRequest.prototype.open = this.originalXhrOpen;
+    }
+    this.originalXhrOpen = null;
+    this.patchedXhrOpen = null;
     this.patchedFetch = null;
     this.fetchHookInstalled = false;
   }

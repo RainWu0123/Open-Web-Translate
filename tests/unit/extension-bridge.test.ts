@@ -61,4 +61,16 @@ describe('ExtensionBridge tab command recovery', () => {
     expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ success: true });
   });
+
+  it('unwraps ok and payload envelopes returned by message router', async () => {
+    mocks.sendMessage.mockResolvedValueOnce({ ok: true, payload: { isActive: true } });
+    const result = await extensionBridge.sendTabCommand(42, { type: 'GET_NETFLIX_STATE' });
+    expect(result).toEqual({ isActive: true });
+  });
+
+  it('throws unwrapped error payload on failure envelopes', async () => {
+    mocks.sendMessage.mockResolvedValue({ ok: false, error: { message: 'Handler crashed' } });
+    await expect(extensionBridge.sendTabCommand(42, { type: 'BROKEN' }))
+      .rejects.toThrow('Handler crashed');
+  });
 });

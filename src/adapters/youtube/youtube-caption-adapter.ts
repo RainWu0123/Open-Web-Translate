@@ -154,6 +154,15 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     if (settings?.sourceLanguage && settings.sourceLanguage !== 'auto') {
       this.setTrack(settings.sourceLanguage);
     }
+    if (this.isActive) {
+      document.querySelectorAll<HTMLElement>('[data-owt-original][data-owt-translated]').forEach((segment) => {
+        this.renderInlineSegment(
+          segment,
+          segment.getAttribute('data-owt-original') || '',
+          segment.getAttribute('data-owt-translated') || '',
+        );
+      });
+    }
   }
 
   private maxConcurrentRequests = 3;
@@ -246,6 +255,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       (seg as HTMLElement).style.opacity = '';
       seg.removeAttribute('data-owt-original');
       seg.removeAttribute('data-owt-fingerprint');
+      seg.removeAttribute('data-owt-translated');
     });
 
     const windows = document.querySelectorAll('.ytp-caption-window-bottom, .caption-window, .ytp-caption-window-container');
@@ -304,7 +314,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
         seg.setAttribute('data-owt-original', originalText);
       }
 
-      const fingerprint = `${this.currentVideoId}|${originalText}|${this.targetLang}|${this.displayMode}|${this.subtitleOriginalFontSize}|${this.subtitleTranslatedFontSize}|${this.subtitleOriginalColor}|${this.subtitleTranslatedColor}`;
+      const fingerprint = `${this.currentVideoId}|${originalText}|${this.sourceLang}|${this.targetLang}`;
       
       const cached = this.inlineTranslationCache.get(fingerprint);
       if (cached) {
@@ -457,6 +467,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   }
 
   private renderInlineSegment(seg: HTMLElement, originalText: string, translatedText: string) {
+    seg.setAttribute('data-owt-translated', translatedText);
     const win = seg.closest('.ytp-caption-window-bottom, .caption-window, .ytp-caption-window-container') as HTMLElement | null;
     if (win) {
       if (!win.hasAttribute('data-owt-drag-initialized')) {
@@ -579,7 +590,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
           });
         },
         onSave: async (entry) => {
-          await messageRouter.sendMessage({
+          const result = await messageRouter.sendMessage({
             type: 'SAVE_VOCAB_ITEM',
             word: entry.surface,
             meaning: entry.meaning,
@@ -590,12 +601,18 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
             contextTranslation: entry.sentenceTranslation,
             sourceLang: this.sourceLang || 'auto',
             targetLang: this.targetLang || 'zh-Hant',
-            url: window.location.href,
+            url: entry.sourceUrl,
+            mediaTimestampMs: entry.mediaTimestampMs,
+            mediaTitle: entry.mediaTitle,
           });
+          if (!result?.success) throw new Error('Vocabulary save failed');
         },
       });
     }
     this.popover.show({
+      sourceUrl: window.location.href,
+      mediaTimestampMs: Math.round((document.querySelector('video')?.currentTime ?? 0) * 1000),
+      mediaTitle: document.title,
       surface,
       sentence,
       sentenceTranslation,

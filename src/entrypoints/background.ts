@@ -198,6 +198,8 @@ export default defineBackground(() => {
         contextSentence: msg.contextSentence || msg.context,
         contextTranslation: msg.contextTranslation,
         sourceUrl: msg.sourceUrl || msg.url,
+        mediaTimestampMs: msg.mediaTimestampMs,
+        mediaTitle: msg.mediaTitle,
         sourceLang: msg.sourceLang,
         targetLang: msg.targetLang,
         tags: msg.tags,

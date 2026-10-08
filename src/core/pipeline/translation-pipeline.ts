@@ -15,6 +15,9 @@ export interface TranslationPipelineRequest {
   targetLanguage: string;
   forceProvider?: string;
   context?: {
+    title?: string;
+    previousText?: string;
+    nextText?: string;
     previous?: Array<{ source: string; translation: string }>;
   };
 }
@@ -82,8 +85,13 @@ export class TranslationPipeline {
           }))
         : [];
     const contextFingerprint =
-      contextPairs.length > 0
-        ? await sha256(JSON.stringify(contextPairs))
+      provider.capabilities?.context && msg.context
+        ? await sha256(JSON.stringify({ previous: contextPairs,
+            title: msg.context.title?.trim().replace(/\s+/g, ' '),
+            previousText: msg.context.previousText?.trim().replace(/\s+/g, ' '),
+            nextText: msg.context.nextText?.trim().replace(/\s+/g, ' '),
+            scene: msg.segments.map(segment => segment.text.trim().replace(/\s+/g, ' ')),
+          }))
         : 'none';
     const providerFingerprint =
       `${cacheIdentity.fingerprint};context=${contextFingerprint}`;
@@ -155,6 +163,26 @@ export class TranslationPipeline {
     // are executed sequentially so local providers are not overloaded and
     // result ordering remains deterministic.
     for (const batch of batches) {
+      let context = msg.context;
+      if (provider.capabilities?.context && context) {
+        // Service limits and cache hits can split a scene. Preserve neighbouring
+        // source lines even when they are outside this particular request.
+        const first = msg.segments.findIndex(segment => segment.id === batch[0].id);
+        const last = msg.segments.findIndex(segment => segment.id === batch.at(-1)!.id);
+        const preceding = msg.segments.slice(Math.max(0, first - 8), first);
+        const following = msg.segments.slice(last + 1, last + 9);
+        context = {
+          ...context,
+          previousText: [context.previousText, ...preceding.map(segment => segment.text)].filter(Boolean).join('\n') || undefined,
+          nextText: [...following.map(segment => segment.text), context.nextText].filter(Boolean).join('\n') || undefined,
+          previous: [
+            ...(context.previous || []),
+            ...preceding.filter(segment => resultsMap.has(segment.id)).map(segment => ({
+              source: segment.text, translation: resultsMap.get(segment.id)!,
+            })),
+          ].slice(-8),
+        };
+      }
       const request = {
         segments: batch.map((s) => ({ id: s.id as any, text: s.text })),
         sourceLanguage: msg.sourceLanguage as any,
@@ -163,8 +191,8 @@ export class TranslationPipeline {
         ...(settings.aiTranslationInstructions?.trim()
           ? { instructions: settings.aiTranslationInstructions.trim().slice(0, 2000) }
           : {}),
-        ...(provider.capabilities?.context && msg.context?.previous?.length
-          ? { context: msg.context }
+        ...(provider.capabilities?.context && context
+          ? { context }
           : {}),
       };
 

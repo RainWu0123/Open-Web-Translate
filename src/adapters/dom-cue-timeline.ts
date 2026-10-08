@@ -38,6 +38,10 @@ export class DomCueTimelineBuilder {
     this.closeOpen(atMs);
   }
 
+  public currentStartMs(): number | undefined {
+    return this.openEntry?.startMs;
+  }
+
   /** Navigation / mode switch: forget everything. */
   public reset(): void {
     this.closed = [];

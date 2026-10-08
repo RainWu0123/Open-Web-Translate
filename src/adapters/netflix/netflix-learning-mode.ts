@@ -21,15 +21,21 @@ export interface LearningModeHost {
   primaryTrackLang(): string;
   getTimeline(): SentenceTimelineEntry[];
   setLineVisibility(visible: { original?: boolean; translated?: boolean }): void;
+  currentCueStartMs?(): number | undefined;
   currentSentence(): { original: string; translated: string } | null;
 }
 
 export class NetflixLearningMode {
   private enabled = false;
+  private autoPause = false;
   private controller: SentenceController | null = null;
   private popover: DictionaryPopover | null = null;
 
   constructor(private host: LearningModeHost) {}
+
+  public setAutoPause(enabled: boolean): void {
+    this.autoPause = enabled;
+  }
 
   public isEnabled(): boolean {
     return this.enabled;
@@ -51,7 +57,7 @@ export class NetflixLearningMode {
       this.controller = new SentenceController({
         getTimeline: () => this.host.getTimeline(),
         setLineVisibility: (visible) => this.host.setLineVisibility(visible),
-        isAutoPauseEnabled: () => this.enabled,
+        isAutoPauseEnabled: () => this.enabled && this.autoPause,
       });
     }
     this.controller.attach();
@@ -77,7 +83,7 @@ export class NetflixLearningMode {
           });
         },
         onSave: async (entry) => {
-          await messageRouter.sendMessage({
+          const result = await messageRouter.sendMessage({
             type: 'SAVE_VOCAB_ITEM',
             word: entry.surface,
             meaning: entry.meaning,
@@ -88,8 +94,11 @@ export class NetflixLearningMode {
             contextTranslation: entry.sentenceTranslation,
             sourceLang: this.host.sourceLang(),
             targetLang: this.host.targetLang(),
-            url: window.location.href,
+            url: entry.sourceUrl,
+            mediaTimestampMs: entry.mediaTimestampMs,
+            mediaTitle: entry.mediaTitle,
           });
+          if (!result?.success) throw new Error('Vocabulary save failed');
           // Also sync to legacy session store for immediate backward compat
           await globalSubtitleSessionStore.saveVocabularyCard({
             language: this.host.primaryTrackLang(),
@@ -101,13 +110,13 @@ export class NetflixLearningMode {
               text: entry.sentence,
               translation: entry.sentenceTranslation,
               episodeId: this.host.currentVideoId() || '',
-              cueStartMs: 0,
+              cueStartMs: entry.mediaTimestampMs ?? 0,
             },
-          });
+          }).catch(() => {}); // The primary repository already saved successfully.
         },
       });
-      document.addEventListener('owt-token-clicked', this.onTokenClicked);
     }
+    document.addEventListener('owt-token-clicked', this.onTokenClicked);
   }
 
   public detach(): void {
@@ -133,7 +142,12 @@ export class NetflixLearningMode {
     };
     if (!detail?.surface) return;
     const sentence = this.host.currentSentence();
+    const nowMs = Math.round((document.querySelector('video')?.currentTime ?? 0) * 1000);
+    const cue = this.host.getTimeline().find((c) => nowMs >= c.startMs && nowMs < c.endMs);
     this.popover?.show({
+      sourceUrl: window.location.href,
+      mediaTimestampMs: cue?.startMs ?? this.host.currentCueStartMs?.() ?? nowMs,
+      mediaTitle: document.title,
       surface: detail.surface,
       sentence: sentence?.original ?? '',
       sentenceTranslation: sentence?.translated ?? undefined,

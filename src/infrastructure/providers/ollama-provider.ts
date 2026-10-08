@@ -1,3 +1,5 @@
+import { dialogueContextPrompt } from './dialogue-context';
+import { languageOutputInstruction } from './language-output-instructions';
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
 import type {
@@ -91,7 +93,7 @@ export class OllamaProvider implements TranslationProvider {
       ? `\nUser style instructions: ${this.instructions}`
       : '';
 
-    return `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryInstructions}${userInstructions}\nReturn only the translated text segments in the exact format [idx] Translated Text, without commentary.\nDo not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase.\n\n${segmentsText}`;
+    return `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${languageOutputInstruction(request.targetLanguage)}${glossaryInstructions}${userInstructions}${dialogueContextPrompt(request.context)}\nReturn only the translated text segments in the exact format [idx] Translated Text, without commentary.\nDo not return slash-separated alternatives such as "先生/小姐" or "他/她"; choose natural wording or a neutral phrase.\n\n${segmentsText}`;
   }
 
   async translate(request: TranslationRequest): Promise<TranslationResult> {

@@ -1,3 +1,5 @@
+import { dialogueContextPrompt } from './dialogue-context';
+import { languageOutputInstruction } from './language-output-instructions';
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
 import type { TranslationProvider, ProviderConfigValidation } from '@/core/contracts/provider';
@@ -123,15 +125,13 @@ export class OpenAiCompatibleProvider implements TranslationProvider {
     const userInstructions = this.instructions
       ? ` User style instructions: ${this.instructions}.`
       : '';
-    const previousContext = (request.context?.previous ?? []).slice(-8);
-    const contextPrompt = previousContext.length
-      ? ` Use this prior dialogue only for context: ${previousContext.map((p) => `${p.source} => ${p.translation}`).join(' | ')}.`
-      : '';
+    const contextPrompt = dialogueContextPrompt(request.context);
+    const languageRule = languageOutputInstruction(request.targetLanguage);
 
     const isSingle = request.segments.length === 1;
     const prompt = isSingle
-      ? `Translate the following text to target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions}${contextPrompt} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
-      : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${glossaryPrompt}${userInstructions}${contextPrompt} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives; choose natural wording or a neutral phrase:\n\n${request.segments.map((segment, idx) => `[${idx}] ${segment.text}`).join('\n')}`;
+      ? `Translate the following text to target language code "${request.targetLanguage}".${languageRule}${glossaryPrompt}${userInstructions}${contextPrompt} Return only the translation without quotes or commentary:\n${request.segments[0].text}`
+      : `You are a professional translator. Translate the following text segments into target language code "${request.targetLanguage}".${languageRule}${glossaryPrompt}${userInstructions}${contextPrompt} Return only the translated text segments in the exact format [idx] Translated Text, without commentary. Do not return slash-separated alternatives; choose natural wording or a neutral phrase:\n\n${request.segments.map((segment, idx) => `[${idx}] ${segment.text}`).join('\n')}`;
 
     const sendPrompt = async (content: string): Promise<string> => {
       const response = await httpTranslationFetch(this.id, {

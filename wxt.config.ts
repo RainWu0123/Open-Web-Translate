@@ -51,6 +51,10 @@ export default defineConfig({
     },
     web_accessible_resources: [
       {
+        resources: ['icon/96.png'],
+        matches: ['*://*/*'],
+      },
+      {
         resources: ['netflix-main.js'],
         matches: ['*://*.netflix.com/*'],
       },

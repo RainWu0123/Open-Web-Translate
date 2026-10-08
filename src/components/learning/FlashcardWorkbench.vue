@@ -218,6 +218,9 @@
           </div>
 
           <div class="inspector-actions">
+            <a v-if="sourceLink" :href="sourceLink" target="_blank" rel="noopener noreferrer" class="btn-inspector-copy" data-testid="review-source">
+              {{ currentCard.mediaTimestampMs !== undefined ? '回看影片 · ' + sourceTime : '查看原始出處' }}
+            </a>
             <button class="btn-inspector-audio" @click="playAudio">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
@@ -254,6 +257,7 @@
 </template>
 
 <script setup lang="ts">
+import { learningSourceUrl } from '@/shared/subtitles/learning-source';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import { SrsEngine } from '@/core/learning/srs-engine';
@@ -293,6 +297,12 @@ watch(() => props.cards, cards => {
   if (dueCards.value.length) sessionStarted = true;
 }, { immediate: true });
 const currentCard = computed(() => dueCards.value[currentIndex.value] || null);
+
+const sourceLink = computed(() => currentCard.value ? learningSourceUrl(currentCard.value) : null);
+const sourceTime = computed(() => {
+  const seconds = Math.floor((currentCard.value?.mediaTimestampMs ?? 0) / 1000);
+  return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+});
 
 const currentCardLevel = computed(() =>
   currentCard.value?.tags?.find(tag => /^(JLPT|CEFR)\b/.test(tag)) || '未標註'

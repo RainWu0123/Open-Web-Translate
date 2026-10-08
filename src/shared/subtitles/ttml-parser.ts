@@ -266,5 +266,27 @@ export function parseNetflixTtmlDetailed(xmlText: string): TtmlParseResult {
 
 /** Backward-compatible API for existing adapters. */
 export function parseNetflixTtml(xmlText: string): SubtitleCue[] {
+  if (xmlText.trimStart().startsWith('WEBVTT')) {
+    const timestamp = (value: string): number => {
+      const parts = value.split(':').map(Number);
+      return parts.reduce((total, part) => total * 60 + part, 0) * 1000;
+    };
+    const cues: SubtitleCue[] = [];
+    for (const block of xmlText.replace(/\r\n?/g, '\n').split(/\n\s*\n/)) {
+      const lines = block.split('\n');
+      if (/^(WEBVTT|NOTE|STYLE|REGION)(?:\s|$)/.test(lines[0].trim())) continue;
+      const index = lines.findIndex(line => line.includes('-->'));
+      if (index < 0) continue;
+      const timing = lines[index].match(/^\s*((?:\d+:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d+:)?\d{2}:\d{2}\.\d{3})/);
+      if (!timing) continue;
+      const element = document.createElement('div');
+      element.innerHTML = lines.slice(index + 1).join('\n').replace(/<[^>]*>/g, '');
+      const text = element.textContent?.trim() || '';
+      const startMs = timestamp(timing[1]);
+      const endMs = timestamp(timing[2]);
+      if (text && endMs > startMs) cues.push({ startMs, endMs, text });
+    }
+    return cues.sort((a, b) => a.startMs - b.startMs);
+  }
   return parseNetflixTtmlDetailed(xmlText).cues;
 }

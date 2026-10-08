@@ -122,6 +122,7 @@ export interface NetflixConfig {
   lineSpacing: number;
   enableBitmapRescue: boolean;
   learningMode: boolean;
+  autoPause?: boolean;
 }
 
 export interface NetflixStateInfo {
@@ -144,6 +145,8 @@ export interface NetflixStateInfo {
   tracks?: Array<{ id: string; label: string; isCC: boolean }>;
   secondaryCuesCount?: number;
   learningMode?: boolean;
+  translationMode?: 'native' | 'prefetch' | 'loading' | 'realtime';
+  prefetchedCount?: number;
   dualTrack?: boolean;
 }
 
@@ -157,6 +160,9 @@ export interface TranslateRequestMessage {
   targetLanguage: string;
   forceProvider?: string;
   context?: {
+    title?: string;
+    previousText?: string;
+    nextText?: string;
     previous?: Array<{ source: string; translation: string }>;
   };
 }
@@ -208,6 +214,8 @@ export interface SaveVocabItemMessage {
   context?: string;
   contextSentence?: string;
   contextTranslation?: string;
+  mediaTimestampMs?: number;
+  mediaTitle?: string;
   url?: string;
   sourceUrl?: string;
   sourceLang?: string;

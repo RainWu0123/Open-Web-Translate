@@ -53,7 +53,14 @@ class ExtensionBridgeImpl implements ExtensionBridge {
     if (typeof browser === 'undefined' || !browser?.tabs?.sendMessage) {
       throw new Error('tabs.sendMessage is unavailable');
     }
-    return await browser.tabs.sendMessage(tabId, message) as T;
+    const raw = (await browser.tabs.sendMessage(tabId, message)) as any;
+    if (raw && typeof raw === 'object' && 'ok' in raw) {
+      if (raw.ok) return raw.payload as T;
+      const payload = raw.error;
+      const err = new Error(payload?.message || 'Unknown tab messaging error');
+      throw err;
+    }
+    return raw as T;
   }
 
   async sendTabMessage<T = any>(tabId: number, message: any): Promise<T | null> {

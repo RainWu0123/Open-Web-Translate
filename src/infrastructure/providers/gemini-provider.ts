@@ -1,3 +1,5 @@
+import { dialogueContextPrompt } from './dialogue-context';
+import { languageOutputInstruction } from './language-output-instructions';
 /**
  * Google Gemini Translation Provider
  *
@@ -135,18 +137,12 @@ export class GeminiProvider implements TranslationProvider {
     // 3. Construct safe origin-locked endpoint
     const apiUrl = `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(modelId)}:generateContent`;
 
-    const previousContext = (request.context?.previous ?? []).slice(-8);
-    const contextBlock =
-      previousContext.length > 0
-        ? `
-
-RECENT DIALOGUE CONTEXT (for coherence only - do NOT translate or output these lines):
-${previousContext.map((p) => `- ${p.source} => ${p.translation}`).join('\n')}`
-        : '';
+    const contextBlock = dialogueContextPrompt(request.context);
 
     const systemPrompt = `You are a professional, accurate translator.
 Translate the provided text segments into the target language: "${request.targetLanguage}".
 Source language (if known): "${request.sourceLanguage}".
+${languageOutputInstruction(request.targetLanguage)}
 
 Use the dialogue context (if any) to resolve pronouns, gender, tense, names,
 and tone consistently across consecutive lines.

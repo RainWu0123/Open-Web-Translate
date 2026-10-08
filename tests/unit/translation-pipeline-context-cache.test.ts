@@ -58,6 +58,7 @@ describe('TranslationPipeline context-aware cache identity', () => {
     mocks.cacheGet.mockReset().mockResolvedValue(null);
     mocks.cacheSet.mockReset().mockResolvedValue(undefined);
     mocks.provider.capabilities.context = true;
+    mocks.provider.capabilities.maxSegments = 10;
     mocks.provider.translate.mockReset().mockImplementation(async (request: any) => ({
       providerId: 'context-provider',
       cacheable: true,
@@ -99,6 +100,34 @@ describe('TranslationPipeline context-aware cache identity', () => {
     expect(firstFingerprint).not.toBe(secondFingerprint);
     expect(firstFingerprint).toMatch(/^provider:v1;context=[a-f0-9]{64}$/);
     expect(secondFingerprint).toMatch(/^provider:v1;context=[a-f0-9]{64}$/);
+  });
+
+  it('passes future dialogue without prior translations and separates cached meanings', async () => {
+    const pipeline = new TranslationPipeline();
+    const base = { segments: [{ id: 's1', text: '滑る' }], sourceLanguage: 'ja', targetLanguage: 'zh-Hant' };
+    await pipeline.translate({ ...base, context: { title: 'Medalist', nextText: '氷の上で練習する' } });
+    const first = mocks.cacheGet.mock.calls[0][0].providerFingerprint;
+    expect(mocks.provider.translate.mock.calls[0][0].context.nextText).toBe('氷の上で練習する');
+    mocks.cacheGet.mockClear();
+    await pipeline.translate({ ...base, context: { title: 'Medalist', nextText: '床が濡れている' } });
+    expect(mocks.cacheGet.mock.calls[0][0].providerFingerprint).not.toBe(first);
+  });
+
+  it('preserves scene neighbours and translated terminology across service batch limits', async () => {
+    mocks.provider.capabilities.maxSegments = 2;
+    const pipeline = new TranslationPipeline();
+    await pipeline.translate({
+      segments: ['氷の上で', '滑る', '演技を始める', '観客が拍手する'].map((text, index) => ({ id: `s${index}`, text })),
+      sourceLanguage: 'ja', targetLanguage: 'zh-Hant',
+      context: { title: 'Medalist', previousText: 'リンクに入る', nextText: '次の選手を紹介する' },
+    });
+    expect(mocks.provider.translate).toHaveBeenCalledTimes(2);
+    const first = mocks.provider.translate.mock.calls[0][0];
+    const second = mocks.provider.translate.mock.calls[1][0];
+    expect(first.context.nextText).toBe('演技を始める\n観客が拍手する\n次の選手を紹介する');
+    expect(second.context.previousText).toBe('リンクに入る\n氷の上で\n滑る');
+    expect(second.context.previous).toContainEqual({ source: '滑る', translation: 'translated:滑る' });
+    expect(second.segments.map((segment: any) => segment.text)).toEqual(['演技を始める', '観客が拍手する']);
   });
 
   it('normalizes inconsequential whitespace in context before hashing', async () => {

@@ -19,6 +19,9 @@ export interface DictionaryPopoverEntry {
   surface: string;
   sentence: string;
   sentenceTranslation?: string;
+  sourceUrl?: string;
+  mediaTimestampMs?: number;
+  mediaTitle?: string;
   clientX: number;
   clientY: number;
   sourceLang?: string;
@@ -39,6 +42,9 @@ export interface DictionaryPopoverCallbacks {
     meaning?: string;
     sentence: string;
     sentenceTranslation?: string;
+    sourceUrl?: string;
+    mediaTimestampMs?: number;
+    mediaTitle?: string;
   }): Promise<void>;
 }
 
@@ -49,6 +55,8 @@ export class DictionaryPopover {
   private outsideClickListener: ((e: MouseEvent) => void) | null = null;
   private escapeListener: ((e: KeyboardEvent) => void) | null = null;
   private current: DictionaryPopoverEntry | null = null;
+  private pausedVideo: HTMLVideoElement | null = null;
+  private pausedAt = 0;
   private currentAnalysis: WordAnalysisResult | null = null;
   private uiLanguage = 'auto';
   private unwatchSettings: (() => void) | null = null;
@@ -67,9 +75,18 @@ export class DictionaryPopover {
   }
 
   public show(entry: DictionaryPopoverEntry): void {
+    if (!this.current) {
+      const video = document.querySelector('video');
+      if (video && !video.paused) {
+        this.pausedVideo = video;
+        this.pausedAt = video.currentTime;
+        video.pause();
+      }
+    }
     this.current = entry;
     this.currentAnalysis = null;
     this.ensureElement();
+    (document.fullscreenElement || document.body).appendChild(this.el!);
     const el = this.el!;
     el.innerHTML = '';
 
@@ -109,6 +126,7 @@ export class DictionaryPopover {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'owt-dp-close';
+    closeBtn.setAttribute('aria-label', this.tr('dictionary.close'));
     closeBtn.textContent = '✕';
     closeBtn.title = this.tr('dictionary.close');
     closeBtn.addEventListener('click', () => this.hide());
@@ -127,6 +145,7 @@ export class DictionaryPopover {
     gloss.textContent = this.tr('dictionary.analyzing');
     el.appendChild(gloss);
 
+    let resolvedMeaning = '';
     // Trigger async lookup
     void this.callbacks
       .onLookup(entry.surface, entry.sentence)
@@ -134,9 +153,11 @@ export class DictionaryPopover {
         if (this.current !== entry) return;
 
         if (typeof res === 'string') {
+          resolvedMeaning = res.trim();
           gloss.textContent = res || this.tr('dictionary.noResult');
         } else if (res && typeof res === 'object') {
           this.currentAnalysis = res;
+          resolvedMeaning = res.meaningInContext?.trim() || '';
           gloss.textContent = res.meaningInContext || this.tr('dictionary.noResult');
 
           if (res.phonetic) {
@@ -161,6 +182,7 @@ export class DictionaryPopover {
             }
           }
         }
+        saveBtn.disabled = !resolvedMeaning;
       })
       .catch(() => {
         if (this.current === entry) gloss.textContent = this.tr('dictionary.lookupFailed');
@@ -225,17 +247,23 @@ export class DictionaryPopover {
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'owt-dp-save';
+    saveBtn.disabled = true;
     saveBtn.textContent = this.tr('dictionary.save');
     saveBtn.title = this.tr('dictionary.saveShortcut');
 
     const performSave = () => {
+      if (saveBtn.disabled || this.current !== entry || !resolvedMeaning) return;
+      saveBtn.disabled = true;
       void this.callbacks
         .onSave({
           surface: entry.surface,
           lemma: this.currentAnalysis?.lemma,
           pos: this.currentAnalysis?.pos,
           phonetic: this.currentAnalysis?.phonetic,
-          meaning: this.currentAnalysis?.meaningInContext || gloss.textContent || undefined,
+          meaning: resolvedMeaning,
+          sourceUrl: entry.sourceUrl,
+          mediaTimestampMs: entry.mediaTimestampMs,
+          mediaTitle: entry.mediaTitle,
           sentence: entry.sentence,
           sentenceTranslation: entry.sentenceTranslation,
         })
@@ -245,6 +273,7 @@ export class DictionaryPopover {
         })
         .catch(() => {
           saveBtn.textContent = this.tr('dictionary.saveFailed');
+          saveBtn.disabled = false;
         });
     };
 
@@ -263,6 +292,7 @@ export class DictionaryPopover {
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
 
+    document.addEventListener('fullscreenchange', this.placeInPlayer);
     this.armDismissal(performSave);
   }
 
@@ -316,11 +346,21 @@ export class DictionaryPopover {
     }
   }
 
+  private placeInPlayer = (): void => {
+    if (this.current && this.el) (document.fullscreenElement || document.body).appendChild(this.el);
+  };
+
   public hide(): void {
+    document.removeEventListener('fullscreenchange', this.placeInPlayer);
     this.disarmDismissal();
     this.current = null;
     this.currentAnalysis = null;
     if (this.el) this.el.style.display = 'none';
+    const video = this.pausedVideo;
+    this.pausedVideo = null;
+    if (video?.isConnected && video.paused && Math.abs(video.currentTime - this.pausedAt) < 0.5) {
+      void video.play().catch(() => {});
+    }
   }
 
   public dispose(): void {
@@ -339,7 +379,7 @@ export class DictionaryPopover {
     el.id = POPOVER_ID;
     el.style.position = 'fixed';
     el.style.display = 'none';
-    el.style.zIndex = '2147483600';
+    el.style.zIndex = '2147483647';
     el.style.minWidth = 'min(260px, calc(100vw - 24px))';
     el.style.maxWidth = 'min(380px, calc(100vw - 24px))';
     el.style.boxSizing = 'border-box';
@@ -407,7 +447,10 @@ export class DictionaryPopover {
       this.hide();
     };
     this.escapeListener = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
         this.hide();
       } else if ((e.key === 'v' || e.key === 'V') && this.current) {
         void ttsPlayer.speak(this.current.surface, this.current.sourceLang || 'auto');

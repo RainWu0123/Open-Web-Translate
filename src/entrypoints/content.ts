@@ -6,6 +6,7 @@
  * listens for translation/restore commands from background,
  * and clears translation state on SPA navigation.
  */
+import { installLearningSourceNavigation } from '@/shared/subtitles/learning-source';
 import { browser } from 'wxt/browser';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
@@ -86,6 +87,7 @@ function injectYouTubeMainWorldScript(): void {
 type BadgeState = 'idle' | 'translating' | 'translated';
 let badgeState: BadgeState = 'idle';
 let translationEnabled = false;
+let badgeUiLanguage = 'auto';
 let badgeHost: HTMLElement | null = null;
 let badgeButton: HTMLButtonElement | null = null;
 
@@ -110,6 +112,7 @@ export default defineContentScript({
     // The floating ball never belongs on video sites: subtitles are
     // controlled from the popup there.
     const isVideoSite = isNetflix || isYouTube;
+    if (isVideoSite) installLearningSourceNavigation();
 
     // Initialize site-specific adapters if applicable
     if (isYouTube) {
@@ -194,6 +197,7 @@ export default defineContentScript({
     if (!isVideoSite) {
       try {
         const settings = await SettingsStorage.get().catch(() => null);
+        badgeUiLanguage = settings?.uiLanguage || 'auto';
         if (translationEnabled && settings?.showFloatingButton !== false) {
           addFloatingBadge();
         }
@@ -240,6 +244,7 @@ function setupSettingsListener(): void {
   // fired. The single Settings seam replaces it.
   try {
     SettingsStorage.watch((s) => {
+      badgeUiLanguage = s.uiLanguage || 'auto';
       translationEnabled = s.enabled !== false;
       if (!translationEnabled || s.showFloatingButton === false) {
         removeFloatingBadge();
@@ -258,63 +263,22 @@ function setupSettingsListener(): void {
 function updateBadgeUI(state: BadgeState): void {
   badgeState = state;
   if (!badgeButton) return;
-
   badgeButton.classList.remove('owt-badge-idle', 'owt-badge-translating', 'owt-badge-translated');
-
-  switch (state) {
-    case 'idle': {
-      badgeButton.classList.add('owt-badge-idle');
-      badgeButton.title = 'Translate Page (Open Web Translate)';
-      badgeButton.setAttribute('aria-label', 'Translate page');
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.setAttribute('fill', 'none');
-      svg.setAttribute('stroke', 'currentColor');
-      svg.setAttribute('stroke-width', '2');
-      svg.setAttribute('stroke-linecap', 'round');
-      svg.setAttribute('stroke-linejoin', 'round');
-      svg.setAttribute('aria-hidden', 'true');
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', '12');
-      circle.setAttribute('cy', '12');
-      circle.setAttribute('r', '10');
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', 'M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z');
-      svg.append(circle, path);
-      badgeButton.replaceChildren(svg);
-      break;
-    }
-    case 'translating': {
-      badgeButton.classList.add('owt-badge-translating');
-      badgeButton.title = 'Translating page...';
-      badgeButton.setAttribute('aria-label', 'Translating page');
-      const ring = document.createElement('span');
-      ring.className = 'owt-spinner-ring';
-      ring.setAttribute('aria-hidden', 'true');
-      badgeButton.replaceChildren(ring);
-      break;
-    }
-    case 'translated': {
-      badgeButton.classList.add('owt-badge-translated');
-      badgeButton.title = 'Click to Restore Original Page';
-      badgeButton.setAttribute('aria-label', 'Restore original page');
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.setAttribute('fill', 'none');
-      svg.setAttribute('stroke', 'currentColor');
-      svg.setAttribute('stroke-width', '2');
-      svg.setAttribute('stroke-linecap', 'round');
-      svg.setAttribute('stroke-linejoin', 'round');
-      svg.setAttribute('aria-hidden', 'true');
-      const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p1.setAttribute('d', 'M3 7v6h6');
-      const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p2.setAttribute('d', 'M21 17a9 9 0 0 0-15-6.7L3 13');
-      svg.append(p1, p2);
-      badgeButton.replaceChildren(svg);
-      break;
-    }
-  }
+  badgeButton.classList.add(`owt-badge-${state}`);
+  const label = translate(badgeUiLanguage, state === 'translating' ? 'popup.translating' : state === 'translated' ? 'popup.restorePage' : 'popup.translatePage');
+  badgeButton.title = label;
+  badgeButton.setAttribute('aria-label', label);
+  badgeButton.setAttribute('aria-busy', String(state === 'translating'));
+  badgeButton.setAttribute('aria-disabled', String(state === 'translating'));
+  const icon = document.createElement('img');
+  icon.src = browser.runtime.getURL('/icon/96.png');
+  icon.alt = '';
+  icon.draggable = false;
+  icon.className = 'owt-brand-icon';
+  const ring = document.createElement('span');
+  ring.className = 'owt-spinner-ring';
+  ring.setAttribute('aria-hidden', 'true');
+  badgeButton.replaceChildren(icon, ring);
 }
 
 function addFloatingBadge(): void {
@@ -340,9 +304,10 @@ function addFloatingBadge(): void {
     const style = document.createElement('style');
     style.textContent = `
       .owt-badge {
+        position: relative;
         width: 44px;
         height: 44px;
-        border-radius: 10px;
+        border-radius: 50%;
         background: #0c0d10;
         color: #fafafa;
         border: 1px solid rgba(255, 255, 255, 0.18);
@@ -358,12 +323,13 @@ function addFloatingBadge(): void {
         -webkit-tap-highlight-color: transparent;
       }
 
-      .owt-badge svg,
-      .owt-badge span {
-        width: 20px;
-        height: 20px;
+      .owt-brand-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
         display: block;
         pointer-events: none;
+        transition: transform .2s ease, filter .2s ease;
       }
 
       .owt-badge:hover {
@@ -382,6 +348,9 @@ function addFloatingBadge(): void {
       .owt-badge-translating {
         border-color: #fafafa;
       }
+      .owt-badge-translating .owt-brand-icon { transform: scale(.78); }
+      .owt-badge-translated .owt-brand-icon { filter: invert(1); }
+      .owt-badge:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
 
       .owt-badge-translated {
         background: #fafafa;
@@ -390,15 +359,23 @@ function addFloatingBadge(): void {
       }
 
       .owt-spinner-ring {
+        display: none;
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
         border-radius: 50%;
         border: 2.5px solid rgba(255, 255, 255, 0.32);
         border-top-color: #ffffff;
-        animation: owt-spin 0.8s linear infinite;
       }
+      .owt-badge-translating .owt-spinner-ring { display: block; animation: owt-spin .9s linear infinite; }
 
       @keyframes owt-spin {
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .owt-badge, .owt-brand-icon { transition: none; }
+        .owt-badge-translating .owt-spinner-ring { animation: none; }
       }
     `;
 
@@ -416,17 +393,12 @@ function addFloatingBadge(): void {
       }
       e.stopPropagation();
       if (badgeState === 'idle') {
-        updateBadgeUI('translating');
         const res = await executePageTranslation();
-        if (res.success) {
-          updateBadgeUI('translated');
-        } else {
-          updateBadgeUI('idle');
+        if (!res.success) {
           showTranslationError(res.error?.message || '翻譯失敗，請重試。');
         }
       } else if (badgeState === 'translated') {
         await executePageRestore();
-        updateBadgeUI('idle');
       }
     });
 
@@ -575,6 +547,13 @@ function removeFloatingBadge(): void {
 }
 
 async function executePageTranslation(): Promise<{ success: boolean; translatedCount?: number; error?: ErrorPayload }> {
+  updateBadgeUI('translating');
+  const result = await performPageTranslation();
+  updateBadgeUI(result.success ? 'translated' : 'idle');
+  return result;
+}
+
+async function performPageTranslation(): Promise<{ success: boolean; translatedCount?: number; error?: ErrorPayload }> {
   try {
     const settings = await SettingsStorage.get();
     if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: translate(settings.uiLanguage, 'content.translationDisabled') } };
@@ -604,6 +583,7 @@ async function executePageTranslation(): Promise<{ success: boolean; translatedC
 async function executePageRestore(): Promise<{ success: boolean; restoredCount?: number }> {
   try {
     const restoredCount = genericDomAdapter.restorePage();
+    updateBadgeUI('idle');
     return { success: true, restoredCount };
   } catch (err: any) {
     logger.error('Page restore failed:', err);

@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { parseNetflixTtml } from '@/shared/subtitles/ttml-parser';
 
 describe('parseNetflixTtml', () => {
+  it('parses a complete WebVTT track instead of treating it as XML', () => {
+    expect(parseNetflixTtml('WEBVTT\n\n1\n00:01.000 --> 00:03.000 align:center\n<v Speaker>Hello &amp; welcome</v>\n\n2\n00:01:10.000 --> 00:01:12.000\nNext line')).toEqual([
+      { startMs: 1000, endMs: 3000, text: 'Hello & welcome' },
+      { startMs: 70000, endMs: 72000, text: 'Next line' },
+    ]);
+  });
   it('parses namespaced TTML p elements with begin/end', () => {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">

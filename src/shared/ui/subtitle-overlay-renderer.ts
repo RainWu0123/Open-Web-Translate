@@ -67,6 +67,13 @@ export class SubtitleOverlayRenderer {
     this.settings = { ...this.settings, ...settings };
   }
 
+  /** Repaint the currently visible cue after a live style change. */
+  public refresh(): void {
+    if (this.lastRender) {
+      this.render(this.lastRender.primary, this.lastRender.secondary, this.lastRender.options);
+    }
+  }
+
   /** Runtime line toggles (Alt+Z / Alt+C); re-renders the current content. */
   public setLineVisibility(visible: { original?: boolean; translated?: boolean }): void {
     this.lineVisibility = { ...this.lineVisibility, ...visible };
@@ -103,7 +110,13 @@ export class SubtitleOverlayRenderer {
       // Translation latency/failure must never make subtitles disappear.
       // Always keep the source line visible, regardless of immersive mode
       // or temporary learning-mode line visibility.
-      for (const text of (primaryText || '').split('\n').filter(Boolean)) {
+      let offset = 0;
+      for (const text of (primaryText || '').split('\n')) {
+        const start = offset;
+        offset += text.length + 1;
+        if (!text) continue;
+        const tokens = options.tokens?.filter(t => t.start >= start && t.end <= start + text.length)
+          .map(t => ({ ...t, start: t.start - start, end: t.end - start }));
         container.appendChild(
           this.createLine({
             kind: 'original',
@@ -111,7 +124,7 @@ export class SubtitleOverlayRenderer {
             color: this.settings.subtitleOriginalColor || '#ffffff',
             bold: false,
             fontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
-          }),
+          }, tokens),
         );
       }
 
@@ -233,6 +246,16 @@ export class SubtitleOverlayRenderer {
     span.dataset.tokenId = token.id;
     span.dataset.surface = token.surface;
     span.title = '點擊查詢';
+    span.tabIndex = 0;
+    span.setAttribute('role', 'button');
+    span.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = span.getBoundingClientRect();
+        span.dispatchEvent(new MouseEvent('click', { clientX: rect.left, clientY: rect.bottom }));
+      }
+    });
     span.style.pointerEvents = 'auto';
     span.style.cursor = 'pointer';
     span.style.borderRadius = '3px';
@@ -262,7 +285,7 @@ export class SubtitleOverlayRenderer {
 
   private setupDragEvents(el: HTMLElement): void {
     const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
+      const target = (e.composedPath()[0] || e.target) as HTMLElement;
       if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
       if (target.classList?.contains('owt-token')) return; // token click, not drag
       this.isDragging = true;

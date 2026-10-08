@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NetflixCaptionAdapter } from '@/adapters/netflix/netflix-caption-adapter';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
+import { BRIDGE, bridgeRequest, postToMain } from '@/adapters/netflix/netflix-bridge';
+
+vi.mock('@/adapters/netflix/netflix-bridge', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/adapters/netflix/netflix-bridge')>(),
+  bridgeRequest: vi.fn(),
+  postToMain: vi.fn(),
+}));
 
 vi.mock('@/infrastructure/messaging/message-router', () => ({
   messageRouter: {
@@ -40,6 +47,112 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     adapter.stop();
   });
 
+  it('does not repeat nested native caption containers', () => {
+    document.body.innerHTML = '<div class="player-timedtext"><div class="player-timedtext-text-container">First line</div><div class="player-timedtext-text-container">Second line</div></div>';
+    expect((adapter as any).getNativeSubtitleTextFromDOM()).toBe('First line\nSecond line');
+  });
+
+  it('requests an existing track snapshot when enabled after page discovery', async () => {
+    await adapter.start('zh-Hant');
+    expect(postToMain).toHaveBeenCalledWith(BRIDGE.messageType.REQUEST_TRACKS);
+  });
+
+  it('retries track discovery in manual AI mode while playback is paused', async () => {
+    vi.useFakeTimers();
+    try {
+      const a = adapter as any;
+      a.isActive = true;
+      a.selectionMode = 'manual';
+      a.selectedTrackId = 'ai-translate';
+      a.discoveredTracks = [];
+      await a.startAiPrefetchOrFallback();
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(postToMain).toHaveBeenCalledWith(BRIDGE.messageType.REQUEST_TRACKS);
+      a.sourceLang = 'ja';
+      a.discoveredTracks = [{ id: 'ja', language: 'ja', url: 'https://example.test/ja.ttml' }];
+      const load = vi.spyOn(a.aiPrefetch, 'load').mockResolvedValue(true);
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(load).toHaveBeenCalledOnce();
+    } finally {
+      adapter.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts prefetch when tracks arrive after choosing AI, then reuses its cache', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    a.sourceLang = 'ja';
+    a.selectionMode = 'manual';
+    a.selectedTrackId = 'ai-translate';
+    a.discoveredTracks = [{ id: 'ja', language: 'ja', label: 'Japanese', url: 'https://example.test/ja.ttml' }];
+    const load = vi.spyOn(a.aiPrefetch, 'load').mockResolvedValue(true);
+    const matches = vi.spyOn(a.aiPrefetch, 'matches').mockReturnValue(false);
+    a.reconcileTrackSelection();
+    await a.aiLoading;
+    expect(load).toHaveBeenCalledTimes(1);
+    matches.mockReturnValue(true);
+    a.reconcileTrackSelection();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefetches future subtitles from the actual MAIN-world track payload', async () => {
+    const a = adapter as any;
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'currentTime', { value: 10.5, configurable: true });
+    document.body.appendChild(video);
+    a.isActive = true;
+    a.sourceLang = 'auto';
+    a.selectionMode = 'manual';
+    a.selectedTrackId = 'ai-translate';
+    a.setupMainWorldMessageListener();
+    vi.mocked(bridgeRequest).mockResolvedValueOnce({ trackId: 'ja-track' });
+    const fetchTrack = vi.spyOn(adapter, 'fetchTtmlXml').mockResolvedValue(
+      '<tt><body><div><p begin="00:00:10.000" end="00:00:12.000">氷の上で</p><p begin="00:00:13.000" end="00:00:15.000">滑る練習をする</p></div></body></tt>',
+    );
+    vi.spyOn(adapter.getSyncEngine(), 'start').mockImplementation(() => {});
+    vi.mocked(messageRouter.sendMessage).mockImplementation(async (request: any) => ({
+      segments: request.segments.map((segment: any) => ({ id: segment.id, translatedText: `譯:${segment.text}` })),
+    }) as any);
+
+    document.dispatchEvent(new CustomEvent(BRIDGE.TRACKS_EVENT, { detail: JSON.stringify({
+      source: BRIDGE.MAIN_SOURCE, type: BRIDGE.messageType.TRACKS_UPDATED, revision: 1,
+      tracks: [{ trackId: 'ja-track', bcp47: 'ja', url: 'https://example.test/ja.ttml', isCC: false, candidates: [] }],
+    }) }));
+    await a.aiLoading;
+    await Promise.resolve();
+    expect(fetchTrack).toHaveBeenCalledWith('https://example.test/ja.ttml');
+    expect(adapter.getStateInfo().tracks?.[0].id).toBe('ja-track');
+    expect(messageRouter.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'TRANSLATE_REQUEST', sourceLanguage: 'ja',
+      segments: [
+        expect.objectContaining({ text: '氷の上で' }),
+        expect.objectContaining({ text: '滑る練習をする' }),
+      ],
+    }));
+  });
+
+  it('ignores a pending source lookup after stopping and restarting the engine', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    a.sourceLang = 'auto';
+    a.discoveredTracks = [{ id: 'ja', language: 'ja', label: 'Japanese', url: 'https://example.test/ja.ttml' }];
+    let resolveLookup!: (value: any) => void;
+    vi.mocked(bridgeRequest).mockImplementationOnce(() => new Promise(resolve => { resolveLookup = resolve; }));
+    const load = vi.spyOn(a.aiPrefetch, 'load').mockResolvedValue(true);
+    const oldLoad = a.startAiPrefetchOrFallback();
+
+    adapter.stop();
+    a.isActive = true;
+    a.sourceLang = 'ja';
+    await a.startAiPrefetchOrFallback();
+    expect(load).toHaveBeenCalledTimes(1);
+
+    resolveLookup({ trackId: 'ja' });
+    expect(await oldLoad).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the source subtitle visible while AI translation is pending', async () => {
     let resolveTranslation!: (value: unknown) => void;
     vi.mocked(messageRouter.sendMessage).mockImplementationOnce(
@@ -47,6 +160,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     );
 
     await adapter.start('zh-Hant');
+    (adapter as any).learningMode.setEnabled(true);
     const generation = (adapter as any).routeGeneration;
     // fetchAndRenderOverlay normally runs after onNewSubtitleText records the
     // active cue. Mirror that precondition so the stale-response guard accepts
@@ -58,6 +172,7 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     const host = document.getElementById('owt-netflix-overlay-host');
     expect(host?.shadowRoot?.textContent).toContain('Hello');
     expect(host?.shadowRoot?.textContent).toContain('翻譯中');
+    expect(host?.shadowRoot?.querySelector('.owt-token')?.textContent).toBe('Hello');
 
     resolveTranslation({
       segments: [{ id: 'nf-overlay', translatedText: '你好' }],

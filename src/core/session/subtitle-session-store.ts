@@ -51,6 +51,19 @@ export function tokenizeText(cueId: string, text: string, lang: string): Subtitl
   const tokens: SubtitleToken[] = [];
   if (!text) return tokens;
 
+  if (typeof Intl.Segmenter === 'function') {
+    const locale = !lang || lang === 'auto' ? undefined : lang;
+    let segmenter: Intl.Segmenter;
+    try { segmenter = new Intl.Segmenter(locale, { granularity: 'word' }); }
+    catch { segmenter = new Intl.Segmenter(undefined, { granularity: 'word' }); }
+    for (const part of segmenter.segment(text)) {
+      if (!part.isWordLike) continue;
+      tokens.push({ id: `${cueId}:${part.index}-${part.index + part.segment.length}`, surface: part.segment,
+        normalized: part.segment.toLowerCase(), start: part.index, end: part.index + part.segment.length });
+    }
+    return tokens;
+  }
+
   // Simple tokenization algorithm supporting CJK word boundaries and space-separated languages
   const isCJK = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9faf\uac00-\ud7af]/.test(text);
 
