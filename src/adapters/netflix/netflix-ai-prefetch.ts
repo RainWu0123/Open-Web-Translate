@@ -3,6 +3,7 @@ import type { DiscoveredTrack } from './netflix-track-manager';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 import { createLogger } from '@/shared/logger';
 import type { TranslationContext } from '@/core/contracts/translation';
+import { translate, type TranslationKey } from '@/shared/i18n';
 
 const logger = createLogger('NetflixAiPrefetch');
 
@@ -30,6 +31,8 @@ export interface NetflixAiPrefetchHost {
   renderCueLine(primaryText: string, secondaryText: string, state: AiPrefetchRenderState): void;
   clearLine(): void;
   onTimelineChanged(): void;
+  /** Use the configured UI locale, not the subtitle target language. */
+  getStatusText?: (key: TranslationKey) => string;
 }
 
 export class NetflixAiPrefetchController {
@@ -58,6 +61,10 @@ export class NetflixAiPrefetchController {
     private host: NetflixAiPrefetchHost,
     private syncEngine: NetflixSyncEngine,
   ) {}
+
+  private status(key: TranslationKey): string {
+    return this.host.getStatusText?.(key) ?? translate(undefined, key);
+  }
 
   public isActive(): boolean {
     return this.active;
@@ -115,7 +122,7 @@ export class NetflixAiPrefetchController {
 
     try {
       const xml = await this.host.fetchTtml(track.url);
-      if (epoch !== this.epoch || !this.host.isActive() || this.host.routeGeneration() !== generation) return false;
+      if (epoch !== this.epoch || !this.host.isActive() || this.host.routeGeneration() !== generation || this.host.targetLanguage() !== target) return false;
 
       const parsed = this.host.parseTtml(xml);
       if (parsed.length === 0) throw new Error('empty source track');
@@ -183,7 +190,7 @@ export class NetflixAiPrefetchController {
     if (translated) {
       this.host.renderCueLine(cue.text, translated, 'ready');
     } else {
-      this.host.renderCueLine(cue.text, '翻譯中…', 'pending');
+      this.host.renderCueLine(cue.text, this.status('subtitle.translatingLine'), 'pending');
     }
 
     const jumped = previousIndex >= 0 && Math.abs(cue.index - previousIndex) > this.seekThreshold;
@@ -228,6 +235,8 @@ export class NetflixAiPrefetchController {
     const generation = this.host.routeGeneration();
     const epoch = this.epoch;
     const trackId = this.sourceTrackId;
+    const target = this.loadedTarget;
+    if (this.host.targetLanguage() !== target) return;
     const startIndex = anchorIndex;
     const startMs = this.cues[startIndex]?.startMs ?? 0;
     const horizonEndMs = options.horizonEndMs ?? startMs + this.windowMs;
@@ -264,7 +273,7 @@ export class NetflixAiPrefetchController {
       const translated = await this.host.translateBatch(
         missing.map((cue) => ({ id: cue.id, text: cue.text })),
         this.sourceLanguage,
-        this.host.targetLanguage(),
+        target,
         generation,
         {
           title: document.querySelector('[data-uia="video-title"]')?.textContent?.trim() || document.title,
@@ -281,13 +290,17 @@ export class NetflixAiPrefetchController {
         epoch !== this.epoch ||
         !this.host.isActive() ||
         this.host.routeGeneration() !== generation ||
-        this.sourceTrackId !== trackId
+        this.sourceTrackId !== trackId ||
+        this.loadedTarget !== target ||
+        this.host.targetLanguage() !== target
       ) {
         return;
       }
 
+      // Never cache a result ID that did not belong to this exact batch.
+      const requestedIds = new Set(missing.map(cue => cue.id));
       for (const result of translated) {
-        if (result.translatedText?.trim()) {
+        if (requestedIds.has(result.id) && result.translatedText?.trim()) {
           this.translations.set(result.id, result.translatedText);
         }
       }
@@ -301,6 +314,9 @@ export class NetflixAiPrefetchController {
         const currentTranslation = this.translations.get(this.currentCue.id);
         if (currentTranslation) {
           this.host.renderCueLine(this.currentCue.text, currentTranslation, 'ready');
+        } else if (rescueIndex < 0 && missing.some(cue => cue.id === this.currentCue?.id)) {
+          // A successful HTTP response may still omit a requested subtitle.
+          this.host.renderCueLine(this.currentCue.text, this.status('subtitle.prefetchUnavailable'), 'error');
         }
       }
 
@@ -312,12 +328,12 @@ export class NetflixAiPrefetchController {
         windowEnd: endExclusive - 1,
       });
     } catch (error) {
-      if (epoch !== this.epoch) return;
+      if (epoch !== this.epoch || this.host.targetLanguage() !== target) return;
       logger.warn('AI subtitle prefetch batch failed', error);
       if (prioritizeCurrent && (options.allowRescue ?? true) && cueLimit > 1) rescueIndex = anchorIndex;
       if (this.currentCue && missing.some((cue) => cue.id === this.currentCue?.id)) {
         this.host.renderCueLine(this.currentCue.text,
-          rescueIndex >= 0 ? '翻譯暫時延遲，正在重試…' : '暫時無法取得譯文',
+          rescueIndex >= 0 ? this.status('subtitle.prefetchRetrying') : this.status('subtitle.prefetchUnavailable'),
           rescueIndex >= 0 ? 'pending' : 'error');
       }
     } finally {
@@ -329,6 +345,8 @@ export class NetflixAiPrefetchController {
       epoch !== this.epoch ||
       this.host.routeGeneration() !== generation ||
       this.sourceTrackId !== trackId ||
+      this.loadedTarget !== target ||
+      this.host.targetLanguage() !== target ||
       windowEpoch !== this.prefetchWindowEpoch
     ) return;
 

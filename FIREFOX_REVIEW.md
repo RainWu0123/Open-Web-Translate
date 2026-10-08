@@ -63,6 +63,8 @@ Remote requests occur only for the provider selected by the user:
 - Google Translate
 - Gemini
 - DeepL
+- OpenRouter
+- Hosted NVIDIA NIM
 - Custom HTTP
 
 Local providers:

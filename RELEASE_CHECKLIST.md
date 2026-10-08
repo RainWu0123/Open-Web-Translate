@@ -7,6 +7,7 @@ Use this checklist before submitting an OWT update to Chrome Web Store or Firefo
 - [ ] `package.json` contains the intended version.
 - [ ] The release tag exactly matches it (for example, `0.2.2` → `v0.2.2`).
 - [ ] CI is green on the exact release commit.
+- [ ] Review the staged GitHub Release draft and test the tagged ZIP files before publishing.
 - [ ] `PRIVACY.md`, `TERMS.md`, `STORE_LISTING.md`, and `THIRD_PARTY_NOTICES.md` still match product behavior.
 - [ ] No API keys, private test data, browser profiles, or local build secrets are committed.
 
