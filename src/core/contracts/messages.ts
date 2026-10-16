@@ -52,6 +52,17 @@ export interface ExtensionSettings {
   enabled: boolean;
   defaultTranslationMode: 'fast' | 'quality';
   activeProviderId: string;
+  /** Use one provider everywhere, or allow video subtitles to use another provider. */
+  providerSelectionMode?: 'shared' | 'split';
+  /** Provider used by Netflix/YouTube when providerSelectionMode is split. */
+  videoProviderId?: string;
+  /** Most recent explicit connection test, used by the UI status indicator. */
+  providerLastTestedId?: string;
+  providerLastTestFingerprint?: string;
+  providerLastTestedAt?: number;
+  providerLastTestSucceeded?: boolean;
+  /** Increments whenever any stored provider credential changes. */
+  providerCredentialRevision?: number;
   /**
    * Version of the first-run remote data-transfer notice acknowledged by the user.
    * A value of 0 is used only for brand-new installs before acknowledgement.
@@ -141,8 +152,8 @@ export interface NetflixStateInfo {
   selectedTrackId?: string;
   /** 'auto' prefers a native track matching the target language; 'manual' is a user pick (incl. AI-only). */
   selectionMode?: 'auto' | 'manual';
-  /** Downloadable tracks for the popup selector. */
-  tracks?: Array<{ id: string; label: string; isCC: boolean }>;
+  /** Discovered tracks for the popup selector; tracks without a URL can be hydrated on selection. */
+  tracks?: Array<{ id: string; label: string; language?: string; isCC: boolean; ready?: boolean }>;
   secondaryCuesCount?: number;
   learningMode?: boolean;
   translationMode?: 'native' | 'prefetch' | 'loading' | 'realtime';
@@ -159,12 +170,30 @@ export interface TranslateRequestMessage {
   sourceLanguage: string;
   targetLanguage: string;
   forceProvider?: string;
+  /** Selects the shared/page provider or the optional video provider. */
+  usage?: 'page' | 'video';
   context?: {
     title?: string;
     previousText?: string;
     nextText?: string;
     previous?: Array<{ source: string; translation: string }>;
   };
+}
+
+/** Background → document-context execution for Chrome's document-only Prompt API. */
+export interface ExecuteChromeAiTranslationMessage {
+  type: 'EXECUTE_CHROME_AI_TRANSLATION';
+  request: Omit<TranslateRequestMessage, 'type' | 'forceProvider'>;
+}
+
+export interface ExecuteChromeAiWordAnalysisMessage {
+  type: 'EXECUTE_CHROME_AI_WORD_ANALYSIS';
+  request: Omit<AnalyzeWordMessage, 'type'>;
+}
+
+export interface ExecuteChromeAiGrammarAnalysisMessage {
+  type: 'EXECUTE_CHROME_AI_GRAMMAR_ANALYSIS';
+  request: Omit<ExplainGrammarMessage, 'type'>;
 }
 
 export interface GetSettingsMessage {
@@ -229,6 +258,7 @@ export interface AnalyzeWordMessage {
   sentence: string;
   sourceLang: string;
   targetLang: string;
+  usage?: 'page' | 'video';
 }
 
 export interface ExplainGrammarMessage {
@@ -237,6 +267,7 @@ export interface ExplainGrammarMessage {
   focusWord?: string;
   sourceLang: string;
   targetLang: string;
+  usage?: 'page' | 'video';
 }
 
 export interface RecordSrsReviewMessage {
@@ -308,6 +339,9 @@ export interface SetYoutubeTrackMessage {
 /** All messages that can be sent in the messaging system */
 export type BackgroundMessage =
   | TranslateRequestMessage
+  | ExecuteChromeAiTranslationMessage
+  | ExecuteChromeAiWordAnalysisMessage
+  | ExecuteChromeAiGrammarAnalysisMessage
   | GetSettingsMessage
   | UpdateSettingsMessage
   | SetApiKeyMessage
@@ -364,6 +398,9 @@ export interface RestorePageTranslationResponsePayload {
 /** Response mapping: message type → response payload */
 export type ResponseMap = {
   TRANSLATE_REQUEST: TranslateResponsePayload;
+  EXECUTE_CHROME_AI_TRANSLATION: TranslateResponsePayload;
+  EXECUTE_CHROME_AI_WORD_ANALYSIS: WordAnalysisResult;
+  EXECUTE_CHROME_AI_GRAMMAR_ANALYSIS: GrammarExplanation;
   GET_SETTINGS: ExtensionSettings;
   UPDATE_SETTINGS: boolean;
   SET_API_KEY: boolean;

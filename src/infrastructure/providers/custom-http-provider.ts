@@ -5,6 +5,7 @@ import type { ProviderCapabilities } from '@/core/contracts/capabilities';
 import type {
   TranslationProvider,
   ProviderConfigValidation,
+  StructuredAnalysisRequest,
 } from '@/core/contracts/provider';
 import type {
   TranslationRequest,
@@ -21,6 +22,7 @@ import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { inspectHttpEndpoint } from './endpoint-security';
 import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
+import { parseStructuredJson } from './structured-output';
 
 const logger = createLogger('CustomHttpProvider');
 
@@ -67,6 +69,7 @@ export class CustomHttpProvider implements TranslationProvider {
   readonly displayName = 'Custom HTTP API';
   readonly isLocal = false;
   readonly capabilities: ProviderCapabilities = {
+    structuredAnalysis: true,
     streaming: false,
     glossary: true,
     context: true,
@@ -198,5 +201,26 @@ export class CustomHttpProvider implements TranslationProvider {
       warnings: [],
       cacheable: true,
     };
+  }
+
+  async generateStructured(request: StructuredAnalysisRequest): Promise<unknown> {
+    const endpoint = assertCustomEndpoint(this.endpoint);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const data = await httpTranslationFetch(this.id, {
+      url: `${endpoint}/v1/chat/completions`,
+      headers,
+      body: {
+        model: this.model,
+        messages: [
+          { role: 'system', content: 'You are a careful language teacher. Return only valid JSON matching the requested schema.' },
+          { role: 'user', content: request.prompt },
+        ],
+      },
+      signal: request.signal,
+      timeoutMs: 30000,
+      interpretStatus: (status) => new NetworkError(`Custom HTTP server returned HTTP ${status}`),
+    }).then((response) => response.json as Record<string, any>);
+    return parseStructuredJson(this.id, data.choices?.[0]?.message?.content ?? data.output ?? data.response);
   }
 }

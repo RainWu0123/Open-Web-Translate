@@ -34,6 +34,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   private uiLanguage: string = 'auto';
   private lastReconciledTargetLang: string | null = null;
   private autoSelectionRunning = false;
+  private subtitleSelectionEpoch = 0;
   private aiLoading: Promise<boolean> | null = null;
   private aiLoadingKey = '';
   private aiLoadEpoch = 0;
@@ -100,7 +101,9 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       onDualLoaded: () => {
         if (this.isActive) this.processCaptions();
       },
-      fallbackToSingle: (secondary) => this.loadSecondaryTrack(secondary, { manual: false }),
+      fallbackToSingle: async (secondary, commitGuard) => {
+        await this.loadSecondaryTrack(secondary, { manual: false, commitGuard });
+      },
     },
     this.syncEngine,
     () => this.learningMode.notifyTimelineChanged(),
@@ -130,9 +133,14 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
       selectedTrackId: this.selectedTrackId,
       selectionMode: this.selectionMode,
       tracks: this.discoveredTracks
-        .filter((t) => Boolean(t.url))
         .slice(0, 30)
-        .map((t) => ({ id: String(t.id), label: t.label || String(t.language), isCC: Boolean(t.isCC) })),
+        .map((t) => ({
+          id: String(t.id),
+          label: t.label || String(t.language),
+          language: String(t.language),
+          isCC: Boolean(t.isCC),
+          ready: Boolean(t.url),
+        })),
       secondaryCuesCount: this.secondaryCues.length,
       learningMode: this.learningMode.isEnabled(),
       translationMode: this.dualTrack.isActive() || this.secondaryCues.length > 0 ? 'native' :
@@ -146,27 +154,29 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
    * Popup entry point for the subtitle-source choice: 'auto' prefers a
    * native track in the target language, 'ai' forces machine translation.
    */
-  public setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: string): void {
+  public async setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: string): Promise<boolean> {
+    const selectionEpoch = ++this.subtitleSelectionEpoch;
     if (source === 'track' && trackId) {
       const track = this.discoveredTracks.find((t) => String(t.id) === String(trackId));
-      if (track?.url) {
-        void this.loadSecondaryTrack(track);
-        return;
+      if (track) {
+        return await this.loadSecondaryTrack(track, { selectionEpoch });
       }
+      return false;
     }
     if (source === 'ai') {
       this.selectionMode = 'manual';
       this.selectedTrackId = 'ai-translate';
       this.secondaryCues = [];
       if (this.dualTrack.isActive()) this.dualTrack.reset();
-      void this.startAiPrefetchOrFallback();
-      return;
+      await this.startAiPrefetchOrFallback();
+      return true;
     } else {
       this.selectionMode = 'auto';
     }
     this.lastProcessedText = '';
-    this.reconcileTrackSelection();
+    const changed = await this.runAutoSelection(selectionEpoch);
     if (this.isActive) this.processCaptions();
+    return changed;
   }
 
   /** Popup entry point: turn the bilingual subtitle engine on/off. */
@@ -189,6 +199,16 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     if (config.secondarySize !== undefined) this.subtitleTranslatedFontSize = config.secondarySize;
     if (config.learningMode !== undefined && config.learningMode !== this.learningMode.isEnabled()) {
       this.learningMode.setEnabled(config.learningMode);
+    }
+    if (config.autoPause !== undefined) this.learningMode.setAutoPause(config.autoPause);
+    if (config.bottomPosition !== undefined || config.lineSpacing !== undefined) {
+      this.overlayRenderer.updateLayout(
+        {
+          bottomOffsetPx: config.bottomPosition,
+          lineSpacingPx: config.lineSpacing,
+        },
+        { resetDraggedPosition: config.bottomPosition !== undefined },
+      );
     }
     if (config.enabled === false && this.isActive) {
       this.stop();
@@ -230,9 +250,10 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   public async hydrateTrack(track: DiscoveredTrack) {
-    if (!track?.url) return { ok: false, reason: 'track-not-found' };
+    const hydrated = await this.ensureTrackDownloadUrl(track);
+    if (!hydrated?.url) return { ok: false, reason: 'track-not-found' };
     try {
-      const xml = await this.fetchTtmlXml(track.url);
+      const xml = await this.fetchTtmlXml(hydrated.url);
       this.secondaryCues = parseNetflixTtml(xml);
       return { ok: true, source: 'manifest', cues: this.secondaryCues };
     } catch (err) {
@@ -321,6 +342,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
   }
 
   protected onVideoChanged(): void {
+    this.subtitleSelectionEpoch += 1;
     this.aiSelectedSourceId = '';
     this.lastProcessedText = '';
     this.domCueTimeline.reset();
@@ -651,6 +673,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     try {
       const response = await messageRouter.sendMessage({
         type: 'TRANSLATE_REQUEST',
+        usage: 'video',
         segments: [{ id: 'nf-overlay', text }],
         sourceLanguage: this.sourceLang,
         targetLanguage: this.targetLang,
@@ -759,29 +782,50 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     void this.runAutoSelection();
   }
 
-  private async runAutoSelection(): Promise<void> {
-    if (!this.isActive || this.autoSelectionRunning) return;
+  private async runAutoSelection(selectionEpoch = this.subtitleSelectionEpoch): Promise<boolean> {
+    // Preserve the requested policy while disabled; start() will apply it once
+    // the player and manifest tracks are available.
+    if (!this.isActive) return true;
+    if (this.autoSelectionRunning) return false;
     const native = this.trackManager.findBestMatchingTrack(this.targetLang);
-    if (native?.url) {
+    if (native) {
       // Already showing this exact track: skip the re-download.
-      if (this.selectedTrackId === native.id && this.secondaryCues.length > 0) return;
+      if (this.selectedTrackId === native.id && this.secondaryCues.length > 0) return true;
       this.autoSelectionRunning = true;
+      let loaded = false;
       try {
-        this.cancelAiPrefetch();
-        // Learning mode core: when a second native track (the video's
-        // original language) exists, download BOTH tracks and pair cues by
-        // maximum time overlap — the LR dual-subtitle layout.
-        const original = await this.dualTrack.selectPrimary(this.discoveredTracks, native, this.targetLang);
-        if (original) {
-          await this.dualTrack.load(original, native);
-          if (this.dualTrack.isActive()) this.selectedTrackId = native.id;
-        } else {
-          await this.loadSecondaryTrack(native, { manual: false });
+        const hydratedNative = await this.ensureTrackDownloadUrl(native);
+        if (selectionEpoch !== this.subtitleSelectionEpoch) return false;
+        if (hydratedNative?.url) {
+          this.cancelAiPrefetch();
+          // Learning mode core: when a second native track (the video's
+          // original language) exists, download BOTH tracks and pair cues by
+          // maximum time overlap — the LR dual-subtitle layout.
+          const original = await this.dualTrack.selectPrimary(this.discoveredTracks, hydratedNative, this.targetLang);
+          if (original) {
+            await this.dualTrack.load(
+              original,
+              hydratedNative,
+              () => selectionEpoch === this.subtitleSelectionEpoch,
+            );
+            if (selectionEpoch !== this.subtitleSelectionEpoch) return false;
+            if (this.dualTrack.isActive()) {
+              this.selectedTrackId = hydratedNative.id;
+              loaded = true;
+            } else {
+              loaded = this.selectedTrackId === hydratedNative.id && this.secondaryCues.length > 0;
+            }
+          } else {
+            loaded = await this.loadSecondaryTrack(hydratedNative, { manual: false, selectionEpoch });
+          }
         }
       } finally {
         this.autoSelectionRunning = false;
       }
-      return;
+      if (selectionEpoch !== this.subtitleSelectionEpoch) return false;
+      if (loaded) return true;
+      this.selectedTrackId = 'ai-translate';
+      return await this.startAiPrefetchOrFallback();
     }
     // No native track in the target language. Prefer full-source-track
     // rolling AI prefetch; DOM cue-by-cue translation remains the last fallback.
@@ -791,6 +835,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     const prefetched = await this.startAiPrefetchOrFallback();
     if (!prefetched && this.isActive) this.processCaptions();
     this.scheduleNativeTrackRetry();
+    return prefetched || this.isActive;
   }
 
   /**
@@ -924,6 +969,7 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
 
     const response = await messageRouter.sendMessage({
       type: 'TRANSLATE_REQUEST',
+      usage: 'video',
       segments,
       sourceLanguage: sourceLanguage || this.sourceLang,
       targetLanguage,
@@ -934,21 +980,64 @@ export class NetflixCaptionAdapter extends CaptionAdapterBase {
     return response?.segments ?? [];
   }
 
-  private async loadSecondaryTrack(track: DiscoveredTrack, opts: { manual?: boolean } = {}) {
-    if (opts.manual !== false) this.selectionMode = 'manual';
-    this.selectedTrackId = track.id;
+  private async loadSecondaryTrack(
+    track: DiscoveredTrack,
+    opts: { manual?: boolean; selectionEpoch?: number; commitGuard?: () => boolean } = {},
+  ): Promise<boolean> {
+    let parsed: SubtitleCue[];
+    let hydrated: DiscoveredTrack | null = null;
+    try {
+      hydrated = await this.ensureTrackDownloadUrl(track);
+      if (!hydrated?.url) throw new Error('Native subtitle track URL was not available');
+      const xml = await this.fetchTtmlXml(hydrated.url);
+      parsed = parseNetflixTtml(xml);
+      if (parsed.length === 0) throw new Error('Native subtitle track contained no text cues');
+    } catch (error) {
+      logger.error('Failed to fetch secondary track TTML', error);
+      return false;
+    }
+    if (opts.selectionEpoch !== undefined && opts.selectionEpoch !== this.subtitleSelectionEpoch) return false;
+    if (opts.commitGuard && !opts.commitGuard()) return false;
+    // Commit only after the replacement track is known-good. A failed user
+    // choice must leave the currently visible native/AI source untouched.
     this.dualTrack.reset();
     this.cancelAiPrefetch();
-    try {
-      const xml = await this.fetchTtmlXml(track.url);
-      this.secondaryCues = parseNetflixTtml(xml);
-      logger.info('Parsed secondary Netflix TTML cues', this.secondaryCues.length);
-    } catch (error) {
-      this.secondaryCues = [];
-      logger.error('Failed to fetch secondary track TTML', error);
-    }
+    this.secondaryCues = parsed;
+    if (opts.manual !== false) this.selectionMode = 'manual';
+    this.selectedTrackId = hydrated.id;
+    logger.info('Parsed secondary Netflix TTML cues', this.secondaryCues.length);
     this.lastProcessedText = '';
     this.processCaptions();
+    return true;
+  }
+
+  /**
+   * Netflix often exposes the complete language list before it exposes the
+   * signed TTML URL. Ask the MAIN-world player to activate that exact track,
+   * capture the resulting subtitle request, then bind the URL back to the
+   * discovered track. This makes a visible native subtitle option actionable
+   * instead of silently falling back to AI translation.
+   */
+  private async ensureTrackDownloadUrl(track: DiscoveredTrack): Promise<DiscoveredTrack | null> {
+    if (track.url) return track;
+    try {
+      const result = await bridgeRequest<{ url?: string }>(
+        BRIDGE.messageType.HYDRATE_TRACK,
+        { trackId: String(track.id), expectedLanguage: track.language, performSeek: true },
+        4000,
+      );
+      const url = typeof result.url === 'string' ? result.url : '';
+      if (!url) return null;
+      const hydrated = { ...track, url, hasUrl: true };
+      this.discoveredTracks = this.discoveredTracks.map((candidate) =>
+        String(candidate.id) === String(track.id) ? hydrated : candidate,
+      );
+      this.trackManager.setDiscoveredTracks(this.discoveredTracks);
+      return hydrated;
+    } catch (error) {
+      logger.warn('Failed to hydrate Netflix subtitle track URL', error);
+      return null;
+    }
   }
 
 

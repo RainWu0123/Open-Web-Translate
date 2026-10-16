@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { YouTubeCaptionAdapter } from '../../src/adapters/youtube/youtube-caption-adapter';
 import { messageRouter } from '../../src/infrastructure/messaging/message-router';
+import { trackSelectionMatches } from '../../src/adapters/youtube/youtube-bridge';
 
 // Mock messageRouter
 vi.mock('../../src/infrastructure/messaging/message-router', () => ({
@@ -98,5 +99,32 @@ describe('YouTubeCaptionAdapter', () => {
     (adapter as any).ensureCorrectTrackSelected();
 
     expect(setTrackSpy).not.toHaveBeenCalled();
+  });
+
+  it('commits a track change only after the MAIN-world result confirms it', async () => {
+    let command: any;
+    window.addEventListener('owt:yt-command-event', ((event: CustomEvent<string>) => {
+      command = JSON.parse(event.detail);
+    }) as EventListener, { once: true });
+
+    const pending = adapter.setTrack('ja');
+    expect(adapter.getStateInfo().selectedTrackId).not.toBe('ja');
+    expect(command.requestId).toBeTruthy();
+
+    window.dispatchEvent(new CustomEvent('owt:yt-tracks-updated', {
+      detail: JSON.stringify({
+        type: 'OWT_YT_TRACK_SET_RESULT', source: 'owt-youtube-main', revision: 999,
+        requestId: command.requestId, ok: true, selectedTrackId: 'ja',
+      }),
+    }));
+
+    await expect(pending).resolves.toBe(true);
+    expect(adapter.getStateInfo().selectedTrackId).toBe('ja');
+  });
+
+  it('confirms auto selection against the expected original track identity', () => {
+    expect(trackSelectionMatches('en-US', 'en')).toBe(true);
+    expect(trackSelectionMatches('zh-TW', 'ja')).toBe(false);
+    expect(trackSelectionMatches(null, 'ja')).toBe(false);
   });
 });

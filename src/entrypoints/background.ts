@@ -17,6 +17,7 @@ import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
 import { translate } from '@/shared/i18n';
+import { resolveProviderId } from '@/core/settings/provider-selection';
 
 const logger = createLogger('Background');
 
@@ -65,7 +66,22 @@ export default defineBackground(() => {
   })();
 
   // ── TRANSLATE_REQUEST ──────────────────────────────────────────
-  messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg) => {
+  messageRouter.registerHandler('TRANSLATE_REQUEST', async (msg, sender) => {
+    const settings = await SettingsStorage.getInternal();
+    const providerId = resolveProviderId(settings, msg.usage, msg.forceProvider);
+    if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
+      const tabId = sender?.tab?.id;
+      if (typeof tabId !== 'number') {
+        throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。請先開啟要翻譯的頁面。');
+      }
+      const { type: _type, forceProvider: _forceProvider, ...request } = msg;
+      const result = await extensionBridge.sendTabCommand(tabId, {
+        type: 'EXECUTE_CHROME_AI_TRANSLATION',
+        request,
+      });
+      if (!result) throw new Error('Chrome 本機 AI 執行頁面沒有回應');
+      return result;
+    }
     return translationPipeline.translate(msg);
   });
 
@@ -225,11 +241,37 @@ export default defineBackground(() => {
     return true;
   });
 
-  messageRouter.registerHandler('ANALYZE_WORD', async (msg) => {
+  messageRouter.registerHandler('ANALYZE_WORD', async (msg, sender) => {
+    const settings = await SettingsStorage.getInternal();
+    const providerId = resolveProviderId(settings, msg.usage);
+    if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
+      const tabId = sender?.tab?.id;
+      if (typeof tabId !== 'number') throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。');
+      const { type: _type, ...request } = msg;
+      const result = await extensionBridge.sendTabCommand(tabId, {
+        type: 'EXECUTE_CHROME_AI_WORD_ANALYSIS',
+        request,
+      });
+      if (!result) throw new Error('Chrome 本機 AI 沒有回應');
+      return result;
+    }
     return await aiLearningEngine.analyzeWord(msg);
   });
 
-  messageRouter.registerHandler('EXPLAIN_GRAMMAR', async (msg) => {
+  messageRouter.registerHandler('EXPLAIN_GRAMMAR', async (msg, sender) => {
+    const settings = await SettingsStorage.getInternal();
+    const providerId = resolveProviderId(settings, msg.usage);
+    if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
+      const tabId = sender?.tab?.id;
+      if (typeof tabId !== 'number') throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。');
+      const { type: _type, ...request } = msg;
+      const result = await extensionBridge.sendTabCommand(tabId, {
+        type: 'EXECUTE_CHROME_AI_GRAMMAR_ANALYSIS',
+        request,
+      });
+      if (!result) throw new Error('Chrome 本機 AI 沒有回應');
+      return result;
+    }
     return await aiLearningEngine.explainGrammar(msg);
   });
 

@@ -85,19 +85,16 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
     });
   });
 
-  describe('ChromeBuiltInAIProvider Service Worker & globalThis Support', () => {
-    it('uses the current Chrome Translator global when available', async () => {
+  describe('ChromeBuiltInAIProvider Prompt API support', () => {
+    it('uses Chrome Gemini Nano through the document Prompt API', async () => {
       const provider = new ChromeBuiltInAIProvider();
-      const previousTranslator = (globalThis as any).Translator;
-      const previousDetector = (globalThis as any).LanguageDetector;
-
-      const translate = vi.fn().mockImplementation(async (text: string) => `[Translator] ${text}`);
-      (globalThis as any).Translator = {
-        create: vi.fn().mockResolvedValue({ translate, destroy: vi.fn() }),
-      };
-      (globalThis as any).LanguageDetector = {
+      const previousLanguageModel = (globalThis as any).LanguageModel;
+      (globalThis as any).LanguageModel = {
+        availability: vi.fn().mockResolvedValue('available'),
         create: vi.fn().mockResolvedValue({
-          detect: vi.fn().mockResolvedValue([{ detectedLanguage: 'en', confidence: 0.99 }]),
+          prompt: vi.fn().mockResolvedValue(JSON.stringify([
+            { id: 'seg-official', translatedText: '[Gemini Nano] Hello official API' },
+          ])),
           destroy: vi.fn(),
         }),
       };
@@ -110,25 +107,22 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
           targetLanguage: 'zh-Hant' as LanguageCode,
           mode: 'fast',
         });
-        expect(result.segments[0].text).toBe('[Translator] Hello official API');
+        expect(result.segments[0].text).toBe('[Gemini Nano] Hello official API');
       } finally {
-        if (previousTranslator === undefined) delete (globalThis as any).Translator;
-        else (globalThis as any).Translator = previousTranslator;
-        if (previousDetector === undefined) delete (globalThis as any).LanguageDetector;
-        else (globalThis as any).LanguageDetector = previousDetector;
+        if (previousLanguageModel === undefined) delete (globalThis as any).LanguageModel;
+        else (globalThis as any).LanguageModel = previousLanguageModel;
       }
     });
 
-    it('keeps compatibility with the older experimental globalThis.ai translator shape', async () => {
+    it('supports the earlier ai.languageModel Prompt API namespace', async () => {
       const provider = new ChromeBuiltInAIProvider();
-
-      const originalWindowAi = (window as any).ai;
-      delete (window as any).ai;
-
       (globalThis as any).ai = {
-        translator: {
+        languageModel: {
+          availability: vi.fn().mockResolvedValue('available'),
           create: vi.fn().mockResolvedValue({
-            translate: vi.fn().mockImplementation(async (text: string) => `[SW Chrome AI] ${text}`),
+            prompt: vi.fn().mockResolvedValue(JSON.stringify([
+              { id: 'seg-1', translatedText: '[Gemini Nano] Hello from document' },
+            ])),
           }),
         },
       };
@@ -137,18 +131,58 @@ describe('Bugfixes & Enhancements Unit Test Suite', () => {
       expect(validation.isValid).toBe(true);
 
       const result = await provider.translate({
-        segments: [{ id: 'seg-1' as SegmentId, text: 'Hello from Service Worker' }],
+        segments: [{ id: 'seg-1' as SegmentId, text: 'Hello from document' }],
         sourceLanguage: 'en' as LanguageCode,
         targetLanguage: 'zh-Hant' as LanguageCode,
         mode: 'fast',
       });
 
-      expect(result.segments[0].text).toBe('[SW Chrome AI] Hello from Service Worker');
+      expect(result.segments[0].text).toBe('[Gemini Nano] Hello from document');
 
       delete (globalThis as any).ai;
-      if (originalWindowAi) {
-        (window as any).ai = originalWindowAi;
-      }
+    });
+
+    it.each([
+      [[{ id: 'other', translatedText: '錯誤 ID' }], 'unknown translation id'],
+      [[{ id: 'seg-1', translatedText: '   ' }], 'empty translation'],
+      [[{ id: 'seg-1', translatedText: '甲' }, { id: 'seg-1', translatedText: '乙' }], 'duplicate translation id'],
+    ])('rejects malformed Prompt API segment mappings', async (payload, expectedError) => {
+      (globalThis as any).LanguageModel = {
+        availability: vi.fn().mockResolvedValue('available'),
+        create: vi.fn().mockResolvedValue({ prompt: vi.fn().mockResolvedValue(JSON.stringify(payload)) }),
+      };
+      const provider = new ChromeBuiltInAIProvider();
+      await expect(provider.translate({
+        segments: [{ id: 'seg-1' as SegmentId, text: 'Hello' }],
+        sourceLanguage: 'en' as LanguageCode,
+        targetLanguage: 'zh-Hant' as LanguageCode,
+        mode: 'fast',
+      })).rejects.toThrow(expectedError);
+      delete (globalThis as any).LanguageModel;
+    });
+
+    it('accepts complete Prompt API output even when the model reorders segments', async () => {
+      (globalThis as any).LanguageModel = {
+        availability: vi.fn().mockResolvedValue('available'),
+        create: vi.fn().mockResolvedValue({
+          prompt: vi.fn().mockResolvedValue(JSON.stringify([
+            { id: 'seg-2', translatedText: '二' },
+            { id: 'seg-1', translatedText: '一' },
+          ])),
+        }),
+      };
+      const provider = new ChromeBuiltInAIProvider();
+      const result = await provider.translate({
+        segments: [
+          { id: 'seg-1' as SegmentId, text: 'One' },
+          { id: 'seg-2' as SegmentId, text: 'Two' },
+        ],
+        sourceLanguage: 'en' as LanguageCode,
+        targetLanguage: 'zh-Hant' as LanguageCode,
+        mode: 'fast',
+      });
+      expect(result.segments.map((segment) => segment.text)).toEqual(['一', '二']);
+      delete (globalThis as any).LanguageModel;
     });
   });
 

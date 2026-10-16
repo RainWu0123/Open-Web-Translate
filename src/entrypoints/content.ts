@@ -18,6 +18,8 @@ import { YouTubeCaptionAdapter } from '@/adapters/youtube/youtube-caption-adapte
 import { NetflixCaptionAdapter } from '@/adapters/netflix/netflix-caption-adapter';
 import { setupSelectionTranslate } from '@/features/selection-translation';
 import { createLogger } from '@/shared/logger';
+import { ChromeBuiltInAIProvider } from '@/infrastructure/providers/chrome-builtin-ai-provider';
+import { AiLearningEngine } from '@/core/pipeline/ai-learning-engine';
 import '../assets/netflix.css';
 import '../assets/youtube.css';
 
@@ -25,6 +27,7 @@ const logger = createLogger('ContentScript');
 const genericDomAdapter = new GenericDomAdapter();
 const youtubeAdapter = new YouTubeCaptionAdapter();
 const netflixAdapter = new NetflixCaptionAdapter();
+const documentLearningEngine = new AiLearningEngine();
 
 /**
  * Inject netflix-main.js into the page MAIN world.
@@ -134,6 +137,45 @@ export default defineContentScript({
       return await executePageRestore();
     });
 
+    messageRouter.registerHandler('EXECUTE_CHROME_AI_TRANSLATION', async (msg) => {
+      const settings = await SettingsStorage.get();
+      const provider = new ChromeBuiltInAIProvider();
+      const result = await provider.translate({
+        ...msg.request,
+        segments: msg.request.segments.map((segment) => ({
+          ...segment,
+          id: segment.id as any,
+        })),
+        sourceLanguage: msg.request.sourceLanguage as any,
+        targetLanguage: msg.request.targetLanguage as any,
+        mode: settings.defaultTranslationMode,
+      });
+      return {
+        segments: result.segments.map((segment) => ({
+          id: String(segment.id),
+          translatedText: segment.text,
+        })),
+      };
+    });
+
+    messageRouter.registerHandler('EXECUTE_CHROME_AI_WORD_ANALYSIS', async (msg) => {
+      const settings = await SettingsStorage.get();
+      return documentLearningEngine.analyzeWord(msg.request, {
+        ...settings,
+        activeProviderId: 'chrome-builtin-ai-provider',
+        providerSelectionMode: 'shared',
+      });
+    });
+
+    messageRouter.registerHandler('EXECUTE_CHROME_AI_GRAMMAR_ANALYSIS', async (msg) => {
+      const settings = await SettingsStorage.get();
+      return documentLearningEngine.explainGrammar(msg.request, {
+        ...settings,
+        activeProviderId: 'chrome-builtin-ai-provider',
+        providerSelectionMode: 'shared',
+      });
+    });
+
     messageRouter.registerHandler('EXECUTE_SELECTION_TRANSLATION' as any, async () => {
       logger.info('Received EXECUTE_SELECTION_TRANSLATION');
       const selection = window.getSelection();
@@ -150,8 +192,7 @@ export default defineContentScript({
 
     messageRouter.registerHandler('SET_NETFLIX_SELECTION', async (msg) => {
       if (!isNetflix) return false;
-      netflixAdapter.setSubtitleSource(msg.source, msg.trackId);
-      return true;
+      return await netflixAdapter.setSubtitleSource(msg.source, msg.trackId);
     });
 
     messageRouter.registerHandler('SET_NETFLIX_ACTIVE', async (msg) => {
@@ -173,8 +214,7 @@ export default defineContentScript({
 
     messageRouter.registerHandler('SET_YOUTUBE_TRACK', async (msg) => {
       if (!isYouTube) return false;
-      youtubeAdapter.setTrack(msg.trackId);
-      return true;
+      return await youtubeAdapter.setTrack(msg.trackId);
     });
 
     messageRouter.listen();

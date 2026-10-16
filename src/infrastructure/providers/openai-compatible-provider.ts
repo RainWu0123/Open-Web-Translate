@@ -2,7 +2,7 @@ import { dialogueContextPrompt } from './dialogue-context';
 import { languageOutputInstruction } from './language-output-instructions';
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
-import type { TranslationProvider, ProviderConfigValidation } from '@/core/contracts/provider';
+import type { TranslationProvider, ProviderConfigValidation, StructuredAnalysisRequest } from '@/core/contracts/provider';
 import type { TranslationRequest, TranslationResult, TranslatedSegment } from '@/core/contracts/translation';
 import { ConfigurationError, NetworkError, ProviderError, QuotaExceededError } from '@/core/domain/errors/translation-errors';
 import { httpTranslationFetch } from './http-translation-client';
@@ -10,6 +10,7 @@ import { normalizeSubtitleAlternatives } from '@/shared/utils/subtitle-text';
 import { inspectHttpEndpoint } from './endpoint-security';
 import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
 import { createLogger } from '@/shared/logger';
+import { parseStructuredJson } from './structured-output';
 
 export interface OpenAiCompatibleProviderConfig {
   providerId: string;
@@ -69,6 +70,7 @@ export class OpenAiCompatibleProvider implements TranslationProvider {
     this.instructions = config.instructions?.trim().slice(0, 2000) || '';
     this.apiKeyPolicy = config.apiKeyPolicy ?? 'required';
     this.capabilities = {
+      structuredAnalysis: true,
       streaming: false,
       glossary: true,
       context: true,
@@ -197,5 +199,32 @@ export class OpenAiCompatibleProvider implements TranslationProvider {
       warnings: [],
       cacheable: true,
     };
+  }
+
+  async generateStructured(request: StructuredAnalysisRequest): Promise<unknown> {
+    const validation = this.validateConfig();
+    if (!validation.isValid) throw new ConfigurationError(validation.errors?.[0] || `${this.displayName} is not configured`);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const response = await httpTranslationFetch(this.id, {
+      url: chatCompletionsUrl(this.endpoint),
+      headers,
+      body: {
+        model: this.model,
+        messages: [
+          { role: 'system', content: 'You are a careful language teacher. Return only valid JSON matching the requested schema.' },
+          { role: 'user', content: request.prompt },
+        ],
+      },
+      signal: request.signal,
+      timeoutMs: 30000,
+      interpretStatus: (status) => {
+        if (status === 401 || status === 403) return new ConfigurationError(`${this.displayName} rejected the API key or credentials`);
+        if (status === 429) return new QuotaExceededError(`${this.displayName} rate limit or quota exceeded`);
+        return new NetworkError(`${this.displayName} returned HTTP ${status}`);
+      },
+    });
+    const data = response.json as Record<string, any>;
+    return parseStructuredJson(this.id, data.choices?.[0]?.message?.content ?? data.output ?? data.response);
   }
 }

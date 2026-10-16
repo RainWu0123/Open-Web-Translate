@@ -1,220 +1,151 @@
 /**
- * Chrome Built-in AI translation provider.
- *
- * Primary API references:
- * https://developer.chrome.com/docs/ai/translator-api
- * https://developer.chrome.com/docs/ai/language-detection
- *
- * This is OWT project code written against Chrome's public Translator /
- * LanguageDetector API shape. It does not copy Chromium source. A narrow
- * compatibility fallback for older experimental `ai.translator` builds is
- * kept so existing users are not broken.
+ * Chrome on-device language-model provider (Gemini Nano / Prompt API).
+ * The API is document-only, so production calls run in an extension page or
+ * content-script document context instead of the background worker.
  */
 import type { ProviderId } from '@/core/contracts/common';
 import type { ProviderCapabilities } from '@/core/contracts/capabilities';
-import type { TranslationProvider, ProviderConfigValidation } from '@/core/contracts/provider';
-import type { TranslationRequest, TranslationResult, TranslatedSegment } from '@/core/contracts/translation';
-import { ProviderError, NetworkError, ConfigurationError } from '@/core/domain/errors/translation-errors';
-import { createLogger } from '@/shared/logger';
+import type {
+  TranslationProvider,
+  ProviderConfigValidation,
+  StructuredAnalysisRequest,
+} from '@/core/contracts/provider';
+import type { TranslationRequest, TranslationResult } from '@/core/contracts/translation';
+import { ConfigurationError, NetworkError, ProviderError } from '@/core/domain/errors/translation-errors';
+import { languageOutputInstruction } from './language-output-instructions';
+import { dialogueContextPrompt } from './dialogue-context';
+import { parseStructuredJson } from './structured-output';
 
-const logger = createLogger('ChromeBuiltInAIProvider');
-
-interface TranslatorInstance {
-  translate(text: string, options?: { signal?: AbortSignal }): Promise<string>;
+interface LanguageModelSessionLike {
+  prompt(input: string, options?: { signal?: AbortSignal }): Promise<string>;
   destroy?(): void;
 }
 
-interface TranslatorConstructorLike {
-  availability?(options: { sourceLanguage: string; targetLanguage: string }): Promise<string>;
-  create(options: { sourceLanguage: string; targetLanguage: string }): Promise<TranslatorInstance>;
+interface LanguageModelConstructorLike {
+  availability(options?: Record<string, unknown>): Promise<string>;
+  create(options?: {
+    initialPrompts?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+    signal?: AbortSignal;
+  }): Promise<LanguageModelSessionLike>;
 }
 
-interface LanguageDetectorInstance {
-  detect(text: string): Promise<Array<{ detectedLanguage: string; confidence: number }>>;
-  destroy?(): void;
-}
-
-interface LanguageDetectorConstructorLike {
-  availability?(): Promise<string>;
-  create(): Promise<LanguageDetectorInstance>;
-}
-
-type LegacyChromeAiApi = {
-  translator?: {
-    create(options: { sourceLanguage: string; targetLanguage: string }): Promise<TranslatorInstance>;
-  };
-  translate?: (text: string, options: { targetLanguage: string }) => Promise<string>;
-};
-
-function runtimeScope(): Record<string, unknown> {
-  return globalThis as unknown as Record<string, unknown>;
-}
-
-function getOfficialTranslator(): TranslatorConstructorLike | null {
-  const candidate = runtimeScope().Translator;
-  return candidate && (typeof candidate === 'object' || typeof candidate === 'function')
-    ? candidate as TranslatorConstructorLike
-    : null;
-}
-
-function getLanguageDetector(): LanguageDetectorConstructorLike | null {
-  const candidate = runtimeScope().LanguageDetector;
-  return candidate && (typeof candidate === 'object' || typeof candidate === 'function')
-    ? candidate as LanguageDetectorConstructorLike
-    : null;
-}
-
-function getLegacyChromeAiApi(): LegacyChromeAiApi | null {
-  const scope = runtimeScope();
-  const translation = scope.translation as LegacyChromeAiApi | undefined;
-  const ai = scope.ai as LegacyChromeAiApi | undefined;
-
-  if (translation?.translator || typeof translation?.translate === 'function') return translation;
-  if (ai?.translator || typeof ai?.translate === 'function') return ai;
-  return null;
-}
-
-async function resolveSourceLanguage(request: TranslationRequest): Promise<string> {
-  if (request.sourceLanguage !== 'auto') return request.sourceLanguage;
-
-  const detectorCtor = getLanguageDetector();
-  if (!detectorCtor?.create) {
-    throw new ConfigurationError(
-      'Chrome Built-in AI requires a source language when LanguageDetector is unavailable. Choose the source language manually.',
-    );
-  }
-
-  const detector = await detectorCtor.create();
-  try {
-    const sample = request.segments.map((segment) => segment.text).join('\n').slice(0, 4000);
-    const candidates = await detector.detect(sample);
-    const best = candidates.find((candidate) =>
-      typeof candidate.detectedLanguage === 'string' &&
-      candidate.detectedLanguage.trim() &&
-      candidate.confidence >= 0.2,
-    );
-    if (!best) {
-      throw new ConfigurationError(
-        'Chrome Built-in AI could not determine the source language. Choose it manually.',
-      );
-    }
-    return best.detectedLanguage;
-  } finally {
-    detector.destroy?.();
-  }
+function getLanguageModel(): LanguageModelConstructorLike | null {
+  const scope = globalThis as any;
+  return scope.LanguageModel ?? scope.ai?.languageModel ?? null;
 }
 
 export class ChromeBuiltInAIProvider implements TranslationProvider {
   readonly id = 'chrome-builtin-ai-provider' as ProviderId;
-  readonly displayName = 'Chrome Built-in AI';
+  readonly displayName = 'Chrome on-device Gemini Nano';
   readonly isLocal = true;
   readonly capabilities: ProviderCapabilities = {
+    structuredAnalysis: true,
     streaming: false,
     glossary: false,
-    context: false,
-    maxSegments: 50,
+    context: true,
+    maxSegments: 20,
   };
 
+  static async availability(): Promise<string> {
+    const model = getLanguageModel();
+    if (!model?.availability || !model?.create) return 'unavailable';
+    try {
+      return await model.availability();
+    } catch {
+      return 'unavailable';
+    }
+  }
+
   validateConfig(_config?: unknown): ProviderConfigValidation {
-    if (!getOfficialTranslator()?.create && !getLegacyChromeAiApi()) {
+    if (!getLanguageModel()?.create) {
       return {
         isValid: false,
-        errors: ['Chrome Translator API is not supported or enabled in this browser'],
+        errors: ['Chrome Prompt API (Gemini Nano) is unavailable in this document context'],
       };
     }
     return { isValid: true };
   }
 
-  async translate(request: TranslationRequest): Promise<TranslationResult> {
-    if (request.signal?.aborted) throw new Error('Translation aborted');
+  private async createSession(systemPrompt: string, signal?: AbortSignal): Promise<LanguageModelSessionLike> {
+    const model = getLanguageModel();
+    if (!model?.create) {
+      throw new ConfigurationError('此瀏覽器或執行環境不支援 Chrome 內建本機 AI（Prompt API）。');
+    }
+    const availability = await ChromeBuiltInAIProvider.availability();
+    if (availability === 'unavailable') {
+      throw new ConfigurationError('此裝置不符合 Chrome 內建本機 AI 的需求，或 Prompt API 尚未啟用。');
+    }
+    try {
+      return await model.create({
+        signal,
+        initialPrompts: [{ role: 'system', content: systemPrompt }],
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (availability === 'downloadable' || availability === 'downloading') {
+        throw new ConfigurationError(`Chrome 本機模型尚未準備完成。請在設定頁按「測試服務」下載並啟用模型。${message ? ` (${message})` : ''}`);
+      }
+      throw new NetworkError(`Chrome 本機 AI 建立工作階段失敗：${message}`);
+    }
+  }
 
+  async translate(request: TranslationRequest): Promise<TranslationResult> {
     if (!request.segments?.length) {
+      return { providerId: this.id, segments: [], warnings: [], cacheable: true };
+    }
+
+    const systemPrompt = `You are a precise professional translator running fully on-device.
+Translate every input segment to language code "${request.targetLanguage}".
+Source language: "${request.sourceLanguage}" (detect it when set to auto).
+${languageOutputInstruction(request.targetLanguage)}
+Use surrounding dialogue to resolve names, pronouns, terminology, and tone consistently.
+Return ONLY a valid JSON array with exact keys "id" and "translatedText". Preserve every id.
+Do not explain, annotate, or offer slash-separated alternatives.${dialogueContextPrompt(request.context)}`;
+
+    const session = await this.createSession(systemPrompt, request.signal);
+    try {
+      const raw = await session.prompt(JSON.stringify(request.segments), { signal: request.signal });
+      const parsed = parseStructuredJson(this.id, raw);
+      if (!Array.isArray(parsed)) throw new ProviderError(this.id, 'Chrome local AI did not return a translation array');
+      const byId = new Map<string, string>();
+      const requestedIds = new Set(request.segments.map((segment) => String(segment.id)));
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') continue;
+        const id = (item as any).id;
+        const translatedText = (item as any).translatedText;
+        if (typeof id !== 'string' || !requestedIds.has(id)) {
+          throw new ProviderError(this.id, 'Chrome local AI returned an unknown translation id');
+        }
+        if (byId.has(id)) throw new ProviderError(this.id, 'Chrome local AI returned a duplicate translation id');
+        if (typeof translatedText !== 'string' || !translatedText.trim()) {
+          throw new ProviderError(this.id, 'Chrome local AI returned an empty translation');
+        }
+        byId.set(id, translatedText.trim());
+      }
+      if (byId.size !== requestedIds.size || request.segments.some((segment) => !byId.has(String(segment.id)))) {
+        throw new ProviderError(this.id, 'Chrome local AI returned an incomplete translation');
+      }
       return {
         providerId: this.id,
-        segments: [],
+        segments: request.segments.map((segment) => ({ id: segment.id, text: byId.get(segment.id)! })),
         warnings: [],
         cacheable: true,
       };
+    } finally {
+      session.destroy?.();
     }
+  }
 
-    const translatedSegments: TranslatedSegment[] = [];
-
+  async generateStructured(request: StructuredAnalysisRequest): Promise<unknown> {
+    const session = await this.createSession(
+      'You are a careful language teacher. Follow the requested schema exactly and return only valid JSON without markdown.',
+      request.signal,
+    );
     try {
-      const officialTranslator = getOfficialTranslator();
-      if (officialTranslator?.create) {
-        const sourceLanguage = await resolveSourceLanguage(request);
-        const translator = await officialTranslator.create({
-          sourceLanguage,
-          targetLanguage: request.targetLanguage,
-        });
-
-        try {
-          for (const segment of request.segments) {
-            if (request.signal?.aborted) throw new Error('Translation aborted');
-            const translated = await translator.translate(segment.text, { signal: request.signal });
-            translatedSegments.push({ id: segment.id, text: translated });
-          }
-        } finally {
-          translator.destroy?.();
-        }
-      } else {
-        const legacy = getLegacyChromeAiApi();
-        if (!legacy) {
-          throw new NetworkError('Chrome Built-in AI API is not available on this device');
-        }
-
-        const sourceLanguage =
-          request.sourceLanguage === 'auto'
-            ? await resolveSourceLanguage(request)
-            : request.sourceLanguage;
-
-        if (legacy.translator?.create) {
-          const translator = await legacy.translator.create({
-            sourceLanguage,
-            targetLanguage: request.targetLanguage,
-          });
-          try {
-            for (const segment of request.segments) {
-              translatedSegments.push({
-                id: segment.id,
-                text: await translator.translate(segment.text),
-              });
-            }
-          } finally {
-            translator.destroy?.();
-          }
-        } else if (typeof legacy.translate === 'function') {
-          for (const segment of request.segments) {
-            translatedSegments.push({
-              id: segment.id,
-              text: await legacy.translate(segment.text, {
-                targetLanguage: request.targetLanguage,
-              }),
-            });
-          }
-        } else {
-          throw new ProviderError(this.id, 'Invalid Chrome Built-in AI API signature');
-        }
-      }
-    } catch (error) {
-      if (
-        error instanceof ProviderError ||
-        error instanceof NetworkError ||
-        error instanceof ConfigurationError
-      ) {
-        throw error;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error('Chrome Built-in AI execution failed', message);
-      throw new NetworkError(`Chrome Built-in AI execution failed: ${message}`);
+      return parseStructuredJson(this.id, await session.prompt(request.prompt, { signal: request.signal }));
+    } finally {
+      session.destroy?.();
     }
-
-    return {
-      providerId: this.id,
-      segments: translatedSegments,
-      warnings: [],
-      cacheable: true,
-    };
   }
 }
 

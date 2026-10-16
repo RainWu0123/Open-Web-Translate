@@ -94,13 +94,15 @@ describe('Tier 3: Cross-Feature Combinations E2E Suite', () => {
 
     let activeProviderId = 'ollama';
 
-    // Mock Chrome AI on window
-    (window as any).ai = {
-      translator: {
-        create: vi.fn().mockResolvedValue({
-          translate: vi.fn().mockImplementation(async (text: string) => `[Chrome AI] ${text}`),
-        }),
-      },
+    // Mock Chrome's on-device Prompt API in a document context.
+    (globalThis as any).LanguageModel = {
+      availability: vi.fn().mockResolvedValue('available'),
+      create: vi.fn().mockResolvedValue({
+        prompt: vi.fn().mockResolvedValue(JSON.stringify([
+          { id: 'seg-switch', translatedText: '[Chrome AI] Artificial Intelligence' },
+        ])),
+        destroy: vi.fn(),
+      }),
     };
 
     // Mock Fetch for Ollama and Google
@@ -133,7 +135,7 @@ describe('Tier 3: Cross-Feature Combinations E2E Suite', () => {
     });
     expect(res.segments[0].text).toBe('[Google] Artificial Intelligence');
 
-    delete (window as any).ai;
+    delete (globalThis as any).LanguageModel;
   });
 
   it('3.3 Custom Glossary + DOM Article Translation + Shadow DOM Host Rendering', async () => {

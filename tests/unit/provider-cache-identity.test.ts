@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-identity';
+import { getProviderCacheIdentity, getProviderTestFingerprint } from '@/infrastructure/providers/cache-identity';
 import { DEFAULT_MODEL_ID } from '@/infrastructure/providers/gemini/model-registry';
 
 describe('provider cache identity', () => {
@@ -88,5 +88,17 @@ describe('provider cache identity', () => {
     });
 
     expect(second.fingerprint).not.toBe(first.fingerprint);
+  });
+
+  it('invalidates a successful service test when model or credentials change', () => {
+    const tested = getProviderTestFingerprint('gemini-provider', {
+      geminiModel: 'gemini-a', providerCredentialRevision: 1,
+    });
+    expect(getProviderTestFingerprint('gemini-provider', {
+      geminiModel: 'gemini-b', providerCredentialRevision: 1,
+    })).not.toBe(tested);
+    expect(getProviderTestFingerprint('gemini-provider', {
+      geminiModel: 'gemini-a', providerCredentialRevision: 2,
+    })).not.toBe(tested);
   });
 });

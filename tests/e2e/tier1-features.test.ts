@@ -412,13 +412,12 @@ describe('Tier 1: Feature Coverage E2E Suite', () => {
       const provider = new ChromeBuiltInAIProvider();
       expect(provider.isLocal).toBe(true);
 
-      // Without window.ai attached, validateConfig should be false
-      delete (window as any).ai;
-      delete (window as any).translation;
+      // Without the document-only Prompt API, validateConfig should be false.
+      delete (globalThis as any).LanguageModel;
 
       const validation = provider.validateConfig();
       expect(validation.isValid).toBe(false);
-      expect(validation.errors?.[0]).toContain('not supported');
+      expect(validation.errors?.[0]).toContain('unavailable');
 
       const request: TranslationRequest = {
         segments: [{ id: 'seg-1' as SegmentId, text: 'Chrome AI test' }],
@@ -427,18 +426,20 @@ describe('Tier 1: Feature Coverage E2E Suite', () => {
         mode: 'fast',
       };
 
-      await expect(provider.translate(request)).rejects.toThrow('Chrome Built-in AI API is not available');
+      await expect(provider.translate(request)).rejects.toThrow('Prompt API');
     });
 
     it('4.5 ChromeBuiltInAIProvider executes translation when window.ai mock is provided', async () => {
       const provider = new ChromeBuiltInAIProvider();
 
-      (window as any).ai = {
-        translator: {
-          create: vi.fn().mockResolvedValue({
-            translate: vi.fn().mockImplementation(async (text: string) => `[Chrome AI] ${text} (繁中)`),
-          }),
-        },
+      (globalThis as any).LanguageModel = {
+        availability: vi.fn().mockResolvedValue('available'),
+        create: vi.fn().mockResolvedValue({
+          prompt: vi.fn().mockResolvedValue(JSON.stringify([
+            { id: 'seg-1', translatedText: '[Chrome AI] Chrome built-in translation (繁中)' },
+          ])),
+          destroy: vi.fn(),
+        }),
       };
 
       const validation = provider.validateConfig();
@@ -454,7 +455,7 @@ describe('Tier 1: Feature Coverage E2E Suite', () => {
       const result = await provider.translate(request);
       expect(result.segments[0].text).toBe('[Chrome AI] Chrome built-in translation (繁中)');
 
-      delete (window as any).ai;
+      delete (globalThis as any).LanguageModel;
     });
   });
 });

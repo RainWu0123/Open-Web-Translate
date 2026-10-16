@@ -7,6 +7,7 @@ export interface WordAnalysisRequest {
   sentence: string;
   sourceLang: string;
   targetLang: string;
+  usage?: 'page' | 'video';
 }
 
 export interface WordAnalysisResult {
@@ -18,6 +19,9 @@ export interface WordAnalysisResult {
   generalMeanings: string[];
   collocations?: string[];
   examples?: Array<{ sentence: string; translation: string }>;
+  /** Lets the UI distinguish genuine model analysis from a translation-only fallback. */
+  analysisSource?: 'ai' | 'translation-only';
+  analysisUnavailableReason?: string;
 }
 
 export interface GrammarExplanationRequest {
@@ -25,6 +29,7 @@ export interface GrammarExplanationRequest {
   focusWord?: string;
   sourceLang: string;
   targetLang: string;
+  usage?: 'page' | 'video';
 }
 
 export interface GrammarBreakdownItem {
@@ -40,6 +45,8 @@ export interface GrammarExplanation {
   keyPoints: string[];
   difficultyLevel?: string;
   nuanceOrTone?: string;
+  analysisSource?: 'ai' | 'translation-only';
+  analysisUnavailableReason?: string;
 }
 
 export type SrsGrade = 'again' | 'hard' | 'good' | 'easy';

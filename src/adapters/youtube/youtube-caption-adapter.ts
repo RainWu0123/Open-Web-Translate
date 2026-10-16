@@ -27,6 +27,10 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   private discoveredTracks: YouTubeTrack[] = [];
   private selectedTrackId: string | null = null;
   private unsubscribeBridge: (() => void) | null = null;
+  private pendingTrackChanges = new Map<string, {
+    resolve: (ok: boolean) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
 
   constructor() {
     super();
@@ -58,6 +62,15 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
         if (data.selectedTrackId !== undefined) {
           this.selectedTrackId = data.selectedTrackId;
         }
+      } else if (data.type === YT_BRIDGE.messageType.TRACK_SET_RESULT && typeof data.requestId === 'string') {
+        const pending = this.pendingTrackChanges.get(data.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pendingTrackChanges.delete(data.requestId);
+        if (data.ok && typeof data.selectedTrackId === 'string') {
+          this.selectedTrackId = data.selectedTrackId;
+        }
+        pending.resolve(Boolean(data.ok));
       }
     });
   }
@@ -71,7 +84,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       );
       if (hasMatch && this.selectedTrackId !== this.sourceLang) {
         logger.info(`Switching YouTube track to configured sourceLang: ${this.sourceLang}`);
-        this.setTrack(this.sourceLang);
+        void this.setTrack(this.sourceLang);
         return;
       }
     }
@@ -87,7 +100,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       );
       if (isCurrentTarget && hasNonTarget) {
         logger.info(`Current track is in target language (${targetPrefix}), auto-switching to original track`);
-        this.setTrack('auto');
+        void this.setTrack('auto');
       }
     }
   }
@@ -98,16 +111,26 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     }
   }
 
-  public setTrack(languageCode: string): void {
-    this.selectedTrackId = languageCode;
-    if (typeof window !== 'undefined') {
-      postToMain(YT_BRIDGE.messageType.SET_TRACK, {
-        languageCode,
-        targetLanguage: this.targetLang,
-      });
-    }
+  public async setTrack(languageCode: string): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const requestId = `yt-track-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const changed = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingTrackChanges.delete(requestId);
+        resolve(false);
+      }, 2500);
+      this.pendingTrackChanges.set(requestId, { resolve, timer });
+    });
+    postToMain(YT_BRIDGE.messageType.SET_TRACK, {
+      requestId,
+      languageCode,
+      targetLanguage: this.targetLang,
+    });
+    const ok = await changed;
+    if (!ok) return false;
     this.inlineTranslationCache.clear();
     this.restoreNativeSegments();
+    return true;
   }
 
   /** Popup entry point: current bilingual-subtitle state. */
@@ -152,7 +175,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
 
   protected onSharedSettingsApplied(settings: any): void {
     if (settings?.sourceLanguage && settings.sourceLanguage !== 'auto') {
-      this.setTrack(settings.sourceLanguage);
+      void this.setTrack(settings.sourceLanguage);
     }
     if (this.isActive) {
       document.querySelectorAll<HTMLElement>('[data-owt-original][data-owt-translated]').forEach((segment) => {
@@ -208,7 +231,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
 
     this.isActive = true;
     this.ensureNativeSubtitlesEnabled();
-    this.setTrack(this.sourceLang || 'auto');
+    void this.setTrack(this.sourceLang || 'auto');
     this.startObserver();
     logger.info('YouTubeCaptionAdapter started', { targetLang, displayMode, origSize, transSize, origColor, transColor });
   }
@@ -361,6 +384,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     try {
       const response = await messageRouter.sendMessage({
         type: 'TRANSLATE_REQUEST',
+        usage: 'video',
         segments: [{ id: 'yt-caption', text: originalText }],
         sourceLanguage: this.sourceLang,
         targetLanguage: this.targetLang,
@@ -578,6 +602,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
             sentence: sent || '',
             sourceLang: this.sourceLang || 'auto',
             targetLang: this.targetLang || 'zh-Hant',
+            usage: 'video',
           });
         },
         onExplainGrammar: async (sent, focusWord) => {
@@ -587,6 +612,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
             focusWord,
             sourceLang: this.sourceLang || 'auto',
             targetLang: this.targetLang || 'zh-Hant',
+            usage: 'video',
           });
         },
         onSave: async (entry) => {

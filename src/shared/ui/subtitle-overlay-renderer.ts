@@ -20,6 +20,8 @@ export class SubtitleOverlayRenderer {
   private overlayElement: HTMLElement | null = null;
   private settings: Partial<ExtensionSettings> = {};
   private lineVisibility = { original: true, translated: true };
+  private layout = { bottomOffsetPx: 80, lineSpacingPx: 4 };
+  private userDragged = false;
   private lastRender: { primary: string; secondary: string; options: OverlayRenderOptions } | null = null;
 
   // Drag state
@@ -40,7 +42,7 @@ export class SubtitleOverlayRenderer {
       overlay.id = this.containerId;
       overlay.style.position = 'fixed';
       overlay.style.left = '50%';
-      overlay.style.bottom = '12%';
+      overlay.style.bottom = `${this.layout.bottomOffsetPx}px`;
       overlay.style.transform = 'translateX(-50%)';
       overlay.style.zIndex = '2147483647';
       overlay.style.pointerEvents = 'auto';
@@ -65,6 +67,25 @@ export class SubtitleOverlayRenderer {
 
   public updateSettings(settings: Partial<ExtensionSettings>): void {
     this.settings = { ...this.settings, ...settings };
+  }
+
+  public updateLayout(
+    layout: Partial<{ bottomOffsetPx: number; lineSpacingPx: number }>,
+    options: { resetDraggedPosition?: boolean } = {},
+  ): void {
+    const bottom = Number(layout.bottomOffsetPx);
+    const gap = Number(layout.lineSpacingPx);
+    if (Number.isFinite(bottom)) this.layout.bottomOffsetPx = Math.min(240, Math.max(0, bottom));
+    if (Number.isFinite(gap)) this.layout.lineSpacingPx = Math.min(40, Math.max(0, gap));
+
+    if (this.overlayElement && (options.resetDraggedPosition || !this.userDragged)) {
+      this.userDragged = false;
+      this.overlayElement.style.removeProperty('top');
+      this.overlayElement.style.setProperty('left', '50%', 'important');
+      this.overlayElement.style.setProperty('bottom', `${this.layout.bottomOffsetPx}px`, 'important');
+      this.overlayElement.style.setProperty('transform', 'translateX(-50%)', 'important');
+    }
+    this.refresh();
   }
 
   /** Repaint the currently visible cue after a live style change. */
@@ -102,7 +123,7 @@ export class SubtitleOverlayRenderer {
     container.style.display = 'inline-flex';
     container.style.flexDirection = 'column';
     container.style.alignItems = 'center';
-    container.style.gap = '3px';
+    container.style.gap = `${this.layout.lineSpacingPx}px`;
     container.style.pointerEvents = 'none';
     container.style.textAlign = 'center';
 
@@ -289,6 +310,7 @@ export class SubtitleOverlayRenderer {
       if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
       if (target.classList?.contains('owt-token')) return; // token click, not drag
       this.isDragging = true;
+      this.userDragged = true;
       this.startX = e.clientX;
       this.startY = e.clientY;
       const rect = el.getBoundingClientRect();

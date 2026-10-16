@@ -5,7 +5,7 @@
  * in the page context to discover native caption tracks and switch language
  * without relying on UI clicks.
  */
-import { YT_BRIDGE, postToContent, type YouTubeTrack } from '@/adapters/youtube/youtube-bridge';
+import { YT_BRIDGE, postToContent, trackSelectionMatches, type YouTubeTrack } from '@/adapters/youtube/youtube-bridge';
 
 export default defineUnlistedScript({
   main() {
@@ -90,10 +90,10 @@ export default defineUnlistedScript({
       return list[0];
     }
 
-    function setTrack(languageCode: string, targetLanguage?: string): boolean {
+    function setTrack(languageCode: string, targetLanguage?: string): { ok: boolean; expectedLanguageCode?: string } {
       try {
         const player = getPlayer();
-        if (!player || typeof player.setOption !== 'function') return false;
+        if (!player || typeof player.setOption !== 'function') return { ok: false };
         player.loadModule?.('captions');
 
         // Aggressively turn off YouTube auto-translation so YouTube does not translate captions into user UI language
@@ -110,9 +110,9 @@ export default defineUnlistedScript({
           const preferred = findOriginalTrack(list, targetLanguage);
           if (preferred) {
             player.setOption('captions', 'track', preferred);
-            return true;
+            return { ok: true, expectedLanguageCode: preferred.languageCode };
           }
-          return false;
+          return { ok: false };
         }
 
         const match = list.find(
@@ -123,19 +123,13 @@ export default defineUnlistedScript({
         );
         if (match) {
           player.setOption('captions', 'track', match);
-          return true;
+          return { ok: true, expectedLanguageCode: match.languageCode };
         } else {
-          // Fallback to original track if exact requested language is not in tracklist
-          const fallback = findOriginalTrack(list, targetLanguage);
-          if (fallback) {
-            player.setOption('captions', 'track', fallback);
-            return true;
-          }
-          player.setOption('captions', 'track', { languageCode });
-          return true;
+          // An explicit user choice must never silently select another track.
+          return { ok: false };
         }
       } catch {
-        return false;
+        return { ok: false };
       }
     }
 
@@ -148,17 +142,38 @@ export default defineUnlistedScript({
       });
     }
 
-    const handleCommand = (data: any) => {
+    const processedCommandIds = new Set<string>();
+    const rememberCommand = (requestId: string): boolean => {
+      if (processedCommandIds.has(requestId)) return false;
+      processedCommandIds.add(requestId);
+      if (processedCommandIds.size > 100) {
+        processedCommandIds.delete(processedCommandIds.values().next().value as string);
+      }
+      return true;
+    };
+
+    const handleCommand = async (data: any) => {
       if (!data || data.source !== YT_BRIDGE.CONTENT_SOURCE) return;
 
       if (data.type === YT_BRIDGE.messageType.REQUEST_TRACKS) {
         broadcastTracks();
       } else if (data.type === YT_BRIDGE.messageType.SET_TRACK) {
-        const ok = setTrack(data.languageCode, data.targetLanguage);
+        const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+        if (!requestId || !rememberCommand(requestId)) return;
+        const outcome = setTrack(data.languageCode, data.targetLanguage);
+        let selectedTrackId = getActiveTrack();
+        const deadline = Date.now() + 1200;
+        while (outcome.ok && !trackSelectionMatches(selectedTrackId, outcome.expectedLanguageCode) && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          selectedTrackId = getActiveTrack();
+        }
+        const confirmed = outcome.ok && trackSelectionMatches(selectedTrackId, outcome.expectedLanguageCode);
         broadcastTracks();
         postToContent(YT_BRIDGE.messageType.TRACK_SET_RESULT, {
-          ok,
+          ok: confirmed,
+          requestId,
           languageCode: data.languageCode,
+          selectedTrackId,
         });
       }
     };
@@ -166,13 +181,13 @@ export default defineUnlistedScript({
     window.addEventListener('message', (event) => {
       // Ignore messages posted by other frames (embedded ads/iframes).
       if (event.source !== window) return;
-      handleCommand(event.data);
+      void handleCommand(event.data);
     });
 
     window.addEventListener(YT_BRIDGE.MAIN_EVENT, (event: any) => {
       try {
         const data = typeof event.detail === 'string' ? JSON.parse(event.detail) : event.detail;
-        handleCommand(data);
+        void handleCommand(data);
       } catch {}
     });
 

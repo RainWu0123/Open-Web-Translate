@@ -16,7 +16,6 @@ import {
   NetflixTrackDiscovery,
   getMainVideoPlayer,
   getPlayerApi,
-  extractTrackUrlUniversal,
   extractTracksFromPerformanceEntriesForDebug,
 } from '@/adapters/netflix/netflix-track-discovery';
 import {
@@ -25,7 +24,7 @@ import {
   readAsciiPrefix,
 } from '@/adapters/netflix/netflix-subtitle-format';
 import { pickActiveTrackId } from '@/adapters/netflix/active-track';
-import { looksLikeTrackUrl } from '@/adapters/netflix/netflix-track-constants';
+import { hydrateNetflixTrackUrl } from '@/adapters/netflix/netflix-track-hydrator';
 
 const logger = createLogger('NetflixMain');
 
@@ -34,6 +33,10 @@ export default defineUnlistedScript({
     logger.info('[OWT-BOOT] version=v0.2.0');
 
     const discovery = new NetflixTrackDiscovery();
+    // Netflix exposes one mutable timed-text selection. Serialize temporary
+    // hydration switches so two popup choices cannot claim the same network
+    // response or restore each other out of order.
+    let hydrationQueue: Promise<void> = Promise.resolve();
 
     // Expose F12 Debug helper directly on MAIN window
     (window as any).__OWT_DEBUG__ = () => {
@@ -101,72 +104,36 @@ export default defineUnlistedScript({
       }
 
       if (data.type === BRIDGE.messageType.HYDRATE_TRACK) {
-        const { trackId, performSeek, txId } = data;
-        const mainCandidate = getMainVideoPlayer();
-
-        if (!mainCandidate?.player) {
-          replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: false, reason: 'api-unavailable' });
-          return;
-        }
-
-        const player = mainCandidate.player;
-        if (typeof player.getTimedTextTrackList !== 'function' || typeof player.setTimedTextTrack !== 'function') {
-          replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: false, reason: 'unsupported-api' });
-          return;
-        }
-
-        try {
-          const list = player.getTimedTextTrackList() || [];
-          const match = list.find(
-            (t: any) =>
-              t.trackId === trackId ||
-              t.id === trackId ||
-              t.bcp47 === trackId ||
-              t.language === trackId,
-          );
-
-          if (match) {
-            player.setTimedTextTrack(match);
-            logger.debug(`Cadmium setTimedTextTrack called for ${trackId}`);
-
-            if (performSeek) {
-              const time = Number(player.getCurrentTime?.() ?? -1);
-              if (time >= 0) {
-                player.seek(time);
-                logger.debug(`Cadmium player.seek(${time}) executed for hydration transaction ${txId}`);
-              }
-            }
-
-            const explicitUrl = extractTrackUrlUniversal(match);
-            if (explicitUrl) {
-              logger.debug('Hydration found explicit URL via deep scan', explicitUrl.substring(0, 80));
-              replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: true, url: explicitUrl });
-              return;
-            }
-
-            const hydrationStartTime = performance.now();
-
-            setTimeout(() => {
-              const entries = performance.getEntriesByType('resource');
-              const recentEntry = entries
-                .reverse()
-                .find((e) => e.startTime >= hydrationStartTime - 100 && looksLikeTrackUrl(e.name));
-
-              const capturedUrl = recentEntry ? recentEntry.name : '';
-              logger.debug('[Hydration Network Match]', {
-                txId,
-                trackId,
-                capturedUrl: capturedUrl ? capturedUrl.substring(0, 80) + '...' : 'none',
-              });
-
-              discovery.bindHydratedUrl(String(trackId), capturedUrl);
-              replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: true, url: capturedUrl });
-            }, 600);
-          } else {
-            replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: false, reason: 'track-not-found' });
+        const { trackId, expectedLanguage, performSeek, txId, requestId } = data;
+        const correlation = {
+          ...(typeof requestId === 'string' ? { requestId } : {}),
+          ...(typeof txId === 'string' ? { txId } : {}),
+        };
+        const task = hydrationQueue.then(async () => {
+          const player = getMainVideoPlayer()?.player;
+          if (!player) return { ok: false, reason: 'api-unavailable' };
+          if (typeof player.getTimedTextTrackList !== 'function' || typeof player.setTimedTextTrack !== 'function') {
+            return { ok: false, reason: 'unsupported-api' };
           }
+          return await hydrateNetflixTrackUrl(
+            player,
+            String(trackId ?? ''),
+            String(expectedLanguage ?? ''),
+            Boolean(performSeek),
+            {
+              resourceEntries: () => performance.getEntriesByType('resource'),
+              fetchResource: fetch.bind(window),
+              wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            },
+          );
+        });
+        hydrationQueue = task.then(() => undefined, () => undefined);
+        try {
+          const result = await task;
+          if (result.ok && result.url) discovery.bindHydratedUrl(String(trackId), result.url);
+          replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { ...correlation, ...result });
         } catch (err: any) {
-          replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { txId, ok: false, reason: err?.message || 'exception' });
+          replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { ...correlation, ok: false, reason: err?.message || 'exception' });
         }
         return;
       }

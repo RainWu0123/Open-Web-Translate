@@ -96,6 +96,140 @@ describe('NetflixCaptionAdapter Unit Tests', () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it('switches from AI to an available native target track only after its cues load', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    a.targetLang = 'zh-Hant';
+    a.selectionMode = 'manual';
+    a.selectedTrackId = 'ai-translate';
+    const native = {
+      id: 'zh-Hant-track', language: 'zh-Hant', label: '繁體中文',
+      url: 'https://example.test/zh-Hant.ttml', isCC: false, hasUrl: true,
+    };
+    a.discoveredTracks = [native];
+    a.trackManager.setDiscoveredTracks([native]);
+    vi.spyOn(adapter, 'fetchTtmlXml').mockResolvedValue(
+      '<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">這是中文字幕</p></div></body></tt>',
+    );
+
+    await expect(adapter.setSubtitleSource('auto')).resolves.toBe(true);
+    expect(adapter.getStateInfo()).toMatchObject({
+      selectionMode: 'auto',
+      selectedTrackId: 'zh-Hant-track',
+      translationMode: 'native',
+    });
+  });
+
+  it('hydrates a discovered native track without a URL before switching away from AI', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    a.targetLang = 'zh-Hant';
+    a.selectionMode = 'manual';
+    a.selectedTrackId = 'ai-translate';
+    const native = {
+      id: 'zh-TW-track', language: 'zh-TW', label: '繁體中文',
+      url: '', isCC: false, hasUrl: false,
+    };
+    a.discoveredTracks = [native];
+    a.trackManager.setDiscoveredTracks([native]);
+    vi.mocked(bridgeRequest).mockResolvedValueOnce({ url: 'https://example.test/zh-TW.ttml' } as any);
+    vi.spyOn(adapter, 'fetchTtmlXml').mockResolvedValue(
+      '<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">這是中文字幕</p></div></body></tt>',
+    );
+
+    await expect(adapter.setSubtitleSource('track', native.id)).resolves.toBe(true);
+
+    expect(bridgeRequest).toHaveBeenCalledWith(
+      BRIDGE.messageType.HYDRATE_TRACK,
+      { trackId: native.id, expectedLanguage: native.language, performSeek: true },
+      4000,
+    );
+    expect(adapter.getStateInfo()).toMatchObject({
+      selectionMode: 'manual',
+      selectedTrackId: native.id,
+      translationMode: 'native',
+      secondaryCuesCount: 1,
+    });
+  });
+
+  it('keeps the current native subtitle when a replacement track fails to load', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    const first = {
+      id: 'zh-Hant-a', language: 'zh-Hant', label: '繁體中文 A',
+      url: 'https://example.test/a.ttml', isCC: false, hasUrl: true,
+    };
+    const broken = {
+      id: 'zh-Hant-b', language: 'zh-Hant', label: '繁體中文 B',
+      url: 'https://example.test/b.ttml', isCC: false, hasUrl: true,
+    };
+    a.discoveredTracks = [first, broken];
+    a.trackManager.setDiscoveredTracks([first, broken]);
+    vi.spyOn(adapter, 'fetchTtmlXml')
+      .mockResolvedValueOnce('<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">保留這一句</p></div></body></tt>')
+      .mockRejectedValueOnce(new Error('network failed'));
+
+    await expect(adapter.setSubtitleSource('track', first.id)).resolves.toBe(true);
+    const before = adapter.getStateInfo();
+    await expect(adapter.setSubtitleSource('track', broken.id)).resolves.toBe(false);
+
+    expect(adapter.getStateInfo()).toMatchObject({
+      selectionMode: 'manual',
+      selectedTrackId: first.id,
+      secondaryCuesCount: before.secondaryCuesCount,
+      translationMode: 'native',
+    });
+    expect(a.secondaryCues[0].text).toBe('保留這一句');
+  });
+
+  it('does not let an older native-track request overwrite the latest selection', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    const first = { id: 'first', language: 'zh-Hant', label: '第一條', url: 'https://example.test/first.ttml', isCC: false, hasUrl: true };
+    const latest = { id: 'latest', language: 'zh-Hant', label: '最新一條', url: 'https://example.test/latest.ttml', isCC: false, hasUrl: true };
+    a.discoveredTracks = [first, latest];
+    a.trackManager.setDiscoveredTracks([first, latest]);
+    let resolveFirst!: (xml: string) => void;
+    let resolveLatest!: (xml: string) => void;
+    vi.spyOn(adapter, 'fetchTtmlXml').mockImplementation((url: string) => new Promise((resolve) => {
+      if (url.includes('first')) resolveFirst = resolve;
+      else resolveLatest = resolve;
+    }));
+
+    const oldRequest = adapter.setSubtitleSource('track', first.id);
+    const newRequest = adapter.setSubtitleSource('track', latest.id);
+    await Promise.resolve();
+    await Promise.resolve();
+    resolveLatest('<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">最新字幕</p></div></body></tt>');
+    await expect(newRequest).resolves.toBe(true);
+    resolveFirst('<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">舊字幕</p></div></body></tt>');
+    await expect(oldRequest).resolves.toBe(false);
+
+    expect(adapter.getStateInfo()).toMatchObject({ selectedTrackId: latest.id, secondaryCuesCount: 1 });
+    expect(a.secondaryCues[0].text).toBe('最新字幕');
+  });
+
+  it('does not let a stale dual-track fallback overwrite a newer subtitle choice', async () => {
+    const a = adapter as any;
+    a.isActive = true;
+    const stale = { id: 'stale', language: 'zh-Hant', label: '舊 fallback', url: 'https://example.test/stale.ttml', isCC: false, hasUrl: true };
+    let resolveStale!: (xml: string) => void;
+    vi.spyOn(adapter, 'fetchTtmlXml').mockImplementation(() => new Promise((resolve) => { resolveStale = resolve; }));
+    const epoch = a.subtitleSelectionEpoch;
+    const fallback = a.dualTrack.host.fallbackToSingle(stale, () => epoch === a.subtitleSelectionEpoch);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    a.subtitleSelectionEpoch += 1;
+    a.selectedTrackId = 'latest';
+    a.secondaryCues = [{ startMs: 1000, endMs: 3000, text: '最新字幕' }];
+    resolveStale('<tt><body><div><p begin="00:00:01.000" end="00:00:03.000">舊字幕</p></div></body></tt>');
+    await fallback;
+
+    expect(adapter.getStateInfo()).toMatchObject({ selectedTrackId: 'latest', secondaryCuesCount: 1 });
+    expect(a.secondaryCues[0].text).toBe('最新字幕');
+  });
+
   it('prefetches future subtitles from the actual MAIN-world track payload', async () => {
     const a = adapter as any;
     const video = document.createElement('video');

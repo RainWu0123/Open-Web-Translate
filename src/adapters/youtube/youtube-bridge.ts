@@ -34,6 +34,14 @@ export interface YouTubeTracksUpdatedPayload {
 export interface YouTubeSetTrackPayload {
   languageCode: string;
   targetLanguage?: string;
+  requestId: string;
+}
+
+export function trackSelectionMatches(selected: string | null | undefined, expected: string | null | undefined): boolean {
+  if (!selected || !expected) return false;
+  const actual = selected.toLowerCase().replace(/_/g, '-');
+  const target = expected.toLowerCase().replace(/_/g, '-');
+  return actual === target || actual.startsWith(`${target}-`) || target.startsWith(`${actual}-`);
 }
 
 let contentRevision = 0;

@@ -17,6 +17,7 @@ const logger = createLogger('MessageRouter');
 
 type Handler<T extends BackgroundMessage['type']> = (
   message: Extract<BackgroundMessage, { type: T }>,
+  sender?: any,
 ) => Promise<ResponseMap[T]>;
 
 class MessageRouterImpl {
@@ -36,14 +37,14 @@ class MessageRouterImpl {
    * Start listening for incoming messages (called once in background).
    */
   listen(): void {
-    browser.runtime.onMessage.addListener((raw: unknown, _sender: unknown, sendResponse: (res: any) => void) => {
+    browser.runtime.onMessage.addListener((raw: unknown, sender: unknown, sendResponse: (res: any) => void) => {
       const message = raw as BackgroundMessage;
       if (!message || typeof message.type !== 'string') return;
 
       const handler = this.handlers.get(message.type);
       if (!handler) return;
 
-      handler(message)
+      handler(message, sender)
         .then((payload) => sendResponse({ ok: true, payload }))
         .catch((err: Error) => {
           logger.error(`Error in message handler [${message.type}]`, err);

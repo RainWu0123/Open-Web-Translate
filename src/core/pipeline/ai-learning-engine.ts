@@ -1,285 +1,221 @@
-/**
- * AI Language Learning Engine
- *
- * Provides contextual word analysis, morphological breakdown,
- * and sentence grammar analysis using active AI providers with
- * graceful fallback to translation pipeline and linguistic heuristics.
- */
-import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
-import { translationPipeline } from '@/core/pipeline/translation-pipeline';
-import type { ExtensionSettings } from '@/core/contracts/messages';
+import type { ExtensionSettings, InternalExtensionSettings } from '@/core/contracts/messages';
+import type { TranslationProvider } from '@/core/contracts/provider';
 import type {
+  GrammarBreakdownItem,
+  GrammarExplanation,
+  GrammarExplanationRequest,
   WordAnalysisRequest,
   WordAnalysisResult,
-  GrammarExplanationRequest,
-  GrammarExplanation,
 } from '@/core/domain/learning-types';
+import { ConfigurationError } from '@/core/domain/errors/translation-errors';
+import { resolveProviderId } from '@/core/settings/provider-selection';
+import { getProvider } from '@/infrastructure/providers';
+import { getProviderCacheIdentity } from '@/infrastructure/providers/cache-identity';
+import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { createLogger } from '@/shared/logger';
 
 const logger = createLogger('AiLearningEngine');
+const CACHE_LIMIT = 200;
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 export class AiLearningEngine {
   private analysisCache = new Map<string, WordAnalysisResult>();
   private grammarCache = new Map<string, GrammarExplanation>();
 
-  /**
-   * Cleans raw model output to extract JSON even if enclosed in markdown code blocks.
-   */
   public cleanJsonText(raw: string): string {
-    let text = raw.trim();
-    if (text.startsWith('```json')) {
-      text = text.slice(7);
-    } else if (text.startsWith('```')) {
-      text = text.slice(3);
-    }
-    if (text.endsWith('```')) {
-      text = text.slice(0, -3);
-    }
-    return text.trim();
+    return raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   }
 
-  /**
-   * Analyzes a word in the context of its sentence.
-   */
   public async analyzeWord(
     req: WordAnalysisRequest,
     customSettings?: ExtensionSettings,
   ): Promise<WordAnalysisResult> {
-    const cacheKey = `${req.sourceLang}:${req.targetLang}:${req.word}:${req.sentence}`;
-    if (this.analysisCache.has(cacheKey)) {
-      return this.analysisCache.get(cacheKey)!;
+    const settings = customSettings ?? await SettingsStorage.getInternal();
+    const providerId = resolveProviderId(settings, req.usage);
+    const identity = getProviderCacheIdentity(providerId, settings);
+    const cacheKey = JSON.stringify(['word-v2', identity.providerId, identity.fingerprint, req]);
+    const cached = this.analysisCache.get(cacheKey);
+    if (cached) return cached;
+
+    const provider = getProvider(providerId, settings as InternalExtensionSettings);
+    this.assertRemoteDisclosure(settings, provider);
+
+    try {
+      const result = await this.queryWordAnalysis(req, provider);
+      this.remember(this.analysisCache, cacheKey, result);
+      return result;
+    } catch (error) {
+      logger.warn('Structured word analysis unavailable; returning an honest translation-only result', error);
+      return this.fallbackWordAnalysis(req, provider, this.errorMessage(error));
     }
-
-    const settings = customSettings || (await SettingsStorage.get());
-    const isAiConfigured =
-      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey)) ||
-      settings.activeProviderId === 'ollama-provider' ||
-      settings.activeProviderId === 'local-http-provider' ||
-      settings.activeProviderId === 'chrome-builtin-ai-provider';
-
-    let result: WordAnalysisResult | null = null;
-
-    if (isAiConfigured) {
-      try {
-        result = await this.queryAiWordAnalysis(req, settings);
-      } catch (err) {
-        logger.warn('AI word analysis failed, falling back to heuristic gloss', err);
-      }
-    }
-
-    if (!result) {
-      result = await this.fallbackWordAnalysis(req);
-    }
-
-    this.analysisCache.set(cacheKey, result);
-    return result;
   }
 
-  /**
-   * Explains the grammar and structure of a sentence.
-   */
   public async explainGrammar(
     req: GrammarExplanationRequest,
     customSettings?: ExtensionSettings,
   ): Promise<GrammarExplanation> {
-    const cacheKey = `${req.sourceLang}:${req.targetLang}:${req.focusWord || ''}:${req.sentence}`;
-    if (this.grammarCache.has(cacheKey)) {
-      return this.grammarCache.get(cacheKey)!;
+    const settings = customSettings ?? await SettingsStorage.getInternal();
+    const providerId = resolveProviderId(settings, req.usage);
+    const identity = getProviderCacheIdentity(providerId, settings);
+    const cacheKey = JSON.stringify(['grammar-v2', identity.providerId, identity.fingerprint, req]);
+    const cached = this.grammarCache.get(cacheKey);
+    if (cached) return cached;
+
+    const provider = getProvider(providerId, settings as InternalExtensionSettings);
+    this.assertRemoteDisclosure(settings, provider);
+
+    try {
+      const result = await this.queryGrammarExplanation(req, provider);
+      this.remember(this.grammarCache, cacheKey, result);
+      return result;
+    } catch (error) {
+      logger.warn('Structured grammar analysis unavailable; returning translation only', error);
+      return this.fallbackGrammarExplanation(req, provider, this.errorMessage(error));
     }
-
-    const settings = customSettings || (await SettingsStorage.get());
-    const isAiConfigured =
-      (settings.activeProviderId === 'gemini-provider' && Boolean(settings.hasGeminiApiKey)) ||
-      settings.activeProviderId === 'ollama-provider' ||
-      settings.activeProviderId === 'local-http-provider' ||
-      settings.activeProviderId === 'chrome-builtin-ai-provider';
-
-    let explanation: GrammarExplanation | null = null;
-
-    if (isAiConfigured) {
-      try {
-        explanation = await this.queryAiGrammarExplanation(req, settings);
-      } catch (err) {
-        logger.warn('AI grammar explanation failed, falling back to heuristic breakdown', err);
-      }
-    }
-
-    if (!explanation) {
-      explanation = await this.fallbackGrammarExplanation(req);
-    }
-
-    this.grammarCache.set(cacheKey, explanation);
-    return explanation;
   }
 
-  // ─── AI Prompts & Queries ──────────────────────────────────────────
-
-  private async queryAiWordAnalysis(
-    req: WordAnalysisRequest,
-    settings: ExtensionSettings,
-  ): Promise<WordAnalysisResult> {
-    const prompt = `You are an expert language teacher.
-Analyze the target word "${req.word}" strictly in the context of this sentence:
-"${req.sentence}"
-
-Source Language: "${req.sourceLang}"
-Target Language: "${req.targetLang}"
-
-Return a single JSON object with these exact keys:
-{
-  "word": "${req.word}",
-  "lemma": "base/dictionary form of the word",
-  "pos": "part of speech (e.g. noun, verb, adjective, particle, adverb)",
-  "phonetic": "IPA, Pinyin, or Furigana/Romaji reading",
-  "meaningInContext": "concise meaning of this word in this specific context (in ${req.targetLang})",
-  "generalMeanings": ["other common meaning 1", "other common meaning 2"],
-  "collocations": ["common idiom or collocation containing this word"],
-  "examples": [
-    {
-      "sentence": "simple natural example sentence using this word in ${req.sourceLang}",
-      "translation": "translation in ${req.targetLang}"
+  private async queryWordAnalysis(req: WordAnalysisRequest, provider: TranslationProvider): Promise<WordAnalysisResult> {
+    if (!provider.capabilities.structuredAnalysis || !provider.generateStructured) {
+      throw new Error(`${provider.displayName} does not support language analysis`);
     }
-  ]
-}
-
-CRITICAL: Return ONLY valid JSON, no outside text or markdown blocks.`;
-
-    const translationRes = await translationPipeline.translate({
-      segments: [{ id: 'ai-word-analysis', text: prompt }],
-      sourceLanguage: 'en',
-      targetLanguage: req.targetLang,
-      forceProvider: settings.activeProviderId,
-    });
-
-    const outputText = translationRes.segments?.[0]?.translatedText;
-    if (!outputText) throw new Error('No AI response received');
-
-    const cleaned = this.cleanJsonText(outputText);
-    const parsed = JSON.parse(cleaned);
-
+    const prompt = `Analyze the word ${JSON.stringify(req.word)} only in this sentence: ${JSON.stringify(req.sentence)}.
+Source language: ${req.sourceLang}. Explanation language: ${req.targetLang}.
+Return JSON with keys lemma, pos, phonetic, meaningInContext, generalMeanings (string array), collocations (string array), examples (array of {sentence, translation}).
+Use ${req.targetLang} for every explanation and meaning. Do not invent facts that cannot be inferred from the sentence.`;
+    const parsed = await provider.generateStructured({ task: 'word-analysis', prompt }) as Record<string, unknown>;
+    const meaningInContext = text(parsed?.meaningInContext) || text(parsed?.meaning);
+    if (!meaningInContext) throw new Error('Language model returned no contextual meaning');
+    const examples = Array.isArray(parsed.examples)
+      ? parsed.examples.flatMap((item) => {
+          if (!item || typeof item !== 'object') return [];
+          const entry = item as Record<string, unknown>;
+          const sentence = text(entry.sentence);
+          const translation = text(entry.translation);
+          return sentence && translation ? [{ sentence, translation }] : [];
+        })
+      : [];
     return {
       word: req.word,
-      lemma: parsed.lemma || req.word,
-      pos: parsed.pos || 'unknown',
-      phonetic: parsed.phonetic || undefined,
-      meaningInContext: parsed.meaningInContext || parsed.meaning || '',
-      generalMeanings: Array.isArray(parsed.generalMeanings) ? parsed.generalMeanings : [],
-      collocations: Array.isArray(parsed.collocations) ? parsed.collocations : [],
-      examples: Array.isArray(parsed.examples) ? parsed.examples : [],
+      lemma: text(parsed.lemma) || req.word,
+      pos: text(parsed.pos) || 'unknown',
+      phonetic: text(parsed.phonetic) || undefined,
+      meaningInContext,
+      generalMeanings: strings(parsed.generalMeanings),
+      collocations: strings(parsed.collocations),
+      examples,
+      analysisSource: 'ai',
     };
   }
 
-  private async queryAiGrammarExplanation(
+  private async queryGrammarExplanation(
     req: GrammarExplanationRequest,
-    settings: ExtensionSettings,
+    provider: TranslationProvider,
   ): Promise<GrammarExplanation> {
-    const focusClause = req.focusWord ? `Focus especially on the usage and grammatical role of "${req.focusWord}".` : '';
-    const prompt = `You are a linguistics and grammar expert.
-Analyze the syntax, structure, and grammar of this sentence:
-"${req.sentence}"
-${focusClause}
-
-Source Language: "${req.sourceLang}"
-Target Language (Explanation language): "${req.targetLang}"
-
-Return a single JSON object with these exact keys:
-{
-  "sentence": "${req.sentence}",
-  "translation": "accurate natural translation in ${req.targetLang}",
-  "breakdown": [
-    {
-      "segment": "word or phrase component",
-      "role": "syntactic role (e.g. subject, topic marker, verb-te form, object)",
-      "explanation": "concise explanation of its function in ${req.targetLang}"
+    if (!provider.capabilities.structuredAnalysis || !provider.generateStructured) {
+      throw new Error(`${provider.displayName} does not support language analysis`);
     }
-  ],
-  "keyPoints": [
-    "grammar point 1 (e.g. conditional form, past tense nuance, honorific level)",
-    "grammar point 2"
-  ],
-  "difficultyLevel": "CEFR level (A1-C2) or JLPT level (N5-N1)",
-  "nuanceOrTone": "tone or cultural context (e.g. casual spoken, formal business, ironic)"
-}
-
-CRITICAL: Return ONLY valid JSON, no outside text or markdown blocks.`;
-
-    const translationRes = await translationPipeline.translate({
-      segments: [{ id: 'ai-grammar-analysis', text: prompt }],
-      sourceLanguage: 'en',
-      targetLanguage: req.targetLang,
-      forceProvider: settings.activeProviderId,
-    });
-
-    const outputText = translationRes.segments?.[0]?.translatedText;
-    if (!outputText) throw new Error('No AI response received');
-
-    const cleaned = this.cleanJsonText(outputText);
-    const parsed = JSON.parse(cleaned);
-
-    return {
-      sentence: req.sentence,
-      translation: parsed.translation || '',
-      breakdown: Array.isArray(parsed.breakdown) ? parsed.breakdown : [],
-      keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
-      difficultyLevel: parsed.difficultyLevel || undefined,
-      nuanceOrTone: parsed.nuanceOrTone || undefined,
-    };
-  }
-
-  // ─── Fallback Heuristics ──────────────────────────────────────────
-
-  private async fallbackWordAnalysis(req: WordAnalysisRequest): Promise<WordAnalysisResult> {
-    const glossRes = await translationPipeline.translate({
-      segments: [{ id: 'fallback-word-gloss', text: req.word }],
-      sourceLanguage: req.sourceLang,
-      targetLanguage: req.targetLang,
-    });
-
-    const gloss = glossRes.segments?.[0]?.translatedText || req.word;
-
-    // Detect phonetic/reading hint for CJK if possible
-    let phonetic: string | undefined;
-    const isJapanese = /[\u3040-\u309f\u30a0-\u30ff]/.test(req.word);
-    const isKatakana = /^[\u30a0-\u30ff]+$/.test(req.word);
-    if (isKatakana) {
-      phonetic = req.word;
-    }
-
-    return {
-      word: req.word,
-      lemma: req.word.toLowerCase(),
-      pos: isJapanese ? '詞' : 'word',
-      phonetic,
-      meaningInContext: gloss,
-      generalMeanings: [gloss],
-      collocations: [],
-      examples: req.sentence ? [{ sentence: req.sentence, translation: '' }] : [],
-    };
-  }
-
-  private async fallbackGrammarExplanation(req: GrammarExplanationRequest): Promise<GrammarExplanation> {
-    const transRes = await translationPipeline.translate({
-      segments: [{ id: 'fallback-sentence-trans', text: req.sentence }],
-      sourceLanguage: req.sourceLang,
-      targetLanguage: req.targetLang,
-    });
-
-    const translation = transRes.segments?.[0]?.translatedText || '';
-
+    const focus = req.focusWord ? `Focus on ${JSON.stringify(req.focusWord)}.` : '';
+    const prompt = `Explain the grammar of ${JSON.stringify(req.sentence)}. ${focus}
+Source language: ${req.sourceLang}. Explanation language: ${req.targetLang}.
+Return JSON with keys translation, breakdown (array of {segment, role, explanation}), keyPoints (string array), difficultyLevel, nuanceOrTone.
+Use ${req.targetLang} for every explanation. Do not add grammar claims that are not supported by the sentence.`;
+    const parsed = await provider.generateStructured({ task: 'grammar-analysis', prompt }) as Record<string, unknown>;
+    const translation = text(parsed?.translation);
+    if (!translation) throw new Error('Language model returned no sentence translation');
+    const breakdown: GrammarBreakdownItem[] = Array.isArray(parsed.breakdown)
+      ? parsed.breakdown.flatMap((item) => {
+          if (!item || typeof item !== 'object') return [];
+          const entry = item as Record<string, unknown>;
+          const segment = text(entry.segment);
+          const role = text(entry.role);
+          const explanation = text(entry.explanation);
+          return segment && role && explanation ? [{ segment, role, explanation }] : [];
+        })
+      : [];
     return {
       sentence: req.sentence,
       translation,
-      breakdown: [
-        {
-          segment: req.focusWord || req.sentence,
-          role: '目標焦點',
-          explanation: `在語句中作主要成分。`,
-        },
-      ],
-      keyPoints: ['基礎句型與語意對應'],
-      difficultyLevel: undefined,
-      nuanceOrTone: '標準語氣',
+      breakdown,
+      keyPoints: strings(parsed.keyPoints),
+      difficultyLevel: text(parsed.difficultyLevel) || undefined,
+      nuanceOrTone: text(parsed.nuanceOrTone) || undefined,
+      analysisSource: 'ai',
     };
+  }
+
+  private async fallbackWordAnalysis(
+    req: WordAnalysisRequest,
+    provider: TranslationProvider,
+    reason: string,
+  ): Promise<WordAnalysisResult> {
+    const gloss = await this.translateOne(provider, req.word, req.sourceLang, req.targetLang);
+    const isKatakana = /^[\u30a0-\u30ff]+$/.test(req.word);
+    return {
+      word: req.word,
+      lemma: req.word,
+      pos: 'unknown',
+      phonetic: isKatakana ? req.word : undefined,
+      meaningInContext: gloss,
+      generalMeanings: gloss ? [gloss] : [],
+      collocations: [],
+      examples: [],
+      analysisSource: 'translation-only',
+      analysisUnavailableReason: reason,
+    };
+  }
+
+  private async fallbackGrammarExplanation(
+    req: GrammarExplanationRequest,
+    provider: TranslationProvider,
+    reason: string,
+  ): Promise<GrammarExplanation> {
+    return {
+      sentence: req.sentence,
+      translation: await this.translateOne(provider, req.sentence, req.sourceLang, req.targetLang),
+      breakdown: [],
+      keyPoints: [],
+      analysisSource: 'translation-only',
+      analysisUnavailableReason: reason,
+    };
+  }
+
+  private async translateOne(
+    provider: TranslationProvider,
+    sourceText: string,
+    sourceLanguage: string,
+    targetLanguage: string,
+  ): Promise<string> {
+    const result = await provider.translate({
+      segments: [{ id: 'learning-fallback' as any, text: sourceText }],
+      sourceLanguage: sourceLanguage as any,
+      targetLanguage: targetLanguage as any,
+      mode: 'quality',
+    });
+    return result.segments[0]?.text?.trim() || sourceText;
+  }
+
+  private assertRemoteDisclosure(settings: ExtensionSettings, provider: TranslationProvider): void {
+    if (settings.remoteProviderDisclosureVersion === 0 && provider.isLocal !== true) {
+      throw new ConfigurationError('使用雲端或遠端服務前，請先在設定頁確認資料傳輸說明。');
+    }
+  }
+
+  private remember<T>(cache: Map<string, T>, key: string, value: T): void {
+    if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
+    cache.set(key, value);
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '目前的翻譯服務不支援語言分析';
   }
 }
 

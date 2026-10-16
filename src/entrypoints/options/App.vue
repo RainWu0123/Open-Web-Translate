@@ -495,6 +495,18 @@
               </div>
 
               <div class="stitch-rows-container">
+                <div class="stitch-row">
+                  <div class="row-info">
+                    <span class="row-title">{{ tr('options.providerMode') }}</span>
+                    <span class="row-desc">{{ tr('options.providerModeDesc') }}</span>
+                  </div>
+                  <div class="row-control">
+                    <select v-model="settings.providerSelectionMode" @change="save" class="stitch-select">
+                      <option value="shared">{{ tr('options.providerShared') }}</option>
+                      <option value="split">{{ tr('options.providerSplit') }}</option>
+                    </select>
+                  </div>
+                </div>
                 <!-- Provider Select -->
                 <div class="stitch-row">
                   <div class="row-info">
@@ -511,7 +523,27 @@
                       <option value="ollama-provider">{{ tr('provider.ollama') }}</option>
                       <option value="local-http-provider">{{ tr('provider.localHttp') }}</option>
                       <option value="custom-http-provider">{{ tr('provider.customHttp') }}</option>
-                      <option value="chrome-builtin-ai-provider" disabled>{{ tr('provider.chromeUnavailable') }}</option>
+                      <option value="chrome-builtin-ai-provider" :disabled="!isChromiumBrowser">{{ tr('provider.chromeUnavailable') }}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="stitch-row" v-if="settings.providerSelectionMode === 'split'">
+                  <div class="row-info">
+                    <span class="row-title">{{ tr('options.videoProvider') }}</span>
+                    <span class="row-desc">{{ tr('options.videoProviderDesc') }}</span>
+                  </div>
+                  <div class="row-control">
+                    <select v-model="settings.videoProviderId" @change="save" class="stitch-select">
+                      <option value="google-provider">{{ tr('provider.google') }}</option>
+                      <option value="gemini-provider">{{ tr('provider.gemini') }}</option>
+                      <option value="deepl-provider">{{ tr('provider.deepl') }}</option>
+                      <option value="openrouter-provider">{{ tr('provider.openrouter') }}</option>
+                      <option value="nvidia-nim-provider">{{ tr('provider.nvidia') }}</option>
+                      <option value="ollama-provider">{{ tr('provider.ollama') }}</option>
+                      <option value="local-http-provider">{{ tr('provider.localHttp') }}</option>
+                      <option value="custom-http-provider">{{ tr('provider.customHttp') }}</option>
+                      <option value="chrome-builtin-ai-provider" :disabled="!isChromiumBrowser">{{ tr('provider.chromeUnavailable') }}</option>
                     </select>
                   </div>
                 </div>
@@ -847,6 +879,8 @@ import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import GlossaryManager from '@/components/GlossaryManager.vue';
 import FlashcardWorkbench from '@/components/learning/FlashcardWorkbench.vue';
 import { translate, uiLanguageOptions, type TranslationKey } from '@/shared/i18n';
+import { ChromeBuiltInAIProvider } from '@/infrastructure/providers/chrome-builtin-ai-provider';
+import { getProviderTestFingerprint } from '@/infrastructure/providers/cache-identity';
 
 const activeModels = getActiveVerifiedModels();
 const deprecatedModels = getDeprecatedButFunctionalModels();
@@ -866,6 +900,7 @@ const openRouterKeyInput = ref('');
 const nvidiaNimKeyInput = ref('');
 const testingProvider = ref(false);
 const providerTestResult = ref('');
+const isChromiumBrowser = typeof navigator !== 'undefined' && !/Firefox/i.test(navigator.userAgent);
 const saveApiKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveDeeplKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
 const saveLocalHttpKeyStatus = ref<'idle' | 'success' | 'error'>('idle');
@@ -896,6 +931,13 @@ const settings = ref({
   targetLanguage: 'zh-Hant',
   defaultTranslationMode: 'fast' as 'fast' | 'quality',
   activeProviderId: 'gemini-provider',
+  providerSelectionMode: 'shared' as 'shared' | 'split',
+  videoProviderId: 'google-provider',
+  providerLastTestedId: '',
+  providerLastTestFingerprint: '',
+  providerLastTestedAt: 0,
+  providerLastTestSucceeded: false,
+  providerCredentialRevision: 0,
   remoteProviderDisclosureVersion: 1,
   hasGeminiApiKey: false,
   geminiApiKeyMasked: '',
@@ -1186,6 +1228,13 @@ async function loadSettings() {
       settings.value.targetLanguage = s.targetLanguage || 'zh-Hant';
       settings.value.defaultTranslationMode = s.defaultTranslationMode || 'fast';
       settings.value.activeProviderId = s.activeProviderId || 'google-provider';
+      settings.value.providerSelectionMode = s.providerSelectionMode || 'shared';
+      settings.value.videoProviderId = s.videoProviderId || settings.value.activeProviderId;
+      settings.value.providerLastTestedId = s.providerLastTestedId || '';
+      settings.value.providerLastTestFingerprint = s.providerLastTestFingerprint || '';
+      settings.value.providerLastTestedAt = s.providerLastTestedAt || 0;
+      settings.value.providerLastTestSucceeded = Boolean(s.providerLastTestSucceeded);
+      settings.value.providerCredentialRevision = s.providerCredentialRevision || 0;
       settings.value.remoteProviderDisclosureVersion = s.remoteProviderDisclosureVersion ?? 1;
       settings.value.hasGeminiApiKey = !!s.hasGeminiApiKey;
       settings.value.geminiApiKeyMasked = s.geminiApiKeyMasked || '';
@@ -1206,7 +1255,7 @@ async function loadSettings() {
         netflixConfig.value.enabled = s.netflix.enabled ?? true;
         netflixConfig.value.primarySize = s.netflix.primarySize || 18;
         netflixConfig.value.secondarySize = s.netflix.secondarySize || 22;
-        netflixConfig.value.bottomPosition = s.netflix.bottomPosition || 80;
+        netflixConfig.value.bottomPosition = s.netflix.bottomPosition ?? 80;
         netflixConfig.value.lineSpacing = s.netflix.lineSpacing ?? 4;
         netflixConfig.value.enableBitmapRescue = s.netflix.enableBitmapRescue ?? true;
         netflixConfig.value.learningMode = s.netflix.learningMode ?? false;
@@ -1240,21 +1289,58 @@ function formatProviderTestError(error: unknown): string {
 }
 
 async function testProvider() {
+  const testedProviderId = settings.value.activeProviderId;
+  const testedFingerprint = getProviderTestFingerprint(testedProviderId, settings.value);
+  const testedTargetLanguage = settings.value.targetLanguage;
   testingProvider.value = true;
   providerTestResult.value = '';
   try {
-    if (!await save()) return;
-    const result = await messageRouter.sendMessage({
-      type: 'TRANSLATE_REQUEST',
-      bypassCache: true,
-      segments: [{ id: 'connection-check', text: 'Hello' }],
-      sourceLanguage: 'en', targetLanguage: settings.value.targetLanguage,
-      forceProvider: settings.value.activeProviderId,
-    });
-    const translation = result.segments[0]?.translatedText;
+    // Model download for Chrome's Prompt API requires the click's transient
+    // user activation, so call it before awaiting unrelated storage work.
+    if (testedProviderId !== 'chrome-builtin-ai-provider' && !await save()) return;
+    let translation = '';
+    if (testedProviderId === 'chrome-builtin-ai-provider') {
+      const provider = new ChromeBuiltInAIProvider();
+      const result = await provider.translate({
+        segments: [{ id: 'connection-check' as any, text: 'Hello' }],
+        sourceLanguage: 'en' as any,
+        targetLanguage: testedTargetLanguage as any,
+        mode: settings.value.defaultTranslationMode,
+      });
+      translation = result.segments[0]?.text || '';
+    } else {
+      const result = await messageRouter.sendMessage({
+        type: 'TRANSLATE_REQUEST',
+        bypassCache: true,
+        segments: [{ id: 'connection-check', text: 'Hello' }],
+        sourceLanguage: 'en', targetLanguage: testedTargetLanguage,
+        forceProvider: testedProviderId,
+      });
+      translation = result.segments[0]?.translatedText || '';
+    }
     if (!translation?.trim()) throw new Error(tr('options.providerNoTranslation'));
+    settings.value.providerLastTestedId = testedProviderId;
+    settings.value.providerLastTestFingerprint = testedFingerprint;
+    settings.value.providerLastTestedAt = Date.now();
+    settings.value.providerLastTestSucceeded = true;
+    await SettingsStorage.set({
+      providerLastTestedId: settings.value.providerLastTestedId,
+      providerLastTestFingerprint: testedFingerprint,
+      providerLastTestedAt: settings.value.providerLastTestedAt,
+      providerLastTestSucceeded: true,
+    });
     providerTestResult.value = tr('options.providerReply', { text: translation });
   } catch (error) {
+    settings.value.providerLastTestedId = testedProviderId;
+    settings.value.providerLastTestFingerprint = testedFingerprint;
+    settings.value.providerLastTestedAt = Date.now();
+    settings.value.providerLastTestSucceeded = false;
+    await SettingsStorage.set({
+      providerLastTestedId: settings.value.providerLastTestedId,
+      providerLastTestFingerprint: testedFingerprint,
+      providerLastTestedAt: settings.value.providerLastTestedAt,
+      providerLastTestSucceeded: false,
+    }).catch(() => {});
     providerTestResult.value = tr('options.providerTestFailed', {
       message: formatProviderTestError(error),
     });

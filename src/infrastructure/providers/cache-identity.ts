@@ -87,3 +87,12 @@ export function getProviderCacheIdentity(
       };
   }
 }
+
+/** Public, secret-free identity for the connection-status indicator. */
+export function getProviderTestFingerprint(
+  providerId: string,
+  settings: Partial<ExtensionSettings>,
+): string {
+  const identity = getProviderCacheIdentity(providerId, settings);
+  return `${identity.providerId};${identity.fingerprint};credentials=${Number(settings.providerCredentialRevision || 0)}`;
+}

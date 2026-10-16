@@ -5,6 +5,7 @@ import { CacheRepository, sha256 } from '@/infrastructure/storage/repositories/c
 import { createLogger } from '@/shared/logger';
 import type { InternalExtensionSettings } from '@/core/contracts/messages';
 import { ConfigurationError } from '@/core/domain/errors/translation-errors';
+import { resolveProviderId, type TranslationUsage } from '@/core/settings/provider-selection';
 
 const logger = createLogger('TranslationPipeline');
 
@@ -14,6 +15,7 @@ export interface TranslationPipelineRequest {
   sourceLanguage: string;
   targetLanguage: string;
   forceProvider?: string;
+  usage?: TranslationUsage;
   context?: {
     title?: string;
     previousText?: string;
@@ -59,7 +61,7 @@ export class TranslationPipeline {
 
   public async translate(msg: TranslationPipelineRequest): Promise<TranslationPipelineResponse> {
     const settings = await this.getSettings();
-    const activeProviderId = msg.forceProvider || settings.activeProviderId || 'google-provider';
+    const activeProviderId = resolveProviderId(settings, msg.usage, msg.forceProvider);
     const provider = getProvider(activeProviderId, settings);
 
     // Brand-new installs must see the data-transfer disclosure before the

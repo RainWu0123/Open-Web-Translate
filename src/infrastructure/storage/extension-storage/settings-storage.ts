@@ -156,6 +156,7 @@ export class SettingsStorage {
       [STORAGE_KEYS.SETTINGS]: {
         ...current,
         [key]: value.trim(),
+        providerCredentialRevision: Number(current.providerCredentialRevision || 0) + 1,
       },
     });
   }

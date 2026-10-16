@@ -11,6 +11,7 @@ import type { ProviderCapabilities } from '../../core/contracts/capabilities';
 import type {
   TranslationProvider,
   ProviderConfigValidation,
+  StructuredAnalysisRequest,
 } from '../../core/contracts/provider';
 import type {
   TranslationRequest,
@@ -32,6 +33,7 @@ import {
 import { httpTranslationFetch } from './http-translation-client';
 import { createLogger } from '../../shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
+import { parseStructuredJson } from './structured-output';
 
 const logger = createLogger('GeminiProvider');
 
@@ -46,6 +48,7 @@ export class GeminiProvider implements TranslationProvider {
   readonly id = 'gemini-provider' as ProviderId;
   readonly displayName = 'Google Gemini API';
   readonly capabilities: ProviderCapabilities = {
+    structuredAnalysis: true,
     streaming: false,
     glossary: false,
     context: true,
@@ -240,5 +243,32 @@ Example: [{"id": "seg-1", "translatedText": "..."}]`;
       warnings: [],
       cacheable: true,
     };
+  }
+
+  async generateStructured(request: StructuredAnalysisRequest): Promise<unknown> {
+    const settings = await SettingsStorage.getInternal();
+    const apiKey = settings.geminiApiKey?.trim();
+    if (!apiKey) throw new ConfigurationError('Gemini API key is not configured.');
+    const modelValidation = validateModelId(settings.geminiModel?.trim() || DEFAULT_MODEL_ID);
+    if (!modelValidation.valid) throw new ConfigurationError(modelValidation.message || 'Invalid Gemini model');
+    const modelId = modelValidation.modelId;
+    const apiUrl = `${GEMINI_API_ORIGIN}/v1beta/models/${encodeURIComponent(modelId)}:generateContent`;
+    const responseData = await httpTranslationFetch(this.id, {
+      url: apiUrl,
+      headers: { 'x-goog-api-key': apiKey },
+      body: {
+        contents: [{ role: 'user', parts: [{ text: request.prompt }] }],
+        systemInstruction: { parts: [{ text: 'You are a careful language teacher. Return only valid JSON matching the requested schema.' }] },
+        generationConfig: { responseMimeType: 'application/json' },
+      },
+      signal: request.signal,
+      sanitize: (message) => this.sanitize(message, apiKey),
+      interpretStatus: (status) => {
+        if (status === 401 || status === 403) return new ConfigurationError('Gemini API key is invalid or unauthorized');
+        if (status === 429) return new QuotaExceededError('Gemini API rate limit or quota exceeded');
+        return new NetworkError(`Gemini service returned HTTP ${status}`);
+      },
+    }).then((response) => response.json as Record<string, any>);
+    return parseStructuredJson(this.id, responseData?.candidates?.[0]?.content?.parts?.[0]?.text);
   }
 }

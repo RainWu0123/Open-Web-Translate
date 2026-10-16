@@ -32,7 +32,7 @@ export interface DualTrackHost {
   getCueText(): string;
   setSecondaryCues(cues: SubtitleCue[]): void;
   onDualLoaded(): void;
-  fallbackToSingle(secondary: DiscoveredTrack): Promise<void>;
+  fallbackToSingle(secondary: DiscoveredTrack, commitGuard: () => boolean): Promise<void>;
 }
 
 export class NetflixDualTrackController {
@@ -133,7 +133,11 @@ export class NetflixDualTrackController {
    * driven by video.currentTime via the sync engine instead of DOM
    * scraping, which is what keeps the two lines correctly paired.
    */
-  public async load(primaryTrack: DiscoveredTrack, secondaryTrack: DiscoveredTrack): Promise<void> {
+  public async load(
+    primaryTrack: DiscoveredTrack,
+    secondaryTrack: DiscoveredTrack,
+    commitGuard: () => boolean = () => true,
+  ): Promise<boolean> {
     try {
       const [primaryXml, secondaryXml] = await Promise.all([
         this.host.fetchTtml(primaryTrack.url),
@@ -148,6 +152,7 @@ export class NetflixDualTrackController {
       if (primaryCues.length === 0 || secondaryCues.length === 0) {
         throw new Error('empty track');
       }
+      if (!commitGuard()) return false;
 
       this.primaryCues = primaryCues;
       this.host.setSecondaryCues(secondaryCues);
@@ -166,12 +171,14 @@ export class NetflixDualTrackController {
 
       this.startSyncEngine();
     } catch (error) {
+      if (!commitGuard()) return false;
       this.reset();
       logger.warn('Dual track load failed, falling back to single native track', error);
-      await this.host.fallbackToSingle(secondaryTrack);
-      return;
+      await this.host.fallbackToSingle(secondaryTrack, commitGuard);
+      return false;
     }
     this.host.onDualLoaded();
+    return true;
   }
 
   private startSyncEngine(): void {

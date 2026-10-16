@@ -5,6 +5,7 @@ import type { ProviderCapabilities } from '@/core/contracts/capabilities';
 import type {
   TranslationProvider,
   ProviderConfigValidation,
+  StructuredAnalysisRequest,
 } from '@/core/contracts/provider';
 import type {
   TranslationRequest,
@@ -20,6 +21,7 @@ import { createLogger } from '@/shared/logger';
 import { normalizeSubtitleAlternatives } from '../../shared/utils/subtitle-text';
 import { assertLocalHttpEndpoint, inspectHttpEndpoint } from './endpoint-security';
 import { buildIndexedRepairPrompt, parseIndexedTranslationsWithRepair } from './indexed-translation-parser';
+import { parseStructuredJson } from './structured-output';
 
 const logger = createLogger('OllamaProvider');
 
@@ -35,6 +37,7 @@ export class OllamaProvider implements TranslationProvider {
   readonly displayName = 'Ollama Local AI';
   readonly isLocal = true;
   readonly capabilities: ProviderCapabilities = {
+    structuredAnalysis: true,
     streaming: false,
     glossary: true,
     context: true,
@@ -155,5 +158,22 @@ export class OllamaProvider implements TranslationProvider {
       warnings: [],
       cacheable: true,
     };
+  }
+
+  async generateStructured(request: StructuredAnalysisRequest): Promise<unknown> {
+    const endpoint = assertLocalHttpEndpoint(this.endpoint, 'Ollama Local AI');
+    const data = await httpTranslationFetch(this.id, {
+      url: `${endpoint}/api/generate`,
+      body: {
+        model: this.model,
+        prompt: `You are a careful language teacher. Return only valid JSON matching the requested schema.\n\n${request.prompt}`,
+        format: 'json',
+        stream: false,
+      },
+      signal: request.signal,
+      timeoutMs: 30000,
+      interpretStatus: (status, bodyText) => new NetworkError(`Ollama server error HTTP ${status}: ${bodyText.slice(0, 120)}`),
+    }).then((response) => response.json as Record<string, any>);
+    return parseStructuredJson(this.id, data.response);
   }
 }

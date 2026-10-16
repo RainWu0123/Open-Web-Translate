@@ -4,6 +4,8 @@ import type { LanguageCode } from './common';
  * Defines the capabilities of a translation provider.
  */
 export interface ProviderCapabilities {
+  /** Whether the provider can execute a free-form structured analysis prompt. */
+  readonly structuredAnalysis?: boolean;
   /**
    * Whether the provider supports streaming results.
    */

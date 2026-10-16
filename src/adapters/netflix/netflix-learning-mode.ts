@@ -71,6 +71,7 @@ export class NetflixLearningMode {
             sentence: sentence || '',
             sourceLang: this.host.sourceLang(),
             targetLang: this.host.targetLang(),
+            usage: 'video',
           });
         },
         onExplainGrammar: async (sentence, focusWord) => {
@@ -80,6 +81,7 @@ export class NetflixLearningMode {
             focusWord,
             sourceLang: this.host.sourceLang(),
             targetLang: this.host.targetLang(),
+            usage: 'video',
           });
         },
         onSave: async (entry) => {

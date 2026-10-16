@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { DEFAULT_SETTINGS } from '@/shared/constants';
+import { getProviderTestFingerprint } from '@/infrastructure/providers/cache-identity';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
   watch: vi.fn(() => () => {}),
+  watchCallback: undefined as undefined | ((settings: any) => void),
   sendMessage: vi.fn(),
   queryActiveTabUrl: vi.fn(async () => 'https://example.com'),
   queryActiveTabId: vi.fn(async () => 42),
@@ -32,6 +34,11 @@ beforeEach(() => {
   mocks.queryActiveTabId.mockReset().mockResolvedValue(42);
   mocks.sendTabCommand.mockReset().mockResolvedValue(null);
   mocks.sendTabMessage.mockReset().mockResolvedValue(null);
+  (mocks.watch as any).mockReset().mockImplementation((callback: (settings: any) => void) => {
+    mocks.watchCallback = callback;
+    return () => {};
+  });
+  mocks.watchCallback = undefined;
 });
 
 describe('Translation feedback follows real request results', () => {
@@ -167,6 +174,29 @@ describe('Translation feedback follows real request results', () => {
     expect(mocks.sendMessage).not.toHaveBeenCalled();
     expect(wrapper.get('.action-slider').attributes('data-side')).toBe('right');
     expect(wrapper.get('[data-testid="subtitle-restore-btn"]').attributes('aria-pressed')).toBe('true');
+    wrapper.unmount();
+  });
+
+  it('binds the green provider status to the complete live endpoint fingerprint', async () => {
+    const tested = {
+      ...DEFAULT_SETTINGS,
+      activeProviderId: 'ollama-provider',
+      ollamaEndpoint: 'http://127.0.0.1:11434',
+      ollamaModel: 'qwen3:4b',
+      providerLastTestedId: 'ollama-provider',
+      providerLastTestSucceeded: true,
+      providerCredentialRevision: 2,
+    };
+    tested.providerLastTestFingerprint = getProviderTestFingerprint('ollama-provider', tested);
+    mocks.get.mockResolvedValue(tested);
+
+    const wrapper = mount(Popup);
+    await flushPromises();
+    expect(wrapper.get('.provider-status-dot').classes()).toContain('success');
+
+    mocks.watchCallback?.({ ...tested, ollamaEndpoint: 'http://127.0.0.1:9999' });
+    await flushPromises();
+    expect(wrapper.get('.provider-status-dot').classes()).not.toContain('success');
     wrapper.unmount();
   });
 });

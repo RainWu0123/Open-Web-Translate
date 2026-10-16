@@ -29,5 +29,16 @@ describe('SubtitleOverlayRenderer live style updates', () => {
     expect(sizes).toContain('30px');
     expect(sizes).toContain('34px');
   });
+
+  it('applies bottom position and line spacing immediately', () => {
+    const renderer = new SubtitleOverlayRenderer('live-layout-overlay');
+    renderer.mount(document.body);
+    renderer.render('Original', '譯文');
+    renderer.updateLayout({ bottomOffsetPx: 126, lineSpacingPx: 12 }, { resetDraggedPosition: true });
+
+    const overlay = document.getElementById('live-layout-overlay')!;
+    expect(overlay.style.bottom).toBe('126px');
+    expect((overlay.shadowRoot?.firstElementChild as HTMLElement).style.gap).toBe('12px');
+  });
 });
 

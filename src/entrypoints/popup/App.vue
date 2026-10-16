@@ -215,7 +215,7 @@
               <span class="row-title">{{ t('provider.title') }}</span>
               <span
                 class="provider-status-dot"
-                :class="{ warn: needsApiKeySetup, unavailable: providerUnavailable }"
+                :class="{ success: providerTestSucceeded, warn: needsApiKeySetup, unavailable: providerUnavailable }"
                 :title="activeProviderDetail"
                 role="img"
                 :aria-label="activeProviderDetail"
@@ -225,7 +225,7 @@
           <div class="row-control">
             <select
               class="stitch-select"
-              :value="settings.activeProviderId"
+              :value="activeContextProviderId"
               @change="onProviderChange"
               data-testid="popup-provider-select" :aria-label="t('provider.title')"
             >
@@ -234,7 +234,7 @@
               <option value="deepl-provider">{{ t('provider.deepl') }}</option>
               <option value="openrouter-provider">{{ t('provider.openrouter') }}</option>
               <option value="nvidia-nim-provider">{{ t('provider.nvidia') }}</option>
-              <option value="chrome-builtin-ai-provider" disabled>{{ t('provider.chromeUnavailable') }}</option>
+              <option value="chrome-builtin-ai-provider" :disabled="!isChromiumBrowser">{{ t('provider.chromeUnavailable') }}</option>
               <option value="ollama-provider">{{ t('provider.ollama') }}</option>
               <option value="local-http-provider">{{ t('provider.localHttp') }}</option>
               <option value="custom-http-provider">{{ t('provider.customHttp') }}</option>
@@ -252,7 +252,8 @@ import { useUiTheme } from '@/shared/ui/use-ui-theme';
 import ThemeButton from '@/components/ThemeButton.vue';
 import BrandMark from '@/components/BrandMark.vue';
 import ActionSlider from '@/components/ActionSlider.vue';
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import type { ExtensionSettings } from '@/core/contracts/messages';
 import { extensionBridge } from '@/infrastructure/messaging/extension-bridge';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
@@ -261,12 +262,20 @@ import { DEFAULT_MODEL_ID } from '@/infrastructure/providers/gemini/model-regist
 import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
 import { translate, type TranslationKey } from '@/shared/i18n';
 import { DEFAULT_NETFLIX_CONFIG } from '@/shared/constants';
+import { getProviderTestFingerprint } from '@/infrastructure/providers/cache-identity';
 
 const settings = ref({
   enabled: true,
   sourceLanguage: 'auto',
   targetLanguage: 'zh-Hant',
   activeProviderId: 'google-provider',
+  providerSelectionMode: 'shared' as 'shared' | 'split',
+  videoProviderId: 'google-provider',
+  providerLastTestedId: '',
+  providerLastTestFingerprint: '',
+  providerLastTestedAt: 0,
+  providerLastTestSucceeded: false,
+  providerCredentialRevision: 0,
   uiLanguage: 'auto' as 'auto' | 'zh-Hant' | 'zh-Hans' | 'en' | 'ja',
   hasGeminiApiKey: false,
   geminiModel: DEFAULT_MODEL_ID,
@@ -277,6 +286,13 @@ const settings = ref({
   hasNvidiaNimApiKey: false,
   nvidiaNimEndpoint: 'https://integrate.api.nvidia.com/v1',
   nvidiaNimModel: 'meta/llama-3.1-8b-instruct',
+  ollamaEndpoint: 'http://localhost:11434',
+  ollamaModel: 'llama3',
+  localHttpEndpoint: 'http://127.0.0.1:8080',
+  localHttpModel: 'local-model',
+  customHttpEndpoint: '',
+  customHttpModel: 'default',
+  aiTranslationInstructions: '',
   subtitleOriginalFontSize: 18,
   subtitleTranslatedFontSize: 22,
 });
@@ -294,6 +310,12 @@ const isLoading = computed(() => isTranslating.value || isRestoring.value);
 const isNetflixTab = ref(false);
 const isYouTubeTab = ref(false);
 const isSubtitleTab = computed(() => isNetflixTab.value || isYouTubeTab.value);
+const isChromiumBrowser = typeof navigator !== 'undefined' && !/Firefox/i.test(navigator.userAgent);
+const activeContextProviderId = computed(() =>
+  isSubtitleTab.value && settings.value.providerSelectionMode === 'split'
+    ? settings.value.videoProviderId
+    : settings.value.activeProviderId,
+);
 const { hudInfo: netflixHud } = useNetflixSession();
 
 const ytActive = ref(false);
@@ -312,13 +334,11 @@ const netflixTranslationDescription = computed(() => {
   return t('subtitle.realtimeFallback');
 });
 
-const sourceSelectionValue = computed(() =>
-  netflixHud.value.selectedTrackId === 'ai-translate'
-    ? 'ai'
-    : netflixHud.value.selectionMode === 'manual' && netflixHud.value.selectedTrackId
-      ? `track:${netflixHud.value.selectedTrackId}`
-      : 'auto',
-);
+const sourceSelectionValue = computed(() => {
+  if (netflixHud.value.selectionMode === 'auto') return 'auto';
+  if (netflixHud.value.selectedTrackId === 'ai-translate') return 'ai';
+  return netflixHud.value.selectedTrackId ? `track:${netflixHud.value.selectedTrackId}` : 'auto';
+});
 
 
 async function toggleSubtitles(target = !subtitleActive.value) {
@@ -405,11 +425,12 @@ async function refreshYouTubeState() {
 
 async function onYouTubeTrackChange(e: Event) {
   const code = (e.target as HTMLSelectElement).value;
-  ytSelectedTrackId.value = code;
   try {
     const tabId = await extensionBridge.queryActiveTabId();
     if (!tabId) return;
-    await extensionBridge.sendTabCommand(tabId, { type: 'SET_YOUTUBE_TRACK', trackId: code });
+    const changed = await extensionBridge.sendTabCommand<boolean>(tabId, { type: 'SET_YOUTUBE_TRACK', trackId: code });
+    if (!changed) throw new Error('YouTube rejected the requested caption track');
+    await refreshYouTubeState();
   } catch {
     errorMessage.value = t('error.youtubeTrack');
   }
@@ -417,15 +438,19 @@ async function onYouTubeTrackChange(e: Event) {
 
 function onProviderChange(e: Event) {
   const providerId = (e.target as HTMLSelectElement).value;
-  settings.value.activeProviderId = providerId;
+  if (isSubtitleTab.value && settings.value.providerSelectionMode === 'split') {
+    settings.value.videoProviderId = providerId;
+  } else {
+    settings.value.activeProviderId = providerId;
+  }
   save();
 }
 
 const needsApiKeySetup = computed(() => {
-  if (settings.value.activeProviderId === 'gemini-provider' && !settings.value.hasGeminiApiKey) return true;
-  if (settings.value.activeProviderId === 'deepl-provider' && !settings.value.hasDeeplApiKey) return true;
-  if (settings.value.activeProviderId === 'openrouter-provider' && !settings.value.hasOpenRouterApiKey) return true;
-  if (settings.value.activeProviderId === 'nvidia-nim-provider' && !settings.value.hasNvidiaNimApiKey) {
+  if (activeContextProviderId.value === 'gemini-provider' && !settings.value.hasGeminiApiKey) return true;
+  if (activeContextProviderId.value === 'deepl-provider' && !settings.value.hasDeeplApiKey) return true;
+  if (activeContextProviderId.value === 'openrouter-provider' && !settings.value.hasOpenRouterApiKey) return true;
+  if (activeContextProviderId.value === 'nvidia-nim-provider' && !settings.value.hasNvidiaNimApiKey) {
     const inspection = inspectHttpEndpoint(settings.value.nvidiaNimEndpoint);
     return !(inspection.isValid && inspection.isLocal);
   }
@@ -433,12 +458,17 @@ const needsApiKeySetup = computed(() => {
 });
 
 const providerUnavailable = computed(() =>
-  settings.value.activeProviderId === 'chrome-ai-provider' ||
-  settings.value.activeProviderId === 'chrome-builtin-ai-provider',
+  activeContextProviderId.value === 'chrome-builtin-ai-provider' && !isChromiumBrowser,
+);
+
+const providerTestSucceeded = computed(() =>
+  settings.value.providerLastTestSucceeded &&
+  settings.value.providerLastTestedId === activeContextProviderId.value &&
+  settings.value.providerLastTestFingerprint === getProviderTestFingerprint(activeContextProviderId.value, settings.value),
 );
 
 const activeProviderDetail = computed(() => {
-  switch (settings.value.activeProviderId) {
+  switch (activeContextProviderId.value) {
     case 'gemini-provider':
       return settings.value.hasGeminiApiKey
         ? `Gemini (${settings.value.geminiModel || 'gemini-2.5-flash'})`
@@ -528,12 +558,10 @@ async function setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: stri
   try {
     const tabId = await extensionBridge.queryActiveTabId();
     if (!tabId) return;
-    await extensionBridge.sendTabCommand(tabId, { type: 'SET_NETFLIX_SELECTION', source, trackId });
-    netflixHud.value = {
-      ...netflixHud.value,
-      selectionMode: source === 'auto' ? 'auto' : 'manual',
-      selectedTrackId: source === 'ai' ? 'ai-translate' : trackId ?? netflixHud.value.selectedTrackId,
-    };
+    const changed = await extensionBridge.sendTabCommand<boolean>(tabId, { type: 'SET_NETFLIX_SELECTION', source, trackId });
+    if (!changed) throw new Error('Netflix subtitle source did not change');
+    const state = await extensionBridge.sendTabCommand<typeof netflixHud.value>(tabId, { type: 'GET_NETFLIX_STATE' });
+    if (state) netflixHud.value = state;
   } catch {
     errorMessage.value = t('error.subtitleSource');
   }
@@ -542,6 +570,30 @@ async function setSubtitleSource(source: 'auto' | 'ai' | 'track', trackId?: stri
 
 const errorMessage = ref('');
 const statusMessage = ref('');
+let unwatchSettings = () => {};
+
+function applyProviderStatusSettings(s: ExtensionSettings) {
+  settings.value.activeProviderId = s.activeProviderId || 'google-provider';
+  settings.value.providerSelectionMode = s.providerSelectionMode || 'shared';
+  settings.value.videoProviderId = s.videoProviderId || settings.value.activeProviderId;
+  settings.value.providerLastTestedId = s.providerLastTestedId || '';
+  settings.value.providerLastTestFingerprint = s.providerLastTestFingerprint || '';
+  settings.value.providerLastTestedAt = s.providerLastTestedAt || 0;
+  settings.value.providerLastTestSucceeded = Boolean(s.providerLastTestSucceeded);
+  settings.value.providerCredentialRevision = s.providerCredentialRevision || 0;
+  settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
+  settings.value.deeplApiIsPro = Boolean(s.deeplApiIsPro);
+  settings.value.openRouterModel = s.openRouterModel || 'openrouter/auto';
+  settings.value.nvidiaNimEndpoint = s.nvidiaNimEndpoint || 'https://integrate.api.nvidia.com/v1';
+  settings.value.nvidiaNimModel = s.nvidiaNimModel || 'meta/llama-3.1-8b-instruct';
+  settings.value.ollamaEndpoint = s.ollamaEndpoint || 'http://localhost:11434';
+  settings.value.ollamaModel = s.ollamaModel || 'llama3';
+  settings.value.localHttpEndpoint = s.localHttpEndpoint || 'http://127.0.0.1:8080';
+  settings.value.localHttpModel = s.localHttpModel || 'local-model';
+  settings.value.customHttpEndpoint = s.customHttpEndpoint || '';
+  settings.value.customHttpModel = s.customHttpModel || 'default';
+  settings.value.aiTranslationInstructions = s.aiTranslationInstructions || '';
+}
 
 onMounted(async () => {
   try {
@@ -578,30 +630,28 @@ onMounted(async () => {
 
     const s = await SettingsStorage.get();
     if (s) {
+      applyProviderStatusSettings(s);
       settings.value.enabled = s.enabled;
       settings.value.sourceLanguage = s.sourceLanguage || 'auto';
       settings.value.targetLanguage = s.targetLanguage;
-      settings.value.activeProviderId = s.activeProviderId || 'google-provider';
       settings.value.uiLanguage = s.uiLanguage || 'auto';
       settings.value.hasGeminiApiKey = Boolean(s.hasGeminiApiKey);
-      settings.value.geminiModel = s.geminiModel || DEFAULT_MODEL_ID;
       settings.value.hasDeeplApiKey = Boolean(s.hasDeeplApiKey);
-      settings.value.deeplApiIsPro = Boolean(s.deeplApiIsPro);
       settings.value.hasOpenRouterApiKey = Boolean(s.hasOpenRouterApiKey);
-      settings.value.openRouterModel = s.openRouterModel || 'openrouter/auto';
       settings.value.hasNvidiaNimApiKey = Boolean(s.hasNvidiaNimApiKey);
-      settings.value.nvidiaNimEndpoint = s.nvidiaNimEndpoint || 'https://integrate.api.nvidia.com/v1';
-      settings.value.nvidiaNimModel = s.nvidiaNimModel || 'meta/llama-3.1-8b-instruct';
       const subtitleSizes = isNetflixTab.value && s.netflix
         ? { original: s.netflix.primarySize, translated: s.netflix.secondarySize }
         : { original: s.subtitleOriginalFontSize, translated: s.subtitleTranslatedFontSize };
       settings.value.subtitleOriginalFontSize = subtitleSizes.original ?? 18;
       settings.value.subtitleTranslatedFontSize = subtitleSizes.translated ?? 22;
     }
+    unwatchSettings = SettingsStorage.watch(applyProviderStatusSettings);
   } catch (err) {
     console.warn('[Popup] Failed to initialize popup settings:', err);
   }
 });
+
+onUnmounted(() => unwatchSettings());
 
 async function save() {
   try {
@@ -610,6 +660,8 @@ async function save() {
       sourceLanguage: settings.value.sourceLanguage,
       targetLanguage: settings.value.targetLanguage,
       activeProviderId: settings.value.activeProviderId,
+      providerSelectionMode: settings.value.providerSelectionMode,
+      videoProviderId: settings.value.videoProviderId,
       uiLanguage: settings.value.uiLanguage,
     });
   } catch {
@@ -716,7 +768,8 @@ input[type='range']::-moz-range-thumb { width: 16px; height: 16px; border: 0; bo
 [data-testid='active-provider-card'] { display: flex; flex-direction: column; gap: 8px; }
 [data-testid='active-provider-card'] .row-info, [data-testid='active-provider-card'] .row-control { width: 100%; }
 .provider-title-line { display: inline-flex; align-items: center; gap: 9px; }
-.provider-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #55d68a; box-shadow: 0 0 0 3px rgba(85, 214, 138, .12); }
+.provider-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #8d9099; box-shadow: 0 0 0 3px rgba(141, 144, 153, .12); }
+.provider-status-dot.success { background: #55d68a; box-shadow: 0 0 0 3px rgba(85, 214, 138, .12); }
 .provider-status-dot.warn { background: #eab75b; box-shadow: 0 0 0 3px rgba(234, 183, 91, .12); }
 .provider-status-dot.unavailable { background: #8d9099; box-shadow: 0 0 0 3px rgba(141, 144, 153, .12); }
 .spinner { width: 14px; height: 14px; border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 800ms linear infinite; }
