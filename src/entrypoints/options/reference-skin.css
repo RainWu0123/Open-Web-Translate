@@ -1,0 +1,37 @@
+/* Optional visual layer. Remove this import to return to the previous skin. */
+:root:root .stitch-header {
+  background: color-mix(in srgb, var(--bg-primary) 94%, var(--bg-secondary));
+  border-bottom-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+:root:root .stitch-sidebar-left {
+  background: var(--bg-primary);
+  border-right-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+:root:root .sidebar-nav-btn { border-radius: 12px; transition: background-color 160ms ease, color 160ms ease; }
+:root:root .sidebar-nav-btn.active {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  box-shadow: 0 3px 14px rgba(113, 124, 173, .12);
+}
+:root:root .stitch-main {
+  background: radial-gradient(ellipse 60% 32% at 85% 0%, rgba(139, 150, 197, .07), transparent 75%), var(--bg-primary);
+}
+:root:root .canvas-title { letter-spacing: -.035em; line-height: 1.18; }
+:root:root .canvas-subtitle { line-height: 1.75; }
+:root:root .stitch-main .stitch-select,
+:root:root .stitch-main .stitch-input,
+:root:root .stitch-main .stitch-textarea {
+  border-radius: 11px;
+  background-color: color-mix(in srgb, var(--bg-secondary) 74%, var(--bg-input));
+}
+:root:root .stitch-main .stitch-row { border-bottom-color: color-mix(in srgb, var(--border-color) 60%, transparent); }
+:root:root .stitch-main .btn-stitch-accent,
+:root:root .stitch-main .btn-stitch-secondary { border-radius: 999px; }
+:root:root .stitch-main .btn-stitch-accent {
+  box-shadow: 0 3px 12px rgba(113, 124, 173, .14);
+}
+:root:root .search-results { border-radius: 14px; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root:root .sidebar-nav-btn { transition: none; }
+}

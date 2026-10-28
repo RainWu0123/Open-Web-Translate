@@ -1,4 +1,5 @@
 @import '@/assets/styles/tokens.css';
+@import './reference-skin.css';
 
 * {
   margin: 0;

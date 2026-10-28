@@ -1,0 +1,44 @@
+/* Optional visual layer. Remove this import to return to the previous skin. */
+:root:root .popup-container {
+  background: radial-gradient(ellipse 105% 42% at 100% -8%, rgba(139, 150, 197, .12), transparent 70%), var(--bg-primary);
+}
+
+:root:root .popup-header {
+  border-bottom-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+
+:root:root .brand-name { letter-spacing: -.035em; font-weight: 650; }
+:root:root .header-settings-btn { border-radius: 50%; }
+:root:root .popup-body { gap: 14px; }
+
+:root:root .popup-container .action-slider {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-hover) 85%, var(--text-primary) 3%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .035);
+}
+
+:root:root .popup-container .action-highlight {
+  border-radius: 999px;
+  background: linear-gradient(130deg, color-mix(in srgb, var(--primary-accent) 94%, #aeb8e8), var(--primary-accent));
+  box-shadow: 0 3px 12px rgba(113, 124, 173, .18), 0 1px 3px rgba(0, 0, 0, .12);
+}
+
+:root:root .popup-container .action-option { border-radius: 999px; }
+:root:root .lang-label, :root:root .popup-container .row-title { letter-spacing: .01em; }
+:root:root .popup-container .stitch-select {
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: 12px;
+  background-color: color-mix(in srgb, var(--bg-secondary) 74%, var(--bg-input));
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+:root:root .popup-container .stitch-select:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-light);
+}
+:root:root .popup-container .provider-section {
+  border-top-color: color-mix(in srgb, var(--border-color) 65%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:root .popup-container .stitch-select { transition: none; }
+}

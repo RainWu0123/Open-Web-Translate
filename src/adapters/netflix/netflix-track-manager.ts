@@ -51,6 +51,18 @@ export function isBitmapImsc(xml: string): boolean {
   );
 }
 
+function chineseScript(language: string, label = ''): 'hant' | 'hans' | '' {
+  const lang = language.toLowerCase().replace(/_/g, '-');
+  // Explicit script wins over a conflicting region or display label.
+  if (/(?:^|-)(?:hant|cht)(?:-|$)/.test(lang)) return 'hant';
+  if (/(?:^|-)(?:hans|chs)(?:-|$)/.test(lang)) return 'hans';
+  if (/(?:^|-)(?:tw|hk|mo)(?:-|$)/.test(lang)) return 'hant';
+  if (/(?:^|-)(?:cn|sg)(?:-|$)/.test(lang)) return 'hans';
+  if (/繁體|繁体|traditional/i.test(label)) return 'hant';
+  if (/简体|簡體|simplified/i.test(label)) return 'hans';
+  return '';
+}
+
 export function trackMatchesTargetLanguage(
   track: { language: string; label: string },
   targetLang: string,
@@ -85,7 +97,10 @@ export function trackMatchesTargetLanguage(
       label.includes('国语') ||
       label.includes('粵語') ||
       label.includes('粤语');
-    return isChineseLang || isChineseLabel;
+    if (!isChineseLang && !isChineseLabel) return false;
+    const requestedScript = chineseScript(target);
+    const trackScript = chineseScript(lang, label);
+    return !requestedScript || !trackScript || requestedScript === trackScript;
   }
 
   if (lang.startsWith(targetPrefix)) return true;
@@ -113,8 +128,8 @@ export class NetflixTrackManager implements INetflixTrackManager {
   private listeners: Set<(tracks: DiscoveredTrack[]) => void> = new Set();
   private observer: PerformanceObserver | null = null;
 
-  constructor() {
-    this.startPerformanceObserver();
+  constructor(observePerformance = true) {
+    if (observePerformance) this.startPerformanceObserver();
   }
 
   public getAdapterState(): AdapterState {
@@ -181,7 +196,12 @@ export class NetflixTrackManager implements INetflixTrackManager {
   public findBestMatchingTrack(targetLang: string = this.targetLang): DiscoveredTrack | undefined {
     // Discovery is progressive: prefer a language match that already has a
     // download URL over one that may still be hydrating its manifest entry.
-    const matches = this.discoveredTracks.filter((t) => trackMatchesTargetLanguage(t, targetLang));
+    let matches = this.discoveredTracks.filter((t) => trackMatchesTargetLanguage(t, targetLang));
+    const requestedScript = chineseScript(targetLang);
+    if (requestedScript) {
+      const explicit = matches.filter(t => chineseScript(t.language, t.label) === requestedScript);
+      if (explicit.length) matches = explicit;
+    }
     return matches.find((t) => t.url) ?? matches[0];
   }
 

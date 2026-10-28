@@ -22,15 +22,26 @@ export function parseIndexedTranslations(
   }
 
   const output = typeof rawOutput === 'string' ? rawOutput : String(rawOutput ?? '');
-  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => Boolean(line) && !/^```(?:[a-z0-9_-]+)?$/i.test(line));
   if (lines.length === 0) {
     throw formatError(providerId, `${providerLabel} returned an empty translation`);
   }
 
   const indexed = new Map<number, string>();
+  let lastIndex: number | null = null;
   for (const line of lines) {
-    const match = line.match(/^\[(\d+)\]\s*(.*)$/);
+    const match = line.match(/^(?:[-*•]\s*)?\[(\d+)\]\s*(.*)$/);
     if (!match) {
+      if (lastIndex !== null && !lines.some((l) => l !== line && !/^(?:[-*•]\s*)?\[\d+\]/.test(l) && lines.indexOf(l) === 0)) {
+        const prev = indexed.get(lastIndex);
+        if (prev) {
+          indexed.set(lastIndex, `${prev} ${line}`.trim());
+          continue;
+        }
+      }
       throw formatError(providerId, `${providerLabel} response contains unindexed content; expected "[idx] translation" for every segment`);
     }
     const index = Number(match[1]);
@@ -45,6 +56,7 @@ export function parseIndexedTranslations(
       throw formatError(providerId, `${providerLabel} response has an empty translation for segment ${index}`);
     }
     indexed.set(index, translatedText);
+    lastIndex = index;
   }
 
   if (indexed.size !== expectedCount) {

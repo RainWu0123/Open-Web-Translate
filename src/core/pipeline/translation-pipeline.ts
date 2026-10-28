@@ -67,8 +67,13 @@ export class TranslationPipeline {
     // Brand-new installs must see the data-transfer disclosure before the
     // first remote translation request. Local providers remain usable.
     // Undefined is intentionally allowed so existing installs are not
-    // retroactively blocked during upgrade.
-    if (settings.remoteProviderDisclosureVersion === 0 && provider.isLocal !== true) {
+    // retroactively blocked during upgrade. Video subtitles explicitly enabled
+    // by the user are also allowed so playback is never blocked.
+    if (
+      msg.usage !== 'video' &&
+      settings.remoteProviderDisclosureVersion === 0 &&
+      provider.isLocal !== true
+    ) {
       throw new ConfigurationError(
         '使用雲端或遠端翻譯服務前，請先在 Open Web Translate 設定頁確認資料傳輸說明。',
       );
@@ -79,6 +84,10 @@ export class TranslationPipeline {
 
     const cacheIdentity = getProviderCacheIdentity(activeProviderId, settings);
     const cacheProviderId = cacheIdentity.providerId;
+    const norm = (value?: string): string | undefined => {
+      const cleaned = value?.trim().replace(/\s+/g, ' ');
+      return cleaned ? cleaned : undefined;
+    };
     const contextPairs =
       provider.capabilities?.context && msg.context?.previous?.length
         ? msg.context.previous.map((pair) => ({
@@ -86,30 +95,60 @@ export class TranslationPipeline {
             translation: pair.translation.trim().replace(/\s+/g, ' '),
           }))
         : [];
-    const contextFingerprint =
-      provider.capabilities?.context && msg.context
-        ? await sha256(JSON.stringify({ previous: contextPairs,
-            title: msg.context.title?.trim().replace(/\s+/g, ' '),
-            previousText: msg.context.previousText?.trim().replace(/\s+/g, ' '),
-            nextText: msg.context.nextText?.trim().replace(/\s+/g, ' '),
-            scene: msg.segments.map(segment => segment.text.trim().replace(/\s+/g, ' ')),
-          }))
-        : 'none';
-    const providerFingerprint =
-      `${cacheIdentity.fingerprint};context=${contextFingerprint}`;
+    const prevContextLines = (msg.context?.previousText || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const nextContextLines = (msg.context?.nextText || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const computeSegmentProviderFingerprint = async (segIndex: number): Promise<string> => {
+      if (!provider.capabilities?.context || !msg.context) {
+        return `${cacheIdentity.fingerprint};context=none`;
+      }
+      const prevLine =
+        segIndex > 0
+          ? norm(msg.segments[segIndex - 1].text)
+          : norm(prevContextLines.at(-1));
+      const nextLine =
+        segIndex + 1 < msg.segments.length
+          ? norm(msg.segments[segIndex + 1].text)
+          : norm(nextContextLines[0]);
+
+      const contextHash = await sha256(
+        JSON.stringify({
+          title: norm(msg.context.title),
+          prevLine,
+          nextLine,
+          ...(prevLine === undefined && contextPairs.length > 0 ? { previous: contextPairs } : {}),
+        }),
+      );
+      return `${cacheIdentity.fingerprint};context=${contextHash}`;
+    };
+
+    const segmentFingerprints = await Promise.all(
+      msg.segments.map((_, index) => computeSegmentProviderFingerprint(index)),
+    );
+    const fingerprintBySegmentId = new Map<string, string>(
+      msg.segments.map((seg, index) => [seg.id, segmentFingerprints[index]]),
+    );
 
     // 1. Concurrent cache lookups (were N sequential IndexedDB roundtrips)
     const cacheHits = await Promise.all(
-      msg.segments.map((seg) => msg.bypassCache ? Promise.resolve({ seg, cached: null }) :
-        this.cacheRepo
-          .get({
-            sourceText: seg.text,
-            sourceLanguage: msg.sourceLanguage,
-            targetLanguage: msg.targetLanguage,
-            providerId: cacheProviderId,
-            providerFingerprint,
-          })
-          .then((cached) => ({ seg, cached })),
+      msg.segments.map((seg, index) =>
+        msg.bypassCache
+          ? Promise.resolve({ seg, cached: null })
+          : this.cacheRepo
+              .get({
+                sourceText: seg.text,
+                sourceLanguage: msg.sourceLanguage,
+                targetLanguage: msg.targetLanguage,
+                providerId: cacheProviderId,
+                providerFingerprint: segmentFingerprints[index],
+              })
+              .then((cached) => ({ seg, cached })),
       ),
     );
 
@@ -160,6 +199,27 @@ export class TranslationPipeline {
       cacheable: boolean;
     }> = [];
 
+    const canFallbackForVideo =
+      msg.usage === 'video' &&
+      !msg.forceProvider &&
+      provider.isLocal !== true &&
+      activeProviderId !== 'google-provider';
+
+    const translateWithVideoFallback = async (
+      fallbackBatch: Array<{ id: string; text: string }>,
+    ): Promise<Map<string, string>> => {
+      const fallbackProvider = getProvider('google-provider', settings);
+      const fallbackResult = await fallbackProvider.translate({
+        segments: fallbackBatch.map((s) => ({ id: s.id as any, text: s.text })),
+        sourceLanguage: msg.sourceLanguage as any,
+        targetLanguage: msg.targetLanguage as any,
+        mode: 'fast',
+      });
+      return new Map(
+        fallbackResult.segments.map((result) => [result.id as string, result.text]),
+      );
+    };
+
     // A failed service is an error, never a successful echo of the source.
     // Keep the selected provider and its privacy boundary explicit. Batches
     // are executed sequentially so local providers are not overloaded and
@@ -198,10 +258,47 @@ export class TranslationPipeline {
           : {}),
       };
 
-      const providerResult = await provider.translate(request);
-      const resultById = new Map(
-        providerResult.segments.map((result) => [result.id as string, result.text]),
-      );
+      let resultById = new Map<string, string>();
+      let batchCacheable = true;
+      const fallbackSegmentIds = new Set<string>();
+
+      try {
+        const providerResult = await provider.translate(request);
+        batchCacheable = providerResult.cacheable;
+        resultById = new Map(
+          providerResult.segments.map((result) => [result.id as string, result.text]),
+        );
+      } catch (primaryError) {
+        if (!canFallbackForVideo) {
+          throw primaryError;
+        }
+        logger.warn(
+          `Primary video provider (${activeProviderId}) failed; falling back to google-provider for ${batch.length} subtitle cue(s)`,
+          primaryError,
+        );
+        resultById = await translateWithVideoFallback(batch);
+        batchCacheable = false;
+        for (const seg of batch) fallbackSegmentIds.add(seg.id);
+      }
+
+      const missingSegments = batch.filter((segment) => !resultById.get(segment.id)?.trim());
+      if (missingSegments.length > 0 && canFallbackForVideo) {
+        try {
+          logger.warn(
+            `Primary video provider (${activeProviderId}) omitted ${missingSegments.length}/${batch.length} subtitle cue(s); filling missing cues via google-provider`,
+          );
+          const repairedMap = await translateWithVideoFallback(missingSegments);
+          for (const seg of missingSegments) {
+            const repairedText = repairedMap.get(seg.id)?.trim();
+            if (repairedText) {
+              resultById.set(seg.id, repairedText);
+              fallbackSegmentIds.add(seg.id);
+            }
+          }
+        } catch (fallbackErr) {
+          logger.warn('Fallback for omitted video subtitle cues failed', fallbackErr);
+        }
+      }
 
       if (batch.some((segment) => !resultById.get(segment.id)?.trim())) {
         throw new Error('翻譯服務未回傳完整譯文，請重試或更換服務。');
@@ -213,7 +310,7 @@ export class TranslationPipeline {
         translatedForCache.push({
           source: segment,
           translatedText,
-          cacheable: providerResult.cacheable,
+          cacheable: batchCacheable && !fallbackSegmentIds.has(segment.id),
         });
       }
     }
@@ -230,7 +327,9 @@ export class TranslationPipeline {
             sourceLanguage: msg.sourceLanguage,
             targetLanguage: msg.targetLanguage,
             providerId: cacheProviderId,
-            providerFingerprint,
+            providerFingerprint:
+              fingerprintBySegmentId.get(entry.source.id) ||
+              `${cacheIdentity.fingerprint};context=none`,
           }),
         ),
     );

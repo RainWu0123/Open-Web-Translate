@@ -38,6 +38,7 @@ export interface NetflixAiPrefetchHost {
 export class NetflixAiPrefetchController {
   private active = false;
   private epoch = 0;
+  private loadRequest = 0;
   private loadedTarget = '';
   private sourceTrackId = '';
   private sourceLanguage = 'auto';
@@ -87,6 +88,7 @@ export class NetflixAiPrefetchController {
   }
 
   public reset(): void {
+    this.loadRequest += 1;
     this.stop();
     this.sourceTrackId = '';
     this.sourceLanguage = 'auto';
@@ -114,18 +116,21 @@ export class NetflixAiPrefetchController {
    * neighbourhood. The full timing track is available immediately; translated
    * text is filled into an in-memory cue cache in rolling batches.
    */
-  public async load(track: DiscoveredTrack): Promise<boolean> {
+  public async load(track: DiscoveredTrack, commitGuard: () => boolean = () => true, beforeCommit?: () => void): Promise<boolean> {
     const generation = this.host.routeGeneration();
-    this.reset();
     const epoch = this.epoch;
+    const request = ++this.loadRequest;
     const target = this.host.targetLanguage();
 
     try {
       const xml = await this.host.fetchTtml(track.url);
-      if (epoch !== this.epoch || !this.host.isActive() || this.host.routeGeneration() !== generation || this.host.targetLanguage() !== target) return false;
+      if (request !== this.loadRequest || epoch !== this.epoch || !commitGuard() || !this.host.isActive() || this.host.routeGeneration() !== generation || this.host.targetLanguage() !== target) return false;
 
       const parsed = this.host.parseTtml(xml);
       if (parsed.length === 0) throw new Error('empty source track');
+
+      beforeCommit?.();
+      this.reset();
 
       this.cues = [...parsed].sort((a, b) => a.startMs - b.startMs).map((cue, index) => ({
         ...cue,
@@ -155,9 +160,8 @@ export class NetflixAiPrefetchController {
       });
       return true;
     } catch (error) {
-      if (epoch !== this.epoch) return false;
+      if (request !== this.loadRequest || epoch !== this.epoch || !commitGuard()) return false;
       logger.warn('Failed to start AI subtitle prefetch mode', error);
-      this.reset();
       return false;
     }
   }
@@ -306,8 +310,12 @@ export class NetflixAiPrefetchController {
       }
 
       succeeded = true;
-      if (prioritizeCurrent && (options.allowRescue ?? true)) {
-        rescueIndex = missing.find((cue) => !this.translations.has(cue.id))?.index ?? -1;
+      if (options.allowRescue ?? true) {
+        if (this.currentCue && missing.some((cue) => cue.id === this.currentCue?.id) && !this.translations.has(this.currentCue.id)) {
+          rescueIndex = this.currentCue.index;
+        } else if (prioritizeCurrent) {
+          rescueIndex = missing.find((cue) => !this.translations.has(cue.id))?.index ?? -1;
+        }
       }
 
       if (this.currentCue) {
@@ -330,7 +338,13 @@ export class NetflixAiPrefetchController {
     } catch (error) {
       if (epoch !== this.epoch || this.host.targetLanguage() !== target) return;
       logger.warn('AI subtitle prefetch batch failed', error);
-      if (prioritizeCurrent && (options.allowRescue ?? true) && cueLimit > 1) rescueIndex = anchorIndex;
+      if ((options.allowRescue ?? true) && cueLimit > 1) {
+        if (this.currentCue && missing.some((cue) => cue.id === this.currentCue?.id)) {
+          rescueIndex = this.currentCue.index;
+        } else if (prioritizeCurrent) {
+          rescueIndex = anchorIndex;
+        }
+      }
       if (this.currentCue && missing.some((cue) => cue.id === this.currentCue?.id)) {
         this.host.renderCueLine(this.currentCue.text,
           rescueIndex >= 0 ? this.status('subtitle.prefetchRetrying') : this.status('subtitle.prefetchUnavailable'),
@@ -346,20 +360,24 @@ export class NetflixAiPrefetchController {
       this.host.routeGeneration() !== generation ||
       this.sourceTrackId !== trackId ||
       this.loadedTarget !== target ||
-      this.host.targetLanguage() !== target ||
-      windowEpoch !== this.prefetchWindowEpoch
+      this.host.targetLanguage() !== target
     ) return;
 
     if (rescueIndex >= 0) {
-      void this.prefetchWindow(rescueIndex, {
+      await this.prefetchWindow(rescueIndex, {
         prioritizeCurrent: true,
         horizonEndMs,
-        windowEpoch,
+        windowEpoch: this.prefetchWindowEpoch,
         batchLimit: 1,
         allowRescue: false,
       });
+      if (this.active && epoch === this.epoch && this.prefetchWindowEpoch === windowEpoch) {
+        this.continuePrefetch(endExclusive, horizonEndMs, windowEpoch);
+      }
       return;
     }
+
+    if (windowEpoch !== this.prefetchWindowEpoch) return;
 
     if (succeeded) this.continuePrefetch(endExclusive, horizonEndMs, windowEpoch);
   }

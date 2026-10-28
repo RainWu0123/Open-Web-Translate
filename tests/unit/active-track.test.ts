@@ -17,13 +17,18 @@ describe('pickActiveTrackId (cadmium active-track heuristics)', () => {
     expect(pickActiveTrackId([{ trackId: 'c', isCurrentSubtitle: true }])).toBe('c');
   });
 
-  it('falls back to isNoneTrack=false + bcp47 language when the "off" track is flagged', () => {
-    // Cadmium sometimes flags the NONE track; never pick it.
+  it('does not guess a subtitle track when "off" is selected', () => {
     const list = [
       { trackId: 'off', isNoneTrack: true, active: true },
       { trackId: 'real', language: 'en', isNoneTrack: false },
     ];
-    expect(pickActiveTrackId(list)).toBe('real');
+    expect(pickActiveTrackId(list)).toBeNull();
+  });
+
+  it('uses the observed Netflix getTimedTextTrack object when tracks have no flags', () => {
+    const list = [{ trackId: 'ja', language: 'ja' }, { trackId: 'zh', language: 'zh-Hant' }];
+    expect(pickActiveTrackId(list, { getTimedTextTrack: () => ({ trackId: 'ja', bcp47: 'ja' }) })).toBe('ja');
+    expect(pickActiveTrackId(list, { getTimedTextTrack: () => ({ trackId: 'missing' }) })).toBeNull();
   });
 
   it('returns null when nothing is flagged (no false positives)', () => {

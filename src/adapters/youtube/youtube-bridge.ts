@@ -15,6 +15,8 @@ export const YT_BRIDGE = {
     REQUEST_TRACKS: 'OWT_YT_REQUEST_TRACKS',
     SET_TRACK: 'OWT_YT_SET_TRACK',
     TRACK_SET_RESULT: 'OWT_YT_TRACK_SET_RESULT',
+    FETCH_TIMEDTEXT: 'OWT_YT_FETCH_TIMEDTEXT',
+    TIMEDTEXT_RESULT: 'OWT_YT_TIMEDTEXT_RESULT',
   },
 } as const;
 
@@ -24,6 +26,16 @@ export interface YouTubeTrack {
   label: string;
   kind?: string;
   isDefault?: boolean;
+  baseUrl?: string;
+}
+
+/** Resolve an explicit YouTube track without silently choosing a sibling. */
+export function findExactResponseTrack<T extends { vssId?: string; languageCode?: string; kind?: string }>(
+  tracks: T[], languageCode?: string, kind?: string, vssId?: string,
+): T | undefined {
+  if (vssId) return tracks.find(track => track.vssId === vssId);
+  const matches = tracks.filter(track => track.languageCode === languageCode && (track.kind || '') === (kind || ''));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export interface YouTubeTracksUpdatedPayload {

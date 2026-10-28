@@ -2,36 +2,36 @@
   <div class="flashcard-workbench" data-testid="flashcard-workbench">
     <p v-if="reviewError" role="alert" class="review-error">{{ reviewError }}</p>
     <div v-if="!dueCards.length" class="fc-summary-card">
-      <h2>{{ cards.length ? '目前沒有待複習的單字' : '還沒有收藏的單字' }}</h2>
-      <p>{{ cards.length ? '下次到期時再回來複習。你也可以到單字收藏查看所有單字。' : '在字幕中點選單字收藏，或到「我的單字」手動新增。' }}</p>
-      <button class="btn btn-primary" @click="$emit('close')">前往我的單字</button>
+      <h2>{{ tr(cards.length ? 'noDue' : 'noCards') }}</h2>
+      <p>{{ tr(cards.length ? 'noDueDesc' : 'noCardsDesc') }}</p>
+      <button class="btn btn-primary" @click="$emit('close')">{{ tr('goWords') }}</button>
     </div>
     <!-- Review Complete Summary -->
     <div v-else-if="isComplete" class="fc-summary-container" data-testid="fc-summary">
       <div class="fc-summary-card">
-        <div class="summary-badge">已完成</div>
-        <h2 class="summary-title">本輪複習完成</h2>
-        <p class="summary-desc">評分已儲存，下次複習日期已更新。</p>
+        <div class="summary-badge">{{ tr('completed') }}</div>
+        <h2 class="summary-title">{{ tr('reviewComplete') }}</h2>
+        <p class="summary-desc">{{ tr('reviewSaved') }}</p>
         <div class="summary-stats-grid">
           <div class="stat-box again">
-            <span class="stat-label">生疏 (1)</span>
+            <span class="stat-label">{{ tr('again') }} (1)</span>
             <b class="stat-num">{{ stats.again }}</b>
           </div>
           <div class="stat-box hard">
-            <span class="stat-label">困難 (2)</span>
+            <span class="stat-label">{{ tr('hard') }} (2)</span>
             <b class="stat-num">{{ stats.hard }}</b>
           </div>
           <div class="stat-box good">
-            <span class="stat-label">良好 (3)</span>
+            <span class="stat-label">{{ tr('good') }} (3)</span>
             <b class="stat-num">{{ stats.good }}</b>
           </div>
           <div class="stat-box easy">
-            <span class="stat-label">容易 (4)</span>
+            <span class="stat-label">{{ tr('easy') }} (4)</span>
             <b class="stat-num">{{ stats.easy }}</b>
           </div>
         </div>
         <div class="summary-actions">
-          <button class="btn btn-primary" @click="$emit('close')">返回我的單字</button>
+          <button class="btn btn-primary" @click="$emit('close')">{{ tr('backWords') }}</button>
         </div>
       </div>
     </div>
@@ -44,28 +44,28 @@
         <div class="fc-top-info">
           <div class="fc-info-left">
             <span class="fc-counter" data-testid="fc-counter">
-              第 {{ currentIndex + 1 }} / {{ dueCards.length }} 張
+              {{ tr('counter', { current: currentIndex + 1, total: dueCards.length }) }}
             </span>
             <span class="fc-divider">·</span>
             <span class="fc-meta-level">
-              {{ currentCardLevel }} · {{ currentCard.pos || '單詞' }}
+              {{ currentCardLevel }} · {{ currentCard.pos || tr('word') }}
             </span>
           </div>
 
           <div class="fc-info-right">
-            <span class="fc-shortcut-hint">按 <kbd class="fc-kbd">[SPACE]</kbd> 翻面</span>
+            <span class="fc-shortcut-hint">{{ tr('flipHint') }}</span>
             <button
               class="fc-audio-action-btn"
               @click.stop="playAudio"
-              title="朗讀發音 (按 V)"
+              :title="tr('speakShortcut')"
               data-testid="fc-audio-btn"
             >
               <svg class="fc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
               </svg>
-              <span>發音 (V)</span>
+              <span>{{ tr('speak') }}</span>
             </button>
-            <button class="fc-exit-btn" @click="$emit('close')" title="結束複習">✕</button>
+            <button class="fc-exit-btn" @click="$emit('close')" :title="tr('endReview')" :aria-label="tr('endReview')">✕</button>
           </div>
         </div>
 
@@ -83,7 +83,7 @@
                 <span class="fc-phonetic-top" v-if="currentCard.phonetic">
                   [{{ currentCard.phonetic }}]
                 </span>
-                <span class="fc-reveal-tag">點擊看答案</span>
+                <span class="fc-reveal-tag">{{ tr('reveal') }}</span>
               </div>
 
               <div class="fc-face-body">
@@ -94,7 +94,7 @@
               </div>
 
               <div class="fc-face-footer">
-                點擊卡片或按鍵盤空白鍵揭開釋義
+                {{ tr('revealHint') }}
               </div>
             </div>
 
@@ -105,7 +105,7 @@
                   <span class="fc-back-term">{{ currentCard.word }}</span>
                   <span class="fc-back-phonetic" v-if="currentCard.phonetic">[{{ currentCard.phonetic }}]</span>
                 </div>
-                <span class="fc-revealed-tag">答案</span>
+                <span class="fc-revealed-tag">{{ tr('answer') }}</span>
               </div>
 
               <div class="fc-face-body fc-back-body">
@@ -124,7 +124,7 @@
               </div>
 
               <div class="fc-face-footer">
-                請按下方評分或鍵盤 1-4 記錄複習成果
+                {{ tr('gradeHint') }}
               </div>
             </div>
           </div>
@@ -138,7 +138,7 @@
             data-testid="grade-again-btn"
           >
             <div class="grade-info">
-              <div class="grade-name">生疏</div>
+              <div class="grade-name">{{ tr('again') }}</div>
               <div class="grade-interval">{{ intervalLabel('again') }}</div>
             </div>
             <kbd class="grade-kbd">1</kbd>
@@ -150,7 +150,7 @@
             data-testid="grade-hard-btn"
           >
             <div class="grade-info">
-              <div class="grade-name">困難</div>
+              <div class="grade-name">{{ tr('hard') }}</div>
               <div class="grade-interval">{{ intervalLabel('hard') }}</div>
             </div>
             <kbd class="grade-kbd">2</kbd>
@@ -162,7 +162,7 @@
             data-testid="grade-good-btn"
           >
             <div class="grade-info">
-              <div class="grade-name">良好</div>
+              <div class="grade-name">{{ tr('good') }}</div>
               <div class="grade-interval">{{ intervalLabel('good') }}</div>
             </div>
             <kbd class="grade-kbd">3</kbd>
@@ -174,7 +174,7 @@
             data-testid="grade-easy-btn"
           >
             <div class="grade-info">
-              <div class="grade-name">容易</div>
+              <div class="grade-name">{{ tr('easy') }}</div>
               <div class="grade-interval">{{ intervalLabel('easy') }}</div>
             </div>
             <kbd class="grade-kbd">4</kbd>
@@ -184,7 +184,7 @@
         <!-- Flip Prompt Bar (shown when front face is visible) -->
         <div v-else class="fc-unflipped-controls">
           <button class="fc-flip-btn" @click="flip">
-            <span>翻轉查看釋義 (空白鍵 / Enter)</span>
+            <span>{{ tr('flipButton') }}</span>
           </button>
         </div>
       </div>
@@ -195,22 +195,22 @@
         <div class="fc-inspector-card">
           <div class="inspector-section">
             <div class="inspector-header">
-              <span class="inspector-title">單字資料</span>
-              <span class="stage-pill">已複習次數 {{ currentCard.srs?.repetition || 0 }}</span>
+              <span class="inspector-title">{{ tr('details') }}</span>
+              <span class="stage-pill">{{ tr('reviewCount', { count: currentCard.srs?.repetition || 0 }) }}</span>
             </div>
 
             <div class="inspector-specs">
               <div class="spec-row">
-                <span class="spec-label">原形 (Lemma)</span>
+                <span class="spec-label">{{ tr('lemma') }}</span>
                 <span class="spec-val font-term">{{ currentCard.lemma || currentCard.word }}</span>
               </div>
               <div class="spec-row">
-                <span class="spec-label">詞性 (POS)</span>
-                <span class="spec-val">{{ currentCard.pos || '未標註' }}</span>
+                <span class="spec-label">{{ tr('pos') }}</span>
+                <span class="spec-val">{{ currentCard.pos || tr('notTagged') }}</span>
               </div>
 
               <div class="spec-row">
-                <span class="spec-label">收藏標籤</span>
+                <span class="spec-label">{{ tr('tags') }}</span>
                 <span class="spec-val font-mono">{{ currentCardLevel }}</span>
               </div>
             </div>
@@ -219,13 +219,13 @@
 
           <div class="inspector-actions">
             <a v-if="sourceLink" :href="sourceLink" target="_blank" rel="noopener noreferrer" class="btn-inspector-copy" data-testid="review-source">
-              {{ currentCard.mediaTimestampMs !== undefined ? '回看影片 · ' + sourceTime : '查看原始出處' }}
+              {{ currentCard.mediaTimestampMs !== undefined ? tr('watchVideo', { time: sourceTime }) : tr('viewSource') }}
             </a>
             <button class="btn-inspector-audio" @click="playAudio">
               <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
               </svg>
-              <span>使用系統語音朗讀</span>
+              <span>{{ tr('systemVoice') }}</span>
             </button>
             <button class="btn-inspector-copy" @click="copyMarkdownCard">
               <span>{{ copyStatusText }}</span>
@@ -235,18 +235,18 @@
 
         <!-- Keyboard Shortcut Guide Card -->
         <div class="fc-shortcuts-card">
-          <div class="shortcuts-title">鍵盤快捷鍵指引</div>
+          <div class="shortcuts-title">{{ tr('shortcuts') }}</div>
           <div class="shortcuts-list">
             <div class="shortcut-row">
-              <span class="shortcut-label">翻轉卡片</span>
+              <span class="shortcut-label">{{ tr('flip') }}</span>
               <kbd class="shortcut-kbd">SPACE</kbd>
             </div>
             <div class="shortcut-row">
-              <span class="shortcut-label">單字語音朗讀</span>
+              <span class="shortcut-label">{{ tr('speakWord') }}</span>
               <kbd class="shortcut-kbd">V</kbd>
             </div>
             <div class="shortcut-row">
-              <span class="shortcut-label">生疏 / 困難 / 良好 / 容易</span>
+              <span class="shortcut-label">{{ tr('grades') }}</span>
               <kbd class="shortcut-kbd">1 - 4</kbd>
             </div>
           </div>
@@ -262,12 +262,16 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import { SrsEngine } from '@/core/learning/srs-engine';
 import { ttsPlayer } from '@/shared/audio/tts-player';
+import { learningText, type LearningKey } from '@/shared/i18n/learning';
 
 const props = defineProps<{
   cards: LearningCard[];
   saveReview?: (id: string, grade: SrsGrade) => Promise<void>;
   t?: (key: string) => string;
+  language?: string;
 }>();
+
+const tr = (key: LearningKey, vars?: Record<string, string | number>) => learningText(props.language, key, vars);
 
 const emit = defineEmits<{
   (e: 'review', cardId: string, grade: SrsGrade): void;
@@ -279,7 +283,8 @@ const isFlipped = ref(false);
 const isComplete = ref(false);
 const isSaving = ref(false);
 const reviewError = ref('');
-const copyStatusText = ref('複製 Markdown 單字卡');
+const copyStatus = ref<'copy' | 'copied' | 'copyFailed'>('copy');
+const copyStatusText = computed(() => tr(copyStatus.value));
 
 const stats = ref({
   again: 0,
@@ -305,11 +310,11 @@ const sourceTime = computed(() => {
 });
 
 const currentCardLevel = computed(() =>
-  currentCard.value?.tags?.find(tag => /^(JLPT|CEFR)\b/.test(tag)) || '未標註'
+  currentCard.value?.tags?.find(tag => /^(JLPT|CEFR)\b/.test(tag)) || tr('notTagged')
 );
 function intervalLabel(grade: SrsGrade) {
   if (!currentCard.value) return '';
-  return SrsEngine.calculateNextState(currentCard.value.srs, grade).interval + ' 天後';
+  return tr('days', { count: SrsEngine.calculateNextState(currentCard.value.srs, grade).interval });
 }
 function flip() {
   if (!isSaving.value) isFlipped.value = !isFlipped.value;
@@ -317,8 +322,8 @@ function flip() {
 
 function playAudio() {
   if (!currentCard.value) return;
-  if (!ttsPlayer.isSupported()) { reviewError.value = '這個瀏覽器不支援朗讀。'; return; }
-  void ttsPlayer.speak(currentCard.value.word, currentCard.value.sourceLang || 'auto').catch(() => { reviewError.value = '朗讀失敗，請檢查系統語音是否可用。'; });
+  if (!ttsPlayer.isSupported()) { reviewError.value = tr('audioUnsupported'); return; }
+  void ttsPlayer.speak(currentCard.value.word, currentCard.value.sourceLang || 'auto').catch(() => { reviewError.value = tr('audioFailed'); });
 }
 
 // Saved sentences originate from arbitrary web pages / subtitles and are
@@ -363,19 +368,19 @@ async function submitGrade(grade: SrsGrade) {
     if (currentIndex.value + 1 < dueCards.value.length) currentIndex.value += 1;
     else isComplete.value = true;
   } catch {
-    reviewError.value = '尚未儲存這次評分，請再按一次重試。';
+    reviewError.value = tr('reviewFailed');
   } finally { isSaving.value = false; }
 }
 
 async function copyMarkdownCard() {
   if (!currentCard.value) return;
   const c = currentCard.value;
-  const md = `### ${c.word} [${c.phonetic || ''}]\n- **詞性**: ${c.pos || ''} (${currentCardLevel.value})\n- **釋義**: ${c.meaning}\n- **例句**: ${c.contextSentence || ''}\n- **譯文**: ${c.contextTranslation || ''}`;
+  const md = `### ${c.word} [${c.phonetic || ''}]\n- **${tr('pos')}**: ${c.pos || ''} (${currentCardLevel.value})\n- **${tr('meaning')}**: ${c.meaning}\n- **${tr('example')}**: ${c.contextSentence || ''}\n- **${tr('translation')}**: ${c.contextTranslation || ''}`;
   try { await navigator.clipboard.writeText(md); }
-  catch { copyStatusText.value = '複製失敗，請允許剪貼簿存取'; return; }
-  copyStatusText.value = '✓ 已複製 Markdown';
+  catch { copyStatus.value = 'copyFailed'; return; }
+  copyStatus.value = 'copied';
   setTimeout(() => {
-    copyStatusText.value = '複製 Markdown 單字卡';
+    copyStatus.value = 'copy';
   }, 1200);
 }
 

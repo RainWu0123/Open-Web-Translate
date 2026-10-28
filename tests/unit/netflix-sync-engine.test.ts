@@ -53,4 +53,24 @@ describe('NetflixSyncEngine Unit Tests', () => {
 
     engine.stop();
   });
+
+  it('emits empty intervals only once and resets on a new timeline and seeks', () => {
+    const cb = vi.fn();
+    engine.setCues(sampleCues);
+    engine.start(cb);
+    engine.syncOnce(4500);
+    engine.syncOnce(4600);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenLastCalledWith(null, 4500);
+    engine.syncOnce(2000);
+    expect(cb).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'First Cue' }), 2000);
+    engine.syncOnce(4500);
+    expect(cb).toHaveBeenLastCalledWith(null, 4500);
+    cb.mockClear();
+    engine.setCues(sampleCues);
+    engine.syncOnce(4500);
+    expect(cb).toHaveBeenCalledOnce();
+    expect(cb).toHaveBeenLastCalledWith(null, 4500);
+    engine.stop();
+  });
 });

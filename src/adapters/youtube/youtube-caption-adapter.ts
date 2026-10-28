@@ -2,11 +2,20 @@ import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { createLogger } from '@/shared/logger';
 import { DEFAULT_SETTINGS } from '@/shared/constants';
 import { CaptionAdapterBase } from '@/adapters/caption-adapter-base';
-import { composeBilingualLines, type BilingualDisplayMode } from '@/shared/subtitles/bilingual-lines';
 import { DictionaryPopover } from '@/shared/ui/dictionary-popover';
+import { SubtitleOverlayRenderer } from '@/shared/ui/subtitle-overlay-renderer';
 import { tokenizeText } from '@/core/session/subtitle-session-store';
+import { NetflixSyncEngine } from '@/adapters/netflix/netflix-sync-engine';
+import { mergeSubtitleTimelines } from '@/shared/subtitles/dual-track-timeline';
+import { NetflixAiPrefetchController, type AiPrefetchRenderState } from '@/adapters/netflix/netflix-ai-prefetch';
+import { trackMatchesTargetLanguage, type DiscoveredTrack } from '@/adapters/netflix/netflix-track-manager';
+import type { TranslationContext } from '@/core/contracts/translation';
+import { translate, type TranslationKey } from '@/shared/i18n';
+import { normalizeSubtitleCueText } from '@/shared/utils/subtitle-text';
+import { SubtitlePreferenceStorage, type SubtitleTranslationPreference } from '@/infrastructure/storage/extension-storage/subtitle-preference-storage';
 
 import { YT_BRIDGE, postToMain, subscribeToYouTubeBridge, type YouTubeTrack } from './youtube-bridge';
+import { parseYouTubeTimedText } from './youtube-timedtext-parser';
 
 const logger = createLogger('YouTubeCaptionAdapter');
 
@@ -26,19 +35,80 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
 
   private discoveredTracks: YouTubeTrack[] = [];
   private selectedTrackId: string | null = null;
+  private originalSourceId: string | null = null;
+  private translationSourceId: string | null = null;
+  private subtitlePreference: SubtitleTranslationPreference = { mode: 'native' };
+  private subtitlePreferenceReady = true;
+  private nativeFallback = false;
+  private attemptedNativeKey = '';
+  private nativePairActive = false;
+  private selectionEpoch = 0;
+  private domRenderEpoch = 0;
+  private pendingSelectionEpoch: number | null = null;
+  private nativePairOriginalLanguage = '';
+  private strictPrefetchSource: { id: string; url: string; epoch: number } | null = null;
+  private lastSettingsTarget: string | null = null;
   private unsubscribeBridge: (() => void) | null = null;
   private pendingTrackChanges = new Map<string, {
     resolve: (ok: boolean) => void;
     timer: ReturnType<typeof setTimeout>;
   }>();
+  private pendingTimedTextRequests = new Map<string, {
+    resolve: (payload: string) => void;
+    reject: (err: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  private uiLanguage = 'auto';
+  private lastProcessedText = '';
+  private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly clearGraceMs = 1500;
+  private lastRenderedSentence: { original: string; translated: string } | null = null;
+  private tokenListenerAttached = false;
+  private aiLoading: Promise<boolean> | null = null;
+  private aiLoadingKey = '';
+  private aiLoadEpoch = 0;
+
+  private syncEngine = new NetflixSyncEngine();
+  private overlayRenderer = new SubtitleOverlayRenderer('owt-youtube-overlay-host');
+  private aiPrefetch = new NetflixAiPrefetchController(
+    {
+      fetchTtml: (url) => this.fetchTimedText(url),
+      parseTtml: (payload) => parseYouTubeTimedText(payload),
+      isActive: () => this.isActive,
+      routeGeneration: () => this.routeGeneration,
+      currentVideoMs: () => this.currentVideoMs(),
+      targetLanguage: () => this.targetLang,
+      translateBatch: (segments, sourceLanguage, targetLanguage, generation, context) =>
+        this.translateCueBatch(segments, sourceLanguage, targetLanguage, generation, context),
+      renderCueLine: (primaryText, secondaryText, state) =>
+        this.renderOverlay(primaryText, secondaryText, state),
+      clearLine: () => this.clearOverlay(),
+      onTimelineChanged: () => {},
+      getStatusText: (key) => this.subtitleStatus(key),
+    },
+    this.syncEngine,
+  );
 
   constructor() {
     super();
   }
 
+  private subtitleStatus(key: TranslationKey): string {
+    return translate(this.uiLanguage, key);
+  }
+
+  private currentVideoMs(): number | null {
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    if (!video || !Number.isFinite(video.currentTime)) return 0;
+    return Math.max(0, Math.round(video.currentTime * 1000));
+  }
+
   public init() {
     if (typeof window !== 'undefined' && window.location?.hostname?.includes('youtube.com')) {
       logger.info('Initializing YouTubeCaptionAdapter on youtube.com');
+      this.subtitlePreferenceReady = false;
+      SubtitlePreferenceStorage.observe(preference => this.applySubtitlePreference(preference));
       this.setupNavigationListeners();
       this.loadInitialSettings();
       this.setupSettingsListener();
@@ -52,15 +122,16 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
 
     this.unsubscribeBridge = subscribeToYouTubeBridge((data) => {
       if (data.type === YT_BRIDGE.messageType.TRACKS_UPDATED) {
+        if (data.selectedTrackId !== undefined) {
+          this.selectedTrackId = data.selectedTrackId;
+        }
         if (Array.isArray(data.tracks)) {
           this.discoveredTracks = data.tracks;
           logger.info('Discovered YouTube tracks:', this.discoveredTracks);
           if (this.isActive) {
-            this.ensureCorrectTrackSelected();
+            if (!this.originalSourceId && !this.nativePairActive) this.ensureCorrectTrackSelected();
+            this.reconcileSubtitlePreference();
           }
-        }
-        if (data.selectedTrackId !== undefined) {
-          this.selectedTrackId = data.selectedTrackId;
         }
       } else if (data.type === YT_BRIDGE.messageType.TRACK_SET_RESULT && typeof data.requestId === 'string') {
         const pending = this.pendingTrackChanges.get(data.requestId);
@@ -71,7 +142,87 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
           this.selectedTrackId = data.selectedTrackId;
         }
         pending.resolve(Boolean(data.ok));
+      } else if (data.type === YT_BRIDGE.messageType.TIMEDTEXT_RESULT && typeof data.requestId === 'string') {
+        const pending = this.pendingTimedTextRequests.get(data.requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pendingTimedTextRequests.delete(data.requestId);
+        if (data.ok && typeof data.payload === 'string' && data.payload.trim().length > 0) {
+          pending.resolve(data.payload);
+        } else {
+          pending.reject(new Error('Empty or failed YouTube timedtext response'));
+        }
       }
+    });
+  }
+
+  private applySubtitlePreference(preference: SubtitleTranslationPreference): void {
+    const changed = !this.subtitlePreferenceReady || this.subtitlePreference.mode !== preference.mode || this.subtitlePreference.language !== preference.language;
+    this.subtitlePreferenceReady = true;
+    this.subtitlePreference = preference;
+    if (!changed) return;
+    this.selectionEpoch += 1;
+    this.pendingSelectionEpoch = null;
+    this.aiLoadEpoch += 1;
+    this.aiLoadingKey = '';
+    this.aiLoading = null;
+    this.attemptedNativeKey = '';
+    this.reconcileSubtitlePreference();
+  }
+
+  private preferredNativeTrack(language = this.subtitlePreference.language || this.targetLang): YouTubeTrack | undefined {
+    return this.discoveredTracks.filter(track => Boolean(track.baseUrl) &&
+      trackMatchesTargetLanguage({ language: track.languageCode, label: track.label }, language))
+      .sort((a, b) => Number(a.kind === 'asr') - Number(b.kind === 'asr'))[0];
+  }
+
+  private reconcileSubtitlePreference(): void {
+    if (!this.isActive || !this.subtitlePreferenceReady || this.pendingSelectionEpoch !== null) return;
+    const original = this.discoveredTracks.find(track => track.id === this.originalSourceId);
+    const originalPrefetchReady = original ? this.aiPrefetch.matches(this.toDiscoveredTrack(original), this.targetLang) : false;
+    if (this.subtitlePreference.mode === 'ai') {
+      this.nativeFallback = false;
+      if (this.nativePairActive) void this.setSubtitleSources('translation', 'ai');
+      else if (this.originalSourceId && !originalPrefetchReady) void this.setSubtitleSources('translation', 'ai');
+      else if (!this.originalSourceId) void this.startAiPrefetchIfAvailable();
+      return;
+    }
+    const current = this.discoveredTracks.find(track => track.id === this.translationSourceId);
+    if (this.nativePairActive && current && trackMatchesTargetLanguage(
+      { language: current.languageCode, label: current.label }, this.subtitlePreference.language || this.targetLang,
+    )) { this.nativeFallback = false; return; }
+    const track = this.preferredNativeTrack();
+    if (!track) {
+      this.nativeFallback = true;
+      if (this.nativePairActive) void this.setSubtitleSources('translation', 'ai');
+      else if (this.originalSourceId && !originalPrefetchReady) void this.setSubtitleSources('translation', 'ai');
+      else if (!this.originalSourceId) void this.startAiPrefetchIfAvailable();
+      return;
+    }
+    if (this.nativePairActive && this.translationSourceId === track.id) { this.nativeFallback = false; return; }
+    const key = `${this.routeGeneration}|${track.id}|${track.baseUrl}|${this.subtitlePreference.language || this.targetLang}`;
+    if (key === this.attemptedNativeKey) return;
+    this.attemptedNativeKey = key;
+    const nativeSelection = this.setSubtitleSources('translation', track.id);
+    const nativeEpoch = this.selectionEpoch;
+    void nativeSelection.then(async loaded => {
+      if (nativeEpoch !== this.selectionEpoch || key !== this.attemptedNativeKey || !this.isActive || this.subtitlePreference.mode !== 'native') return;
+      this.nativeFallback = !loaded;
+      if (!loaded && (this.nativePairActive || this.originalSourceId)) {
+        const aiSelection = this.setSubtitleSources('translation', 'ai');
+        const aiEpoch = this.selectionEpoch;
+        const aiLoaded = await aiSelection;
+        if (!aiLoaded && aiEpoch === this.selectionEpoch && key === this.attemptedNativeKey && this.isActive && this.subtitlePreference.mode === 'native') {
+          // Do not keep showing an old native translation in the wrong language.
+          this.nativePairActive = false;
+          this.nativePairOriginalLanguage = '';
+          this.translationSourceId = null;
+          this.clearOverlay();
+          this.applyNativeSubtitleMask(false);
+          this.lastProcessedText = '';
+          this.processCaptions();
+        }
+      } else if (!loaded) await this.startAiPrefetchIfAvailable();
     });
   }
 
@@ -105,6 +256,251 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     }
   }
 
+  private selectSourceTrackForPrefetch(): YouTubeTrack | undefined {
+    const tracksWithUrl = this.discoveredTracks.filter((t) => Boolean(t.baseUrl));
+    if (tracksWithUrl.length === 0) return undefined;
+
+    if (this.sourceLang && this.sourceLang !== 'auto') {
+      const explicit = tracksWithUrl.find(
+        (t) => t.languageCode === this.sourceLang || t.languageCode?.startsWith(this.sourceLang),
+      );
+      if (explicit) return explicit;
+    }
+
+    if (this.selectedTrackId) {
+      const active = tracksWithUrl.find(
+        (t) => t.languageCode === this.selectedTrackId || t.id === this.selectedTrackId,
+      );
+      if (active) return active;
+    }
+
+    const targetPrefix = this.targetLang?.split('-')[0]?.toLowerCase();
+    if (targetPrefix) {
+      const nonTargetAuthor = tracksWithUrl.find(
+        (t) => t.kind !== 'asr' && !t.languageCode?.toLowerCase().startsWith(targetPrefix),
+      );
+      if (nonTargetAuthor) return nonTargetAuthor;
+
+      const nonTargetAny = tracksWithUrl.find(
+        (t) => !t.languageCode?.toLowerCase().startsWith(targetPrefix),
+      );
+      if (nonTargetAny) return nonTargetAny;
+    }
+
+    return tracksWithUrl.find((t) => t.isDefault) || tracksWithUrl[0];
+  }
+
+  private toDiscoveredTrack(ytTrack: YouTubeTrack): DiscoveredTrack {
+    return {
+      id: ytTrack.id || ytTrack.languageCode,
+      language: ytTrack.languageCode || 'auto',
+      label: ytTrack.label || ytTrack.languageCode || 'auto',
+      url: ytTrack.baseUrl || '',
+      isCC: ytTrack.kind === 'asr',
+      hasUrl: Boolean(ytTrack.baseUrl),
+    };
+  }
+
+  public async startAiPrefetchIfAvailable(): Promise<boolean> {
+    if (!this.isActive || this.nativePairActive || this.originalSourceId || this.pendingSelectionEpoch !== null) return false;
+    const ytTrack = this.selectSourceTrackForPrefetch();
+    if (!ytTrack?.baseUrl) return false;
+
+    const discovered = this.toDiscoveredTrack(ytTrack);
+    if (this.aiPrefetch.matches(discovered, this.targetLang)) return true;
+
+    const key = `${this.aiLoadEpoch}|${this.routeGeneration}|${discovered.id}|${this.targetLang}`;
+    if (this.aiLoading && key === this.aiLoadingKey) return this.aiLoading;
+    this.aiLoadingKey = key;
+
+    const work = (async () => {
+      const loaded = await this.aiPrefetch.load(discovered, () => key === this.aiLoadingKey && !this.nativePairActive, () => this.invalidateDomRendering());
+      if (loaded && this.isActive) {
+        this.abortPendingRequests();
+      }
+      return loaded;
+    })();
+    this.aiLoading = work;
+    try {
+      return await work;
+    } finally {
+      if (this.aiLoading === work) this.aiLoading = null;
+    }
+  }
+
+  private cancelAiPrefetch(): void {
+    this.aiLoadEpoch += 1;
+    this.aiLoadingKey = '';
+    this.aiLoading = null;
+    this.aiPrefetch.reset();
+  }
+
+  private invalidateDomRendering(): void {
+    this.domRenderEpoch += 1;
+    this.abortPendingRequests();
+    if (this.clearGraceTimer !== null) clearTimeout(this.clearGraceTimer);
+    this.clearGraceTimer = null;
+    this.lastProcessedText = '';
+  }
+
+  private async fetchTimedText(url: string): Promise<string> {
+    const videoId = new URLSearchParams(window.location.search).get('v');
+    const urlVideoId = new URL(url, window.location.origin || 'https://www.youtube.com').searchParams.get('v');
+    const inScope = () => Boolean(videoId) && new URLSearchParams(window.location.search).get('v') === videoId &&
+      (!urlVideoId || urlVideoId === videoId);
+    if (!inScope()) throw new Error('YouTube subtitle belongs to another video');
+    if (this.strictPrefetchSource?.url === url) {
+      const payload = await this.fetchTimedTextViaMainWorld(url, 6000, this.strictPrefetchSource.id);
+      if (!inScope()) throw new Error('YouTube video changed during subtitle request');
+      return payload;
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const payload = await this.fetchTimedTextViaMainWorld(url);
+        if (!inScope()) throw new Error('YouTube video changed during subtitle request');
+        return payload;
+      } catch (bridgeErr) {
+        if (!inScope()) throw bridgeErr;
+        logger.debug('MAIN-world timedtext fetch failed, falling back to direct fetch', bridgeErr);
+      }
+    }
+    const response = await fetch(url);
+    if (!inScope()) throw new Error('YouTube video changed during subtitle request');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.text();
+    if (!inScope()) throw new Error('YouTube video changed during subtitle request');
+    return payload;
+  }
+
+  private fetchTimedTextViaMainWorld(baseUrl: string, timeoutMs = 6000, strictTrackId?: string): Promise<string> {
+    const requestId = `yt-tt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const matchedTrack = this.discoveredTracks.find((t) => t.baseUrl === baseUrl);
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingTimedTextRequests.delete(requestId);
+        reject(new Error('Timed out fetching YouTube timedtext via MAIN world'));
+      }, timeoutMs);
+      this.pendingTimedTextRequests.set(requestId, { resolve, reject, timer });
+      postToMain(YT_BRIDGE.messageType.FETCH_TIMEDTEXT, {
+        requestId,
+        baseUrl,
+        strictTrackId,
+        languageCode: matchedTrack?.languageCode || this.selectedTrackId || this.sourceLang,
+      });
+    });
+  }
+
+  private async translateCueBatch(
+    segments: Array<{ id: string; text: string }>,
+    sourceLanguage: string,
+    targetLanguage: string,
+    generation: number,
+    context?: TranslationContext,
+  ): Promise<Array<{ id: string; translatedText: string }>> {
+    if (!this.isActive || generation !== this.routeGeneration || segments.length === 0) return [];
+
+    const response = await messageRouter.sendMessage({
+      type: 'TRANSLATE_REQUEST',
+      usage: 'video',
+      segments,
+      sourceLanguage: sourceLanguage || this.sourceLang,
+      targetLanguage,
+      context,
+    });
+
+    if (!this.isActive || generation !== this.routeGeneration) return [];
+    return response?.segments ?? [];
+  }
+
+  private getOverlayHost(): HTMLElement {
+    const fullscreenElement = document.fullscreenElement as HTMLElement | null;
+    if (fullscreenElement && fullscreenElement.tagName !== 'VIDEO') {
+      return fullscreenElement;
+    }
+    return (
+      (document.querySelector('#movie_player') as HTMLElement) ||
+      (document.querySelector('.html5-video-player') as HTMLElement) ||
+      document.body ||
+      document.documentElement
+    );
+  }
+
+  private applyNativeSubtitleMask(enable: boolean): void {
+    const styleId = 'owt-hide-native-youtube-subtitles';
+    let styleEl = document.getElementById(styleId);
+    if (enable) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.textContent = `.ytp-caption-window-container, #ytp-caption-window-container { opacity: 0 !important; pointer-events: none !important; background: transparent !important; }`;
+        (document.head || document.documentElement).appendChild(styleEl);
+      }
+    } else if (styleEl) {
+      styleEl.remove();
+    }
+  }
+
+  private renderOverlay(
+    originalText: string,
+    translatedText: string,
+    state: AiPrefetchRenderState = 'ready',
+    allowEmptyTranslation = false,
+  ): void {
+    const cleanOriginal = normalizeSubtitleCueText(originalText);
+    const cleanTranslated = normalizeSubtitleCueText(translatedText);
+    const effectiveState = state === 'ready' && !cleanTranslated && !allowEmptyTranslation ? 'pending' : state;
+    const effectiveTranslatedText =
+      effectiveState === 'pending' && !cleanTranslated
+        ? this.subtitleStatus('subtitle.waitingTranslation')
+        : cleanTranslated;
+
+    const host = this.getOverlayHost();
+    const overlayEl = this.overlayRenderer.mount(host);
+    if (!this.tokenListenerAttached) {
+      this.tokenListenerAttached = true;
+      overlayEl.addEventListener('owt-token-clicked', ((event: CustomEvent) => {
+        const detail = event.detail;
+        if (!detail?.surface || !this.lastRenderedSentence) return;
+        this.showPopover(
+          detail.surface,
+          this.lastRenderedSentence.original,
+          this.lastRenderedSentence.translated,
+          detail.clientX ?? window.innerWidth / 2,
+          detail.clientY ?? window.innerHeight - 120,
+        );
+      }) as EventListener);
+    }
+
+    this.overlayRenderer.updateSettings({
+      subtitleOriginalFontSize: this.subtitleOriginalFontSize,
+      subtitleTranslatedFontSize: this.subtitleTranslatedFontSize,
+      subtitleOriginalColor: this.subtitleOriginalColor,
+      subtitleTranslatedColor: this.subtitleTranslatedColor,
+      uiLanguage: this.uiLanguage as any,
+      displayMode: this.displayMode as any,
+    });
+
+    this.lastRenderedSentence = {
+      original: cleanOriginal,
+      translated: effectiveState === 'ready' ? effectiveTranslatedText : '',
+    };
+    const tokens = tokenizeText(
+      `yt-cue-${this.routeGeneration}-${cleanOriginal.length}`,
+      cleanOriginal,
+      this.nativePairOriginalLanguage || this.aiPrefetch.getSourceLanguage() || this.sourceLang,
+    );
+    this.overlayRenderer.render(cleanOriginal, effectiveTranslatedText, {
+      tokens,
+      isPending: effectiveState === 'pending',
+      isError: effectiveState === 'error',
+    });
+    this.applyNativeSubtitleMask(true);
+  }
+
+  private clearOverlay(): void {
+    this.overlayRenderer.clear();
+  }
+
   public requestTracks(): void {
     if (typeof window !== 'undefined') {
       postToMain(YT_BRIDGE.messageType.REQUEST_TRACKS);
@@ -112,7 +508,7 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   }
 
   public async setTrack(languageCode: string): Promise<boolean> {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined' || this.originalSourceId || this.pendingSelectionEpoch !== null || this.nativePairActive) return false;
     const requestId = `yt-track-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const changed = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
@@ -128,9 +524,85 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     });
     const ok = await changed;
     if (!ok) return false;
+    if (this.originalSourceId || this.pendingSelectionEpoch !== null || this.nativePairActive) return false;
     this.inlineTranslationCache.clear();
-    this.restoreNativeSegments();
+    this.lastProcessedText = '';
+    if (this.isActive) {
+      void this.startAiPrefetchIfAvailable();
+      this.processCaptions();
+    }
     return true;
+  }
+
+  /** Select two per-video subtitle sources. A failed load keeps the current display. */
+  public async setSubtitleSources(side: 'original' | 'translation', value: string): Promise<boolean> {
+    if (!this.isActive) return false;
+    if (side === 'translation' && value === 'auto') {
+      const native = this.preferredNativeTrack(this.targetLang);
+      const applied = await this.setSubtitleSources(side, native?.id || 'ai');
+      this.nativeFallback = applied && !native;
+      return applied;
+    }
+    const epoch = ++this.selectionEpoch;
+    const generation = this.routeGeneration;
+    const videoId = new URLSearchParams(window.location.search).get('v');
+    const valid = () => this.isActive && epoch === this.selectionEpoch && generation === this.routeGeneration &&
+      videoId === new URLSearchParams(window.location.search).get('v');
+    const requestedOriginal = side === 'original' ? (value === 'auto' ? null : value) : this.originalSourceId;
+    const requestedTranslation = side === 'translation' ? (value === 'ai' ? null : value) : this.translationSourceId;
+    const activeTracks = this.discoveredTracks.filter(t => t.languageCode === this.selectedTrackId);
+    const original = requestedOriginal
+      ? this.discoveredTracks.find(t => t.id === requestedOriginal)
+      : this.selectedTrackId ? (activeTracks.length === 1 ? activeTracks[0] : undefined) : this.selectSourceTrackForPrefetch();
+    const translated = requestedTranslation ? this.discoveredTracks.find(t => t.id === requestedTranslation) : null;
+    if (!original?.baseUrl || (requestedTranslation && !translated?.baseUrl)) return false;
+    this.pendingSelectionEpoch = epoch;
+    this.aiLoadEpoch += 1;
+    this.aiLoadingKey = '';
+    this.aiLoading = null;
+    try {
+      if (!translated) {
+        const track = this.toDiscoveredTrack(original);
+        this.strictPrefetchSource = { id: original.id, url: original.baseUrl, epoch };
+        const loaded = await this.aiPrefetch.load(track, valid, () => {
+          this.invalidateDomRendering();
+          this.nativePairActive = false;
+          this.nativePairOriginalLanguage = '';
+          this.abortPendingRequests();
+        });
+        if (!loaded || !valid()) return false;
+      } else {
+        const [primaryPayload, secondaryPayload] = await Promise.all([
+          this.fetchTimedTextViaMainWorld(original.baseUrl, 6000, original.id),
+          original.id === translated.id ? this.fetchTimedTextViaMainWorld(original.baseUrl, 6000, original.id)
+            : this.fetchTimedTextViaMainWorld(translated.baseUrl!, 6000, translated.id),
+        ]);
+        if (!valid()) return false;
+        const primary = parseYouTubeTimedText(primaryPayload, { preserveTiming: true });
+        const secondary = parseYouTubeTimedText(secondaryPayload, { preserveTiming: true });
+        if (!primary.length || !secondary.length) return false;
+        const segments = mergeSubtitleTimelines(primary, secondary);
+        if (!segments.length) return false;
+        this.cancelAiPrefetch();
+        this.invalidateDomRendering();
+        this.nativePairActive = true;
+        this.nativePairOriginalLanguage = original.languageCode;
+        this.syncEngine.setCues(segments);
+        this.syncEngine.start(cue => {
+          if (!this.isActive || !this.nativePairActive) return;
+          if (!cue) { this.clearOverlay(); return; }
+          const segment = cue as typeof segments[number];
+          this.renderOverlay(segment.primaryText, segment.secondaryText, 'ready', true);
+        });
+      }
+      this.originalSourceId = requestedOriginal;
+      this.translationSourceId = requestedTranslation;
+      return true;
+    } catch { return false; }
+    finally {
+      if (this.strictPrefetchSource?.epoch === epoch) this.strictPrefetchSource = null;
+      if (this.pendingSelectionEpoch === epoch) this.pendingSelectionEpoch = null;
+    }
   }
 
   /** Popup entry point: current bilingual-subtitle state. */
@@ -138,11 +610,17 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     isActive: boolean;
     tracks: YouTubeTrack[];
     selectedTrackId: string | null;
+    originalSourceId: string | null;
+    translationSourceId: string | null;
+    nativeFallback: boolean;
   } {
     return {
       isActive: this.isActive,
       tracks: this.discoveredTracks,
       selectedTrackId: this.selectedTrackId,
+      originalSourceId: this.originalSourceId,
+      translationSourceId: this.translationSourceId,
+      nativeFallback: this.nativeFallback && !this.nativePairActive,
     };
   }
 
@@ -167,25 +645,60 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   }
 
   protected onVideoChanged(): void {
+    this.selectionEpoch += 1;
+    this.domRenderEpoch += 1;
+    this.pendingSelectionEpoch = null;
+    this.nativePairActive = false;
+    this.originalSourceId = null;
+    this.translationSourceId = null;
+    this.nativePairOriginalLanguage = '';
+    this.attemptedNativeKey = '';
+    this.nativeFallback = false;
+    this.discoveredTracks = [];
+    this.selectedTrackId = null;
+    this.cancelAiPrefetch();
+    this.applyNativeSubtitleMask(false);
+    this.clearOverlay();
     this.abortPendingRequests();
-    this.restoreNativeSegments();
+    this.lastProcessedText = '';
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
+    }
     this.recentAiContext = [];
     this.requestTracks();
   }
 
   protected onSharedSettingsApplied(settings: any): void {
-    if (settings?.sourceLanguage && settings.sourceLanguage !== 'auto') {
+    if (settings?.uiLanguage) {
+      this.uiLanguage = settings.uiLanguage;
+    }
+    if (!this.originalSourceId && !this.nativePairActive && settings?.sourceLanguage && settings.sourceLanguage !== 'auto') {
       void this.setTrack(settings.sourceLanguage);
     }
     if (this.isActive) {
-      document.querySelectorAll<HTMLElement>('[data-owt-original][data-owt-translated]').forEach((segment) => {
-        this.renderInlineSegment(
-          segment,
-          segment.getAttribute('data-owt-original') || '',
-          segment.getAttribute('data-owt-translated') || '',
-        );
+      this.overlayRenderer.updateSettings({
+        subtitleOriginalFontSize: this.subtitleOriginalFontSize,
+        subtitleTranslatedFontSize: this.subtitleTranslatedFontSize,
+        subtitleOriginalColor: this.subtitleOriginalColor,
+        subtitleTranslatedColor: this.subtitleTranslatedColor,
+        uiLanguage: this.uiLanguage as any,
+        displayMode: this.displayMode as any,
       });
+      this.overlayRenderer.refresh();
+      const targetChanged = Boolean(settings?.targetLanguage && this.lastSettingsTarget !== null && settings.targetLanguage !== this.lastSettingsTarget);
+      if (targetChanged) {
+        this.selectionEpoch += 1;
+        this.pendingSelectionEpoch = null;
+        this.aiLoadEpoch += 1;
+        this.aiLoadingKey = '';
+        this.aiLoading = null;
+        this.attemptedNativeKey = '';
+        this.reconcileSubtitlePreference();
+      }
+      if (!targetChanged && !this.originalSourceId && !this.nativePairActive) this.reconcileSubtitlePreference();
     }
+    if (settings?.targetLanguage) this.lastSettingsTarget = settings.targetLanguage;
   }
 
   private maxConcurrentRequests = 3;
@@ -211,8 +724,6 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     if (next) next();
   }
 
-
-
   async start(
     targetLang?: string,
     displayMode?: string,
@@ -230,8 +741,21 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.currentVideoId = new URLSearchParams(window.location.search).get('v');
 
     this.isActive = true;
+    const host = this.getOverlayHost();
+    this.overlayRenderer.mount(host);
+
     this.ensureNativeSubtitlesEnabled();
-    void this.setTrack(this.sourceLang || 'auto');
+    this.requestTracks();
+    if (this.subtitlePreference.mode === 'ai' && (this.originalSourceId || this.translationSourceId)) {
+      void this.setSubtitleSources('translation', 'ai');
+    } else if (this.subtitlePreference.mode === 'native') {
+      this.reconcileSubtitlePreference();
+    } else if (this.originalSourceId || this.translationSourceId) {
+      void this.setSubtitleSources('translation', this.translationSourceId || 'ai');
+    } else {
+      void this.setTrack(this.sourceLang || 'auto');
+      this.reconcileSubtitlePreference();
+    }
     this.startObserver();
     logger.info('YouTubeCaptionAdapter started', { targetLang, displayMode, origSize, transSize, origColor, transColor });
   }
@@ -250,7 +774,27 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
   }
 
   stop() {
+    this.selectionEpoch += 1;
+    this.domRenderEpoch += 1;
+    this.pendingSelectionEpoch = null;
+    this.attemptedNativeKey = '';
+    this.nativePairActive = false;
+    this.nativePairOriginalLanguage = '';
     this.isActive = false;
+    this.cancelAiPrefetch();
+    this.applyNativeSubtitleMask(false);
+    this.clearOverlay();
+    this.lastProcessedText = '';
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
+    }
+
+    for (const [id, pending] of this.pendingTimedTextRequests.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('YouTubeCaptionAdapter stopped'));
+      this.pendingTimedTextRequests.delete(id);
+    }
 
     if (this.observer) {
       this.observer.disconnect();
@@ -263,37 +807,8 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.activeRequestCount = 0;
     this.inlineTranslationCache.clear();
     this.abortPendingRequests();
-    this.restoreNativeSegments();
     this.popover?.hide();
     logger.info('YouTubeCaptionAdapter stopped');
-  }
-
-  private restoreNativeSegments() {
-    const segments = document.querySelectorAll('[data-owt-original]');
-    segments.forEach((seg) => {
-      const original = seg.getAttribute('data-owt-original');
-      if (original) {
-        seg.textContent = original;
-      }
-      (seg as HTMLElement).style.opacity = '';
-      seg.removeAttribute('data-owt-original');
-      seg.removeAttribute('data-owt-fingerprint');
-      seg.removeAttribute('data-owt-translated');
-    });
-
-    const windows = document.querySelectorAll('.ytp-caption-window-bottom, .caption-window, .ytp-caption-window-container');
-    windows.forEach((win) => {
-      const el = win as HTMLElement;
-      el.style.left = '';
-      el.style.top = '';
-      el.style.bottom = '';
-      el.style.transform = '';
-      el.style.width = '';
-      el.style.textAlign = '';
-      el.style.cursor = '';
-      el.removeAttribute('data-owt-drag-initialized');
-      el.removeAttribute('data-owt-user-dragged');
-    });
   }
 
   private startObserver() {
@@ -321,91 +836,133 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
     this.processCaptions();
   }
 
+  private getNativeSubtitleTextFromDOM(): string {
+    const visualLines = Array.from(document.querySelectorAll<HTMLElement>('.caption-visual-line')).filter(
+      (el) => !el.closest('#owt-youtube-overlay-host'),
+    );
+    if (visualLines.length > 0) {
+      const lines = visualLines
+        .map((lineEl) => {
+          const segs = Array.from(lineEl.querySelectorAll<HTMLElement>('.ytp-caption-segment'));
+          const raw =
+            segs.length > 0
+              ? segs.map((s) => (s.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ')
+              : (lineEl.textContent || '').replace(/\s+/g, ' ').trim();
+          return raw;
+        })
+        .filter(Boolean);
+      return normalizeSubtitleCueText(lines.join('\n'));
+    }
+
+    const rawSegments = Array.from(document.querySelectorAll<HTMLElement>('.ytp-caption-segment')).filter(
+      (seg) => !seg.closest('#owt-youtube-overlay-host'),
+    );
+    if (rawSegments.length === 0) return '';
+
+    const parts = rawSegments
+      .map((seg) => (seg.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    return normalizeSubtitleCueText(parts.join('\n'));
+  }
+
   public processCaptions(): void {
     if (!this.isActive) return;
+    // Full-track timedtext prefetch mode is driven by SyncEngine + video.currentTime
+    if (this.aiPrefetch.isActive() || this.nativePairActive) return;
 
-    const segments = document.querySelectorAll('.ytp-caption-segment, .caption-visual-line');
-    if (segments.length === 0) return;
-
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i] as HTMLElement;
-
-      let originalText = seg.getAttribute('data-owt-original');
-      if (!originalText) {
-        originalText = (seg.textContent || '').trim();
-        if (!originalText) continue;
-        seg.setAttribute('data-owt-original', originalText);
+    const currentNativeText = this.getNativeSubtitleTextFromDOM();
+    if (!currentNativeText) {
+      // Hold the last rendered subtitle briefly between cues so YouTube's
+      // transient caption-window teardown never makes the overlay flicker or jump.
+      if (this.lastProcessedText !== '' && this.clearGraceTimer === null) {
+        this.clearGraceTimer = setTimeout(() => {
+          this.clearGraceTimer = null;
+          this.lastProcessedText = '';
+          this.clearOverlay();
+        }, this.clearGraceMs);
       }
-
-      const fingerprint = `${this.currentVideoId}|${originalText}|${this.sourceLang}|${this.targetLang}`;
-      
-      const cached = this.inlineTranslationCache.get(fingerprint);
-      if (cached) {
-        if (seg.getAttribute('data-owt-fingerprint') !== fingerprint) {
-          seg.setAttribute('data-owt-fingerprint', fingerprint);
-          seg.style.opacity = '1';
-          this.renderInlineSegment(seg, originalText, cached);
-        }
-        continue;
-      }
-
-      if (seg.getAttribute('data-owt-fingerprint') === fingerprint) {
-        continue;
-      }
-
-      if (this.pendingRequests.has(fingerprint)) {
-        seg.setAttribute('data-owt-fingerprint', fingerprint);
-        seg.style.opacity = '0';
-        continue;
-      }
-
-      seg.setAttribute('data-owt-fingerprint', fingerprint);
-      seg.style.opacity = '0';
-      this.fetchInlineTranslation(seg, originalText, fingerprint, this.routeGeneration);
+      return;
     }
+
+    if (this.clearGraceTimer !== null) {
+      clearTimeout(this.clearGraceTimer);
+      this.clearGraceTimer = null;
+    }
+
+    if (this.lastProcessedText === currentNativeText) return;
+    this.lastProcessedText = currentNativeText;
+
+    void this.fetchAndRenderOverlay(currentNativeText, this.routeGeneration);
   }
 
-  private getElementsWithFingerprint(fingerprint: string): HTMLElement[] {
-    const all = document.querySelectorAll('[data-owt-fingerprint]');
-    const results: HTMLElement[] = [];
-    all.forEach((el) => {
-      if (el.getAttribute('data-owt-fingerprint') === fingerprint) {
-        results.push(el as HTMLElement);
+  private async fetchAndRenderOverlay(originalText: string, generation: number) {
+    const domEpoch = this.domRenderEpoch;
+    const current = () => this.isActive && generation === this.routeGeneration && domEpoch === this.domRenderEpoch && !this.nativePairActive;
+    if (this.aiLoading) {
+      this.renderOverlay(originalText, this.subtitleStatus('subtitle.translatingLine'), 'pending');
+      const loaded = await this.aiLoading;
+      if (loaded || !current() || this.lastProcessedText !== originalText) {
+        return;
       }
-    });
-    return results;
-  }
+    }
 
-  private async fetchInlineTranslation(seg: HTMLElement, originalText: string, fingerprint: string, generation: number) {
+    const fingerprint = `${this.currentVideoId}|${originalText}|${this.sourceLang}|${this.targetLang}`;
+
+    const cached = this.inlineTranslationCache.get(fingerprint);
+    if (cached) {
+      this.renderOverlay(originalText, cached, 'ready');
+      return;
+    }
+
+    // Render the source line + pending status immediately at identical 2-line height
+    // so there is zero vertical layout jump when the translation arrives.
+    this.renderOverlay(originalText, this.subtitleStatus('subtitle.translatingLine'), 'pending');
+
+    if (this.pendingRequests.has(fingerprint)) return;
+
     await this.acquireSlot();
+    if (!current()) { this.releaseSlot(); return; }
     const abortController = new AbortController();
     this.pendingRequests.set(fingerprint, { fingerprint, abortController });
 
     try {
-      const response = await messageRouter.sendMessage({
-        type: 'TRANSLATE_REQUEST',
-        usage: 'video',
-        segments: [{ id: 'yt-caption', text: originalText }],
-        sourceLanguage: this.sourceLang,
-        targetLanguage: this.targetLang,
-        context: { previous: [...this.recentAiContext] },
-      });
+      let response: any;
+      try {
+        response = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          usage: 'video',
+          segments: [{ id: 'yt-caption', text: originalText }],
+          sourceLanguage: this.sourceLang,
+          targetLanguage: this.targetLang,
+          context: { previous: [...this.recentAiContext] },
+        });
+      } catch (firstErr) {
+        if (!current() || abortController.signal.aborted) {
+          return;
+        }
+        // Retry once after a brief pause before showing an error banner
+        await new Promise((r) => setTimeout(r, 250));
+        if (!current() || abortController.signal.aborted) {
+          return;
+        }
+        response = await messageRouter.sendMessage({
+          type: 'TRANSLATE_REQUEST',
+          usage: 'video',
+          segments: [{ id: 'yt-caption', text: originalText }],
+          sourceLanguage: this.sourceLang,
+          targetLanguage: this.targetLang,
+          context: { previous: [...this.recentAiContext] },
+        });
+      }
 
-      if (!this.isActive || this.routeGeneration !== generation || abortController.signal.aborted) {
+      if (!current() || abortController.signal.aborted) {
         return;
       }
 
       const translatedText = response?.segments?.[0]?.translatedText || '';
       if (!translatedText) {
-        const targets = this.getElementsWithFingerprint(fingerprint);
-        if (targets.length > 0) {
-          targets.forEach((t) => {
-            t.style.opacity = '1';
-            this.renderInlineSegment(t, originalText, '⚠️ 翻譯失敗: 無法取得翻譯結果');
-          });
-        } else if (document.body.contains(seg)) {
-          seg.style.opacity = '1';
-          this.renderInlineSegment(seg, originalText, '⚠️ 翻譯失敗: 無法取得翻譯結果');
+        if (this.lastProcessedText === originalText) {
+          this.renderOverlay(originalText, this.subtitleStatus('subtitle.translationMissing'), 'error');
         }
         return;
       }
@@ -414,181 +971,18 @@ export class YouTubeCaptionAdapter extends CaptionAdapterBase {
       this.recentAiContext.push({ source: originalText, translation: translatedText });
       if (this.recentAiContext.length > 8) this.recentAiContext.shift();
 
-      const targets = this.getElementsWithFingerprint(fingerprint);
-      if (targets.length > 0) {
-        targets.forEach((t) => {
-          t.style.opacity = '1';
-          this.renderInlineSegment(t, originalText, translatedText);
-        });
-      } else if (document.body.contains(seg)) {
-        seg.style.opacity = '1';
-        this.renderInlineSegment(seg, originalText, translatedText);
+      if (this.lastProcessedText === originalText) {
+        this.renderOverlay(originalText, translatedText, 'ready');
       }
     } catch (err: any) {
-      if (this.routeGeneration !== generation || abortController.signal.aborted) return;
-      
-      const targets = this.getElementsWithFingerprint(fingerprint);
-      if (targets.length > 0) {
-        targets.forEach((t) => {
-          t.style.opacity = '1';
-          this.renderInlineSegment(t, originalText, `⚠️ 翻譯失敗: ${err?.message || 'API 請求失敗'}`);
-        });
-      } else if (document.body.contains(seg)) {
-        seg.style.opacity = '1';
-        this.renderInlineSegment(seg, originalText, `⚠️ 翻譯失敗: ${err?.message || 'API 請求失敗'}`);
+      if (!current() || abortController.signal.aborted) return;
+      if (this.lastProcessedText === originalText) {
+        this.renderOverlay(originalText, this.subtitleStatus('subtitle.translationUnavailable'), 'error');
       }
-      logger.error('Subtitle inline translation failed', err);
+      logger.error('Subtitle overlay translation failed', err);
     } finally {
       this.pendingRequests.delete(fingerprint);
       this.releaseSlot();
-    }
-  }
-
-  private enableDrag(win: HTMLElement) {
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let initialLeft = 0;
-    let initialTop = 0;
-
-    const onMouseDown = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).tagName === 'A' || (e.target as HTMLElement).tagName === 'BUTTON') return;
-      isDragging = true;
-      win.setAttribute('data-owt-user-dragged', 'true');
-      startX = e.clientX;
-      startY = e.clientY;
-      const rect = win.getBoundingClientRect();
-      const parentRect = win.parentElement?.getBoundingClientRect() || document.body.getBoundingClientRect();
-      initialLeft = rect.left - parentRect.left;
-      initialTop = rect.top - parentRect.top;
-
-      win.style.setProperty('transform', 'none', 'important');
-      win.style.setProperty('left', `${initialLeft}px`, 'important');
-      win.style.setProperty('top', `${initialTop}px`, 'important');
-      win.style.setProperty('bottom', 'auto', 'important');
-      win.style.cursor = 'grabbing';
-      e.preventDefault();
-    };
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      win.style.setProperty('left', `${initialLeft + dx}px`, 'important');
-      win.style.setProperty('top', `${initialTop + dy}px`, 'important');
-    };
-
-    const onMouseUp = () => {
-      if (isDragging) {
-        isDragging = false;
-        win.style.cursor = 'grab';
-      }
-    };
-
-    win.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('mousemove', onMouseMove, { passive: true });
-    document.addEventListener('mouseup', onMouseUp);
-  }
-
-  private renderInlineSegment(seg: HTMLElement, originalText: string, translatedText: string) {
-    seg.setAttribute('data-owt-translated', translatedText);
-    const win = seg.closest('.ytp-caption-window-bottom, .caption-window, .ytp-caption-window-container') as HTMLElement | null;
-    if (win) {
-      if (!win.hasAttribute('data-owt-drag-initialized')) {
-        win.setAttribute('data-owt-drag-initialized', 'true');
-        win.style.cursor = 'grab';
-        this.enableDrag(win);
-      }
-
-      if (!win.hasAttribute('data-owt-user-dragged')) {
-        win.style.setProperty('top', 'auto', 'important');
-        win.style.setProperty('bottom', '80px', 'important');
-        win.style.setProperty('left', '50%', 'important');
-        win.style.setProperty('transform', 'translateX(-50%)', 'important');
-        win.style.setProperty('width', 'fit-content', 'important');
-        win.style.setProperty('max-width', '90%', 'important');
-        win.style.setProperty('text-align', 'center', 'important');
-        win.style.setProperty('margin', '0 auto', 'important');
-      }
-    }
-
-    if (this.observer && this.observerTarget) {
-      this.observer.disconnect();
-    }
-
-    seg.innerHTML = '';
-    seg.style.display = 'inline-flex';
-    seg.style.flexDirection = 'column';
-    seg.style.alignItems = 'center';
-    seg.style.justifyContent = 'center';
-    seg.style.textAlign = 'center';
-    seg.style.width = 'fit-content';
-    seg.style.maxWidth = '100%';
-    seg.style.margin = '0 auto';
-
-    const createSpan = (text: string, color: string, isBold = false, fontSize = '20px', isTranslated = false) => {
-      const span = document.createElement('span');
-      span.style.display = 'inline-block';
-      span.style.width = 'fit-content';
-      span.style.color = color;
-      span.style.fontWeight = isBold ? '700' : '500';
-      span.style.fontSize = fontSize;
-      span.style.lineHeight = '1.35';
-      span.style.background = 'rgba(8, 8, 8, 0.85)';
-      span.style.padding = '5px 12px';
-      span.style.borderRadius = '6px';
-      span.style.margin = '3px auto';
-      span.style.textAlign = 'center';
-      span.style.textShadow = '0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.85)';
-
-      if (isTranslated) {
-        span.textContent = text;
-        if (this.smartBlur) {
-          span.style.filter = 'blur(6px)';
-          span.style.transition = 'filter 0.2s ease';
-          span.style.cursor = 'pointer';
-          span.title = '懸浮以顯示譯文';
-          span.addEventListener('mouseenter', () => {
-            span.style.filter = 'none';
-          });
-          span.addEventListener('mouseleave', () => {
-            span.style.filter = 'blur(6px)';
-          });
-        }
-      } else {
-        span.textContent = text;
-        span.style.cursor = 'pointer';
-        span.title = '點擊單字或句子開啟 AI 學習彈窗';
-        span.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const selected = window.getSelection()?.toString().trim();
-          const targetWord = selected || text;
-          this.showPopover(targetWord, originalText, translatedText, e.clientX, e.clientY);
-        });
-      }
-
-      return span;
-    };
-
-    const lines = composeBilingualLines(
-      originalText,
-      translatedText,
-      (this.displayMode as BilingualDisplayMode) || 'bilingual',
-      {
-        originalFontSize: `${this.subtitleOriginalFontSize}px`,
-        translatedFontSize: `${this.subtitleTranslatedFontSize}px`,
-        originalColor: this.subtitleOriginalColor || '#ffffff',
-        translatedColor: this.subtitleTranslatedColor || '#d4d4d4',
-      },
-    );
-
-    for (const line of lines) {
-      const isTranslated = line.text === translatedText;
-      seg.appendChild(createSpan(line.text, line.color, line.bold, line.fontSize, isTranslated));
-    }
-
-    if (this.observer && this.observerTarget) {
-      this.observer.observe(this.observerTarget, { childList: true, subtree: true });
     }
   }
 

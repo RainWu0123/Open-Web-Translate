@@ -45,8 +45,14 @@ export interface CacheSetParams extends CacheGetParams {
   translatedText: string;
 }
 
+const AUTO_EVICT_COOLDOWN_MS = 60_000;
+const AUTO_EVICT_WRITE_THRESHOLD = 50;
+
 export class CacheRepository {
   private db = Database.getInstance();
+  private lastAutoEvictAt = 0;
+  private writesSinceLastEvict = 0;
+  private autoEvictInFlight: Promise<number> | null = null;
 
   /** Normalize source text (trim + collapse whitespace) */
   static normalizeSourceText(text: string): string {
@@ -71,6 +77,29 @@ export class CacheRepository {
       input.glossaryVersion ?? 'none',
     ].join(':');
     return sha256(rawKey);
+  }
+
+  private scheduleAutoEviction(writesAdded = 1): void {
+    this.writesSinceLastEvict += writesAdded;
+    const now = Date.now();
+    if (
+      this.autoEvictInFlight ||
+      (now - this.lastAutoEvictAt < AUTO_EVICT_COOLDOWN_MS &&
+        this.writesSinceLastEvict < AUTO_EVICT_WRITE_THRESHOLD)
+    ) {
+      return;
+    }
+
+    this.lastAutoEvictAt = now;
+    this.writesSinceLastEvict = 0;
+    this.autoEvictInFlight = this.evictExpiredAndLRU()
+      .catch((err) => {
+        logger.error('Eviction error', err);
+        return 0;
+      })
+      .finally(() => {
+        this.autoEvictInFlight = null;
+      });
   }
 
   /** Retrieve a cached translation result if valid and not expired */
@@ -116,6 +145,58 @@ export class CacheRepository {
     }
   }
 
+  /** Retrieve multiple cached translation results in a single IndexedDB transaction */
+  async getMany(paramsList: CacheGetParams[]): Promise<Array<string | null>> {
+    if (paramsList.length === 0) return [];
+    try {
+      const keys = await Promise.all(
+        paramsList.map(async (params) => {
+          const normalizedSourceHash = await CacheRepository.computeSourceHash(params.sourceText);
+          return CacheRepository.computeCacheKey({
+            normalizedSourceHash,
+            sourceLanguage: params.sourceLanguage,
+            targetLanguage: params.targetLanguage,
+            providerId: params.providerId,
+            providerFingerprint: params.providerFingerprint,
+            promptVersion: params.promptVersion,
+            glossaryVersion: params.glossaryVersion,
+          });
+        }),
+      );
+
+      const store = await this.db.getStore('translationCache', 'readwrite');
+      const now = Date.now();
+
+      return await Promise.all(
+        keys.map(
+          (cacheKey) =>
+            new Promise<string | null>((resolve, reject) => {
+              const req = store.get(cacheKey);
+              req.onsuccess = () => {
+                const entry = req.result as TranslationCacheEntry | undefined;
+                if (!entry) {
+                  resolve(null);
+                  return;
+                }
+                if (entry.expiresAt <= now) {
+                  store.delete(cacheKey);
+                  resolve(null);
+                  return;
+                }
+                entry.lastAccessedAt = now;
+                store.put(entry);
+                resolve(entry.translationResult);
+              };
+              req.onerror = () => reject(req.error);
+            }),
+        ),
+      );
+    } catch (err) {
+      logger.error('Failed to getMany cache entries', err);
+      return paramsList.map(() => null);
+    }
+  }
+
   /** Save a translation result to cache */
   async set(params: CacheSetParams): Promise<void> {
     try {
@@ -154,12 +235,62 @@ export class CacheRepository {
         req.onerror = () => reject(req.error);
       });
 
-      // Run background eviction check
-      this.evictExpiredAndLRU().catch((err) => {
-        logger.error('Eviction error', err);
-      });
+      this.scheduleAutoEviction(1);
     } catch (err) {
       logger.error('Failed to set cache entry', err);
+    }
+  }
+
+  /** Save multiple translation results in a single IndexedDB transaction */
+  async setMany(paramsList: CacheSetParams[]): Promise<void> {
+    if (paramsList.length === 0) return;
+    try {
+      const now = Date.now();
+      const entries = await Promise.all(
+        paramsList.map(async (params): Promise<TranslationCacheEntry> => {
+          const normalizedSourceHash = await CacheRepository.computeSourceHash(params.sourceText);
+          const cacheKey = await CacheRepository.computeCacheKey({
+            normalizedSourceHash,
+            sourceLanguage: params.sourceLanguage,
+            targetLanguage: params.targetLanguage,
+            providerId: params.providerId,
+            providerFingerprint: params.providerFingerprint,
+            promptVersion: params.promptVersion,
+            glossaryVersion: params.glossaryVersion,
+          });
+          return {
+            cacheKey,
+            normalizedSourceHash,
+            sourceLanguage: params.sourceLanguage,
+            targetLanguage: params.targetLanguage,
+            providerId: params.providerId,
+            providerFingerprint: params.providerFingerprint ?? 'default',
+            promptVersion: params.promptVersion ?? 'v1',
+            glossaryVersion: params.glossaryVersion ?? 'none',
+            translationResult: params.translatedText,
+            createdAt: now,
+            lastAccessedAt: now,
+            expiresAt: now + TTL_MS,
+            schemaVersion: 2,
+          };
+        }),
+      );
+
+      const store = await this.db.getStore('translationCache', 'readwrite');
+      await Promise.all(
+        entries.map(
+          (entry) =>
+            new Promise<void>((resolve, reject) => {
+              const req = store.put(entry);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            }),
+        ),
+      );
+
+      this.scheduleAutoEviction(entries.length);
+    } catch (err) {
+      logger.error('Failed to setMany cache entries', err);
     }
   }
 

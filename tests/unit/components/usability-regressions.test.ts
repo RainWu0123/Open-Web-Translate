@@ -8,7 +8,7 @@ import { SrsEngine } from '@/core/learning/srs-engine';
 const wrappers: ReturnType<typeof mount>[] = [];
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks(); });
 const card = (id: string): LearningCard => ({ id, word: id, lemma: id, contextSentence: '', meaning: '意思', sourceLang: 'en', targetLang: 'zh-Hant', tags: [], srs: SrsEngine.createInitialState(), createdAt: Date.now(), updatedAt: Date.now() });
-function render(props: any) { const wrapper = mount(Flashcards, { props }); wrappers.push(wrapper); return wrapper; }
+function render(props: any) { const wrapper = mount(Flashcards, { props: { language: 'zh-Hant', ...props } }); wrappers.push(wrapper); return wrapper; }
 
 describe('Learning flows use real data and confirmed saves', () => {
   it('shows an honest empty state and no fabricated linguistic information', async () => {
@@ -50,7 +50,7 @@ describe('Learning flows use real data and confirmed saves', () => {
     expect(wrapper.get('[data-testid="fc-card-word"]').text()).toBe('second');
   });
   it('retains a newly typed term when storage fails', async () => {
-    const wrapper = mount(Glossary, { props: { saveTerm: vi.fn().mockRejectedValue(new Error('offline')) } }); wrappers.push(wrapper);
+    const wrapper = mount(Glossary, { props: { language: 'zh-Hant', saveTerm: vi.fn().mockRejectedValue(new Error('offline')) } }); wrappers.push(wrapper);
     await wrapper.get('[data-testid="input-source-term"]').setValue('apple');
     await wrapper.get('[data-testid="input-target-term"]').setValue('蘋果');
     await wrapper.get('[data-testid="add-term-btn"]').trigger('click');

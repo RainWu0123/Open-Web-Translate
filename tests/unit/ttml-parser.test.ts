@@ -68,4 +68,21 @@ describe('parseNetflixTtml', () => {
     expect(cues[0].endMs).toBe(7000);
     expect(cues[0].text).toBe('With duration only');
   });
+
+  it('strips Netflix TTML ruby furigana annotations so kanji is not duplicated with kana', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+  <body>
+    <div>
+      <p begin="00:03:40.000" end="00:03:43.000">
+        <span tts:ruby="container"><span tts:ruby="base">小田原</span><span tts:ruby="text">おだわら</span></span>を拠点に全国を巡る──
+      </p>
+    </div>
+  </body>
+</tt>`;
+
+    const cues = parseNetflixTtml(xml);
+    expect(cues).toHaveLength(1);
+    expect(cues[0].text).toBe('小田原を拠点に全国を巡る──');
+  });
 });

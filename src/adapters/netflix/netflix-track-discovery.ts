@@ -20,9 +20,14 @@ import {
   NETFLIX_PREFERRED_TEXT_PROFILES,
   looksLikeTrackUrl,
   isSubtitleResourceUrl,
+  netflixVideoId,
 } from './netflix-track-constants';
 
 const logger = createLogger('NetflixTrackDiscovery');
+// Internal response parsing must not run our global manifest interception hook.
+const parseJson = JSON.parse;
+
+export interface NetflixCaptureScope { videoId: string; epoch: number }
 
 export interface TrackCandidate {
   profile: string;
@@ -33,6 +38,7 @@ export interface TrackCandidate {
 /** Strictly JSON-serializable track shape that crosses the bridge. */
 export interface DiscoveredTrackPayload {
   trackId: string;
+  label: string;
   language: string;
   bcp47: string;
   url: string;
@@ -55,12 +61,12 @@ export function getPlayerApi(): any {
   }
 }
 
-export function getMainVideoPlayer(api?: any): { id: string; player: any } | null {
+export function getMainVideoPlayer(api?: any, excludedSessions = new Set<string>()): { id: string; player: any } | null {
   const videoPlayerApi = api || getPlayerApi();
   if (!videoPlayerApi) return null;
 
   try {
-    const sessionIds = videoPlayerApi.getAllPlayerSessionIds?.() || [];
+    const sessionIds = (videoPlayerApi.getAllPlayerSessionIds?.() || []).filter((id: string) => !excludedSessions.has(id));
     const watchSessionId = sessionIds.find((id: string) => id.startsWith('watch-'));
     const targetSessionId = watchSessionId || sessionIds[0];
 
@@ -195,8 +201,7 @@ export function extractCandidateRepresentations(t: any): TrackCandidate[] {
 }
 
 /** Raw Cadmium track list; normalization happens once, in emit(). */
-function extractRawCadmiumTracks(): any[] {
-  const playerObj = getMainVideoPlayer();
+function extractRawCadmiumTracks(playerObj = getMainVideoPlayer()): any[] {
   if (!playerObj?.player) return [];
 
   const player = playerObj.player;
@@ -213,10 +218,10 @@ export function extractTracksFromPerformanceEntriesForDebug(): any[] {
   return extractTracksFromPerformanceEntries();
 }
 
-function extractTracksFromPerformanceEntries(): any[] {
+function extractTracksFromPerformanceEntries(since = 0): any[] {
   try {
     const entries = performance.getEntriesByType('resource');
-    const timedTextEntries = entries.filter((e) => isSubtitleResourceUrl(e.name));
+    const timedTextEntries = entries.filter((e) => e.startTime >= since && isSubtitleResourceUrl(e.name));
     if (timedTextEntries.length === 0) return [];
 
     return timedTextEntries.map((e, idx) => ({
@@ -240,12 +245,11 @@ function extractTracksFromPerformanceEntries(): any[] {
 // brittle by nature and may change without notice.
 
 export class NetflixTrackDiscovery {
-  constructor() {
-    // The patched window.fetch cannot see `this`; route its finds through a
-    // module-level hook point bound at construction.
-    emitFromFetch = (tracks: any[]) => this.emit('fetch response clone', tracks);
-  }
-
+  private videoId = netflixVideoId();
+  private scopeEpoch = 0;
+  private playerSessionId = getMainVideoPlayer()?.id || '';
+  private retiredSessions = new Set<string>();
+  private navigationCleanup: (() => void) | null = null;
   private capturedTracksStore: any[] = [];
   private lastCaptureSource = 'none';
   private tracksRevision = 0;
@@ -262,16 +266,84 @@ export class NetflixTrackDiscovery {
 
   /** Diagnostic snapshot for __OWT_DEBUG__. */
   public lastPayload(): { tracks: any[]; source: string; revision: number } {
+    this.captureScope();
     return { tracks: this.capturedTracksStore, source: this.lastCaptureSource, revision: this.tracksRevision };
   }
 
+  public captureScope(): NetflixCaptureScope {
+    const nextVideoId = netflixVideoId();
+    if (nextVideoId !== this.videoId) {
+      if (this.playerSessionId) this.retiredSessions.add(this.playerSessionId);
+      this.playerSessionId = '';
+      this.videoId = nextVideoId;
+      this.resetScope();
+    }
+    const session = getMainVideoPlayer(undefined, this.retiredSessions)?.id;
+    if (session && !this.retiredSessions.has(session)) {
+      if (this.playerSessionId && this.playerSessionId !== session) this.resetScope();
+      this.playerSessionId = session;
+    }
+    return { videoId: this.videoId, epoch: this.scopeEpoch };
+  }
+
+  public isCurrentScope(scope: NetflixCaptureScope): boolean {
+    const current = this.captureScope();
+    return current.videoId === scope.videoId && current.epoch === scope.epoch;
+  }
+
+  /** During navigation Netflix can expose the previous player's list briefly. */
+  public currentPlayer(): { id: string; player: any } | null {
+    this.captureScope();
+    const current = getMainVideoPlayer(undefined, this.retiredSessions);
+    return current && !this.retiredSessions.has(current.id) ? current : null;
+  }
+
+  /** OWT downloads are consumers, not evidence that Netflix selected a track. */
+  public fetchResource(scope: NetflixCaptureScope, url: string, init?: RequestInit): Promise<Response> {
+    if (!this.isCurrentScope(scope)) return Promise.reject(new Error('video-changed'));
+    const fetchResource = this.originalFetch ?? window.fetch;
+    return fetchResource.call(window, url, init);
+  }
+
+  private resetScope(): void {
+    this.scopeEpoch += 1;
+    this.capturedTracksStore = [];
+    this.lastTracksFingerprint = '';
+    this.lastCaptureSource = 'video changed';
+    this.publish();
+  }
+
   public start(): void {
+    if (!this.navigationCleanup) {
+      const onNavigation = () => { this.captureScope(); this.rearm(); };
+      window.addEventListener('popstate', onNavigation);
+      window.addEventListener('hashchange', onNavigation);
+      const restorers: Array<() => void> = [];
+      for (const method of ['pushState', 'replaceState'] as const) {
+        const original = history[method];
+        const patched = function(this: History, ...args: Parameters<typeof original>) {
+          const result = original.apply(this, args);
+          onNavigation();
+          return result;
+        };
+        history[method] = patched;
+        restorers.push(() => { if (history[method] === patched) history[method] = original; });
+      }
+      this.navigationCleanup = () => {
+        window.removeEventListener('popstate', onNavigation);
+        window.removeEventListener('hashchange', onNavigation);
+        restorers.reverse().forEach(restore => restore());
+      };
+    }
     this.installManifestJsonHook();
     this.installNetworkHooks();
     this.startPoller();
   }
 
   public stop(): void {
+    this.scopeEpoch += 1;
+    this.navigationCleanup?.();
+    this.navigationCleanup = null;
     this.uninstallManifestJsonHook();
     this.uninstallNetworkHooks();
     this.stopPoller();
@@ -279,6 +351,7 @@ export class NetflixTrackDiscovery {
 
   /** Re-arm discovery after navigation invalidated previous captures. */
   public rearm(): void {
+    this.captureScope();
     this.installManifestJsonHook();
     this.startPoller();
   }
@@ -292,33 +365,11 @@ export class NetflixTrackDiscovery {
 
   public pollOnce(): boolean {
     try {
-      const tracks = extractRawCadmiumTracks();
-      const perfTracks = extractTracksFromPerformanceEntries();
-
-      if (tracks.length > 0 && perfTracks.length > 0) {
-        const hydratedTracks = tracks.map((t, idx) => {
-          const hasOwnUrl = Boolean(extractTrackUrlUniversal(t));
-          if (!hasOwnUrl) {
-            const langKey = String(t.bcp47 || t.language || '').toLowerCase();
-            const idKey = String(t.trackId || t.id || '').toLowerCase();
-            const matchedPerf =
-              perfTracks.find(
-                (p) =>
-                  (langKey && p.url.toLowerCase().includes(langKey)) ||
-                  (idKey && p.url.toLowerCase().includes(idKey)),
-              );
-            if (matchedPerf) {
-              return { ...t, url: matchedPerf.url };
-            }
-          }
-          return t;
-        });
-        this.emit('cadmium_perf_hydrated', hydratedTracks);
-        return true;
-      } else if (perfTracks.length > 0) {
-        this.emit('performance_network_log', perfTracks);
-        return true;
-      } else if (tracks.length > 0) {
+      const player = this.currentPlayer();
+      const tracks = player ? extractRawCadmiumTracks(player) : [];
+      // Resource URLs alone do not identify a language, CC variant or film.
+      // Only verified response bodies / explicit manifest URLs may bind them.
+      if (tracks.length > 0) {
         this.emit('cadmium_active_poll', tracks);
         return true;
       }
@@ -332,7 +383,8 @@ export class NetflixTrackDiscovery {
    * Bind tracks captured from a hydration network match back onto the store
    * (used by the HYDRATE_TRACK command handler).
    */
-  public bindHydratedUrl(trackId: string, capturedUrl: string): void {
+  public bindHydratedUrl(trackId: string, capturedUrl: string, scope = this.captureScope()): void {
+    if (!this.isCurrentScope(scope)) return;
     if (!capturedUrl || this.capturedTracksStore.length === 0) return;
     const updatedTracks = this.capturedTracksStore.map((t) => {
       if (
@@ -350,35 +402,38 @@ export class NetflixTrackDiscovery {
   // ── emit: single normalization + fingerprint + broadcast ──────────
 
   private emit(sourceLabel: string, tracks: any[], force: boolean = false): void {
+    this.captureScope();
     if (!tracks || tracks.length === 0) return;
-
-    const normalizedTracks = tracks.filter((t: any) => !t.isNoneTrack && !t.rawTrack?.isNoneTrack).map((t: any) => {
-      const existing = this.capturedTracksStore.find(saved => String(saved.id) === String(t.id ?? t.trackId ?? t.language));
+    const byId = new Map(this.capturedTracksStore.map(track => [String(track.id), track]));
+    for (const t of tracks.filter((track: any) => !track.isNoneTrack && !track.rawTrack?.isNoneTrack)) {
+      const id = t.id ?? t.trackId ?? t.language;
+      if (id == null) continue;
+      const existing = byId.get(String(id));
       const foundCandidates = extractCandidateRepresentations(t);
       const candidates: TrackCandidate[] = foundCandidates.length ? foundCandidates : existing?.candidates || [];
       const bestCandidate = candidates.find((c) => c.isText) || candidates[0];
       const url = bestCandidate ? bestCandidate.url : '';
-      return {
-        id: t.id ?? t.trackId ?? t.language,
-        label: t.label || t.displayName || t.languageDescription || t.language || t.bcp47,
-        language: t.language || t.bcp47 || 'unknown',
+      byId.set(String(id), {
+        id,
+        label: t.label || t.displayName || t.languageDescription || existing?.label || t.language || t.bcp47,
+        language: t.language || t.bcp47 || existing?.language || 'unknown',
         url,
-        isCC: Boolean(t.isCC || t.isClosedCaptions || t.isCaption || t.rawTrackType === 'CLOSEDCAPTIONS'),
+        isCC: Boolean(t.isCC || t.isClosedCaptions || t.isCaption || t.rawTrackType === 'CLOSEDCAPTIONS' || existing?.isCC),
         rawTrack: t.rawTrack || t,
-        downloadables: t.downloadables || t.ttDownloadables,
+        downloadables: t.downloadables || t.ttDownloadables || existing?.downloadables,
         candidates,
-      };
-    });
+      });
+    }
+    const normalizedTracks = [...byId.values()];
 
     const fingerprint = normalizedTracks
-      .map((t) => `${t.id}:${t.language}:${t.url}`)
+      .map((t) => JSON.stringify([t.id, t.language, t.label, t.url, t.isCC, t.candidates]))
       .sort()
       .join('|');
 
     if (!force && fingerprint === this.lastTracksFingerprint) return;
 
     this.lastTracksFingerprint = fingerprint;
-    this.tracksRevision += 1;
     this.capturedTracksStore = normalizedTracks;
     this.lastCaptureSource = sourceLabel;
 
@@ -390,8 +445,14 @@ export class NetflixTrackDiscovery {
 
     // Strictly JSON-serializable payload only — the bridge mirrors it as a
     // JSON string for Firefox, so page objects must never cross.
-    const safeTracks: DiscoveredTrackPayload[] = normalizedTracks.map((t) => ({
+    this.publish();
+  }
+
+  private publish(): void {
+    this.tracksRevision += 1;
+    const safeTracks: DiscoveredTrackPayload[] = this.capturedTracksStore.map((t) => ({
       trackId: String(t.id),
+      label: String(t.label || t.language),
       language: String(t.language),
       bcp47: String(t.language),
       url: typeof t.url === 'string' ? t.url : '',
@@ -403,33 +464,30 @@ export class NetflixTrackDiscovery {
     postToContent(BRIDGE.messageType.TRACKS_UPDATED, {
       channel: 'owt',
       revision: this.tracksRevision,
+      videoId: this.videoId,
+      scopeEpoch: this.scopeEpoch,
       tracks: safeTracks,
       // captureSource describes where tracks came from; 'source' is the
       // bridge's routing tag and must stay reserved.
-      captureSource: sourceLabel,
+      captureSource: this.lastCaptureSource,
     });
 
-    // Mission accomplished: stop burning CPU once text tracks with real
-    // download URLs are in hand.
-    if (tracksWithUrl > 0 && sourceLabel === 'JSON.parse deep intercept') {
-      this.uninstallManifestJsonHook();
-      this.stopPoller();
-    }
   }
 
   // ── hooks ──────────────────────────────────────────────────────────
 
-  private findTimedTextTracks(obj: any, depth = 0): any[] | null {
+  private findTimedTextTracks(obj: any, depth = 0, inheritedVideoId = ''): { tracks: any[]; videoId: string } | null {
     if (!obj || typeof obj !== 'object' || depth > 5) return null;
+    const videoId = String(obj.videoId ?? obj.movieId ?? obj.viewableId ?? inheritedVideoId);
     if (Array.isArray(obj.timedtexttracks) && obj.timedtexttracks.length > 0) {
-      return obj.timedtexttracks;
+      return { tracks: obj.timedtexttracks, videoId };
     }
     if (Array.isArray(obj.tracks) && obj.tracks.length > 0 && obj.tracks[0]?.ttDownloadables) {
-      return obj.tracks;
+      return { tracks: obj.tracks, videoId };
     }
     for (const key of Object.keys(obj)) {
       if (obj[key] && typeof obj[key] === 'object') {
-        const found = this.findTimedTextTracks(obj[key], depth + 1);
+        const found = this.findTimedTextTracks(obj[key], depth + 1, videoId);
         if (found) return found;
       }
     }
@@ -452,10 +510,12 @@ export class NetflixTrackDiscovery {
           result &&
           typeof result === 'object'
         ) {
-          const tracks = this.findTimedTextTracks(result);
-          if (tracks && tracks.length > 0) {
-            logger.debug('[Manifest Deep Intercept] Found tracks in JSON.parse', tracks.length);
-            this.emit('JSON.parse deep intercept', tracks);
+          const scope = this.captureScope();
+          const found = this.findTimedTextTracks(result);
+          // A global parse has no request provenance. After navigation only
+          // a manifest identifying the current film is safe to accept.
+          if (found && (found.videoId === scope.videoId || (!found.videoId && scope.epoch === 0))) {
+            this.emit('JSON.parse deep intercept', found.tracks);
           }
         }
       } catch {
@@ -480,9 +540,11 @@ export class NetflixTrackDiscovery {
     const originalFetch = window.fetch;
     this.originalFetch = originalFetch;
     const patchedFetch: typeof window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const scope = this.captureScope();
       const response = await originalFetch.call(window, input, init);
 
       try {
+        if (!this.fetchHookInstalled || !this.isCurrentScope(scope)) return response;
         const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         const mime = response.headers.get('content-type') || '';
         const subtitleResponse = urlStr.includes('nflxvideo.net') && /xml|vtt|text\/plain/i.test(mime);
@@ -490,16 +552,15 @@ export class NetflixTrackDiscovery {
           const clone = response.clone();
           clone.text().then((text) => {
             try {
+              if (!this.fetchHookInstalled || !this.isCurrentScope(scope)) return;
               if (subtitleResponse) {
                 this.captureSubtitleDocument(urlStr, text);
                 return;
               }
               if (!text.includes('timedtexttracks')) return;
-              const data = JSON.parse(text);
-              const tracks = data?.timedtexttracks || data?.result?.timedtexttracks || data?.value?.timedtexttracks;
-              if (Array.isArray(tracks) && tracks.length > 0) {
-                logger.debug('[Manifest fetch clone] Found tracks', tracks.length);
-                void discoveryEmitFromFetch(tracks);
+              const found = this.findTimedTextTracks(parseJson(text));
+              if (found && (!found.videoId || found.videoId === scope.videoId)) {
+                this.emit('fetch response clone', found.tracks);
               }
             } catch {}
           }).catch(() => {});
@@ -515,9 +576,10 @@ export class NetflixTrackDiscovery {
     const originalOpen = XMLHttpRequest.prototype.open;
     this.originalXhrOpen = originalOpen;
     const patchedOpen = function(this: XMLHttpRequest, ...args: Parameters<typeof originalOpen>) {
+      const scope = discovery.captureScope();
       const url = String(args[1]);
       this.addEventListener('load', function() {
-        if (!discovery.fetchHookInstalled || !url.includes('nflxvideo.net')) return;
+        if (!discovery.fetchHookInstalled || !discovery.isCurrentScope(scope) || !url.includes('nflxvideo.net')) return;
         try {
           const mime = this.getResponseHeader('content-type') || '';
           if (this.status >= 200 && this.status < 300 && /xml|vtt|text\/plain/i.test(mime)) {
@@ -542,7 +604,8 @@ export class NetflixTrackDiscovery {
     if (root.localName !== 'tt' || xml.getElementsByTagName('parsererror').length > 0 ||
         xml.getElementsByTagNameNS('*', 'p').length === 0) return;
     const language = root.getAttribute('xml:lang') || root.getAttribute('lang') || 'auto';
-    const playerTracks = extractRawCadmiumTracks().filter(t => !t.isNoneTrack);
+    const player = this.currentPlayer();
+    const playerTracks = player ? extractRawCadmiumTracks(player).filter(t => !t.isNoneTrack) : [];
     const match = playerTracks.find(t => (t.bcp47 || t.language) === language);
     const id = String(match?.trackId || match?.id || `captured-${language}`);
     const others = this.capturedTracksStore.filter(t => String(t.id) !== id);
@@ -594,10 +657,4 @@ export class NetflixTrackDiscovery {
       }
     }, POLL_INTERVAL_MS);
   }
-}
-
-// Hook point for the patched window.fetch (installed per instance).
-let emitFromFetch: ((tracks: any[]) => void) | null = null;
-function discoveryEmitFromFetch(tracks: any[]): void {
-  emitFromFetch?.(tracks);
 }

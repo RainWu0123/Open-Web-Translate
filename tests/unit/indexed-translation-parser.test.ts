@@ -71,4 +71,13 @@ describe('parseIndexedTranslations', () => {
     )).rejects.toThrow('unindexed content');
     expect(repairs).toBe(1);
   });
+
+  it('strips markdown code fences and merges multiline continuations into the active indexed segment', () => {
+    const raw = '```\n[0] 以小田原為據點\n巡迴全國──\n[1] 下一句台詞\n```';
+    expect(parseIndexedTranslations(raw, {
+      providerId: 'test-provider',
+      providerLabel: 'Test',
+      expectedCount: 2,
+    })).toEqual(['以小田原為據點 巡迴全國──', '下一句台詞']);
+  });
 });

@@ -1,5 +1,6 @@
 import type { ExtensionSettings } from '@/core/contracts/messages';
 import { composeBilingualLines, type BilingualDisplayMode, type BilingualLine } from '@/shared/subtitles/bilingual-lines';
+import { learningText } from '@/shared/i18n/learning';
 
 export interface OverlayToken {
   id: string;
@@ -37,20 +38,28 @@ export class SubtitleOverlayRenderer {
 
   public mount(parentContainer: HTMLElement): HTMLElement {
     let overlay = document.getElementById(this.containerId);
+    const isDocumentRoot =
+      parentContainer === document.body || parentContainer === document.documentElement;
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = this.containerId;
-      overlay.style.position = 'fixed';
+      overlay.style.position = isDocumentRoot ? 'fixed' : 'absolute';
       overlay.style.left = '50%';
+      overlay.style.width = 'min(86vw, 1080px)';
       overlay.style.bottom = `${this.layout.bottomOffsetPx}px`;
       overlay.style.transform = 'translateX(-50%)';
       overlay.style.zIndex = '2147483647';
-      overlay.style.pointerEvents = 'auto';
+      overlay.style.pointerEvents = 'none';
       overlay.style.cursor = 'grab';
       overlay.style.userSelect = 'none';
+      overlay.style.background = 'transparent';
+      overlay.style.border = 'none';
+      overlay.style.boxShadow = 'none';
 
       this.setupDragEvents(overlay);
       parentContainer.appendChild(overlay);
+    } else {
+      overlay.style.position = isDocumentRoot ? 'fixed' : 'absolute';
     }
 
     if (!overlay.shadowRoot) {
@@ -126,68 +135,68 @@ export class SubtitleOverlayRenderer {
     container.style.gap = `${this.layout.lineSpacingPx}px`;
     container.style.pointerEvents = 'none';
     container.style.textAlign = 'center';
+    container.style.background = 'transparent';
+    container.style.width = '100%';
+    container.style.position = 'relative';
 
-    if (options.isPending || options.isError) {
-      // Translation latency/failure must never make subtitles disappear.
-      // Always keep the source line visible, regardless of immersive mode
-      // or temporary learning-mode line visibility.
-      let offset = 0;
-      for (const text of (primaryText || '').split('\n')) {
-        const start = offset;
-        offset += text.length + 1;
-        if (!text) continue;
-        const tokens = options.tokens?.filter(t => t.start >= start && t.end <= start + text.length)
-          .map(t => ({ ...t, start: t.start - start, end: t.end - start }));
-        container.appendChild(
-          this.createLine({
-            kind: 'original',
-            text,
-            color: this.settings.subtitleOriginalColor || '#ffffff',
-            bold: false,
-            fontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
-          }, tokens),
-        );
-      }
-
-      if (secondaryText) {
-        const statusLine = this.createLine({
-          kind: 'translated',
-          text: secondaryText,
-          color: options.isError ? '#ef4444' : (this.settings.subtitleTranslatedColor || '#d4d4d4'),
-          bold: options.isError === true,
-          fontSize: `${Math.max(14, Number(this.settings.subtitleTranslatedFontSize || 22) - 4)}px`,
-        });
-        statusLine.style.opacity = options.isError ? '1' : '0.78';
-        container.appendChild(statusLine);
-      }
-      container.setAttribute('aria-live', options.isError ? 'assertive' : 'polite');
-      target.appendChild(container);
-      return;
-    }
-
-    const lines = composeBilingualLines(primaryText, secondaryText, this.displayMode, {
+    // In immersive mode, duplicate text still belongs to the translated slot.
+    const lines = composeBilingualLines(this.displayMode === 'immersive' ? '' : primaryText, secondaryText, this.displayMode, {
       originalFontSize: `${this.settings.subtitleOriginalFontSize || 18}px`,
       translatedFontSize: `${this.settings.subtitleTranslatedFontSize || 22}px`,
       originalColor: this.settings.subtitleOriginalColor || '#ffffff',
-      translatedColor: this.settings.subtitleTranslatedColor || '#d4d4d4',
+      translatedColor: options.isError ? '#ef4444' : (this.settings.subtitleTranslatedColor || '#d4d4d4'),
     }).filter((line) => (line.kind === 'original' ? this.lineVisibility.original : this.lineVisibility.translated));
 
-    // Tokens carry whole-text offsets; locate each original line inside
-    // primaryText and shift matching tokens to line-local offsets.
+    if (!primaryText && !secondaryText) return;
+    if (options.isPending || options.isError) container.setAttribute('aria-live', options.isError ? 'assertive' : 'polite');
+    const order: Array<'original' | 'translated'> = this.displayMode === 'immersive'
+      ? ['translated'] : this.displayMode === 'translation-first' ? ['translated', 'original'] : ['original', 'translated'];
+    const visibleOrder = order.filter(kind => this.lineVisibility[kind]);
+    if (visibleOrder.length === 2) {
+      // Anchor both blocks to a shared divider. Their height can change without
+      // pushing the opposite language: upper grows upward, lower grows down.
+      const lowerFont = visibleOrder[1] === 'original' ? this.settings.subtitleOriginalFontSize || 18 : this.settings.subtitleTranslatedFontSize || 22;
+      container.style.height = '0px';
+      container.style.bottom = `${Number(lowerFont) * 1.4 + 4}px`;
+    }
     let searchFrom = 0;
-    for (const line of lines) {
-      let lineTokens: OverlayToken[] | undefined;
-      if (line.kind === 'original' && options.tokens?.length) {
-        const foundAt = primaryText.indexOf(line.text, searchFrom);
-        if (foundAt !== -1) {
-          const lineEnd = foundAt + line.text.length;
-          searchFrom = lineEnd;
-          lineTokens = options.tokens
-            .filter((t) => t.start >= foundAt && t.end <= lineEnd)
-            .map((t) => ({ ...t, start: t.start - foundAt, end: t.end - foundAt }));
+    for (const kind of visibleOrder) {
+      const slot = document.createElement('div');
+      slot.dataset.subtitleSlot = kind;
+      slot.style.display = 'flex';
+      slot.style.flexDirection = 'column';
+      slot.style.alignItems = 'center';
+      slot.style.width = '100%';
+      if (visibleOrder.length === 2) {
+        slot.style.position = 'absolute';
+        if (kind === visibleOrder[0]) slot.style.bottom = `${this.layout.lineSpacingPx / 2}px`;
+        else slot.style.top = `${this.layout.lineSpacingPx / 2}px`;
+      }
+      const slotLines = lines.filter(line => line.kind === kind);
+      if (!slotLines.length) {
+        const placeholder = this.createLine({ kind, text: '\u00a0', bold: kind === 'translated', color: 'transparent',
+          fontSize: `${kind === 'original' ? this.settings.subtitleOriginalFontSize || 18 : this.settings.subtitleTranslatedFontSize || 22}px` });
+        placeholder.style.visibility = 'hidden';
+        placeholder.setAttribute('aria-hidden', 'true');
+        slot.appendChild(placeholder);
+      } else {
+        for (const line of slotLines) {
+          let lineTokens: OverlayToken[] | undefined;
+          if (line.kind === 'original' && options.tokens?.length) {
+            const foundAt = primaryText.indexOf(line.text, searchFrom);
+            if (foundAt !== -1) {
+              const lineEnd = foundAt + line.text.length;
+              searchFrom = lineEnd;
+              lineTokens = options.tokens.filter((t) => t.start >= foundAt && t.end <= lineEnd)
+                .map((t) => ({ ...t, start: t.start - foundAt, end: t.end - foundAt }));
+            }
+          }
+          const element = this.createLine(line, lineTokens);
+          if (kind === 'translated' && options.isPending) element.style.opacity = '0.78';
+          slot.appendChild(element);
         }
       }
-      container.appendChild(this.createLine(line, lineTokens));
+      container.appendChild(slot);
     }
 
     target.appendChild(container);
@@ -226,6 +235,10 @@ export class SubtitleOverlayRenderer {
   private createLine(spec: BilingualLine, tokens?: OverlayToken[]): HTMLElement {
     const line = document.createElement('span');
     line.style.display = 'block';
+    line.style.pointerEvents = 'auto';
+    line.style.maxWidth = 'min(86vw, 1080px)';
+    line.style.whiteSpace = 'normal';
+    line.style.wordBreak = 'break-word';
     line.style.color = spec.color;
     line.style.fontWeight = spec.bold ? '700' : '500';
     line.style.fontSize = spec.fontSize;
@@ -266,7 +279,7 @@ export class SubtitleOverlayRenderer {
     span.textContent = lineText.slice(token.start, token.end);
     span.dataset.tokenId = token.id;
     span.dataset.surface = token.surface;
-    span.title = '點擊查詢';
+    span.title = learningText(this.settings.uiLanguage, 'lookup');
     span.tabIndex = 0;
     span.setAttribute('role', 'button');
     span.addEventListener('keydown', event => {

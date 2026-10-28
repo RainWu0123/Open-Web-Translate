@@ -14,11 +14,14 @@ import type { SubtitleCue } from '@/shared/subtitles/ttml-parser';
 import { BRIDGE, bridgeRequest } from './netflix-bridge';
 import { NetflixSyncEngine } from './netflix-sync-engine';
 import { trackMatchesTargetLanguage, type DiscoveredTrack } from './netflix-track-manager';
+import { mergeSubtitleTimelines, type DualSubtitleSegment } from '@/shared/subtitles/dual-track-timeline';
+export { mergeSubtitleTimelines } from '@/shared/subtitles/dual-track-timeline';
 
 const logger = createLogger('NetflixDualTrack');
 
 /** Parser cue enriched with identity/language for pairing. */
 export type DualCue = SubtitleCue & { id: string; lang: string };
+type DualSegment = DualSubtitleSegment;
 
 export interface DualTrackHost {
   fetchTtml(url: string): Promise<string>;
@@ -31,6 +34,7 @@ export interface DualTrackHost {
   setCueText(text: string): void;
   getCueText(): string;
   setSecondaryCues(cues: SubtitleCue[]): void;
+  onSegmentChanged?(): void;
   onDualLoaded(): void;
   fallbackToSingle(secondary: DiscoveredTrack, commitGuard: () => boolean): Promise<void>;
 }
@@ -41,8 +45,7 @@ export class NetflixDualTrackController {
   private pairings: CuePairing<DualCue, DualCue>[] = [];
   private pairingByPrimary = new Map<DualCue, CuePairing<DualCue, DualCue>>();
   private primaryLang = 'auto';
-  private clearGraceTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly clearGraceMs = 1200;
+  private syncSegments: DualSegment[] = [];
   private activeCue: DualCue | null = null;
   private lastRenderedSecondaryText = '';
 
@@ -67,6 +70,7 @@ export class NetflixDualTrackController {
   public reset(): void {
     this.stop();
     this.primaryCues = [];
+    this.syncSegments = [];
     this.pairings = [];
     this.pairingByPrimary.clear();
     this.primaryLang = 'auto';
@@ -74,10 +78,6 @@ export class NetflixDualTrackController {
 
   public stop(): void {
     this.active = false;
-    if (this.clearGraceTimer !== null) {
-      clearTimeout(this.clearGraceTimer);
-      this.clearGraceTimer = null;
-    }
     this.activeCue = null;
     this.lastRenderedSecondaryText = '';
     this.syncEngine.stop();
@@ -137,6 +137,7 @@ export class NetflixDualTrackController {
     primaryTrack: DiscoveredTrack,
     secondaryTrack: DiscoveredTrack,
     commitGuard: () => boolean = () => true,
+    options: { beforeCommit?: () => void; fallback?: boolean } = {},
   ): Promise<boolean> {
     try {
       const [primaryXml, secondaryXml] = await Promise.all([
@@ -154,7 +155,10 @@ export class NetflixDualTrackController {
       }
       if (!commitGuard()) return false;
 
+      options.beforeCommit?.();
+
       this.primaryCues = primaryCues;
+      this.syncSegments = mergeSubtitleTimelines(primaryCues, secondaryCues);
       this.host.setSecondaryCues(secondaryCues);
       this.pairings = alignCueTracks(primaryCues, secondaryCues);
       this.pairingByPrimary = new Map(this.pairings.map((p) => [p.primary, p]));
@@ -169,69 +173,54 @@ export class NetflixDualTrackController {
         overlapped: this.pairings.filter((p) => p.secondary).length,
       });
 
-      this.startSyncEngine();
+      this.startSyncEngine(options.fallback !== false);
     } catch (error) {
       if (!commitGuard()) return false;
-      this.reset();
       logger.warn('Dual track load failed, falling back to single native track', error);
-      await this.host.fallbackToSingle(secondaryTrack, commitGuard);
+      if (options.fallback !== false) await this.host.fallbackToSingle(secondaryTrack, commitGuard);
       return false;
     }
     this.host.onDualLoaded();
     return true;
   }
 
-  private startSyncEngine(): void {
-    const byIdentity = new Map<SubtitleCue, DualCue>(
-      this.primaryCues.map((c) => [c as SubtitleCue, c]),
-    );
-    this.syncEngine.setCues(this.primaryCues);
+  private startSyncEngine(allowMachineFallback = true): void {
+    this.syncEngine.setCues(this.syncSegments);
     this.syncEngine.start((rawCue) => {
-      const cue = rawCue ? byIdentity.get(rawCue) ?? (rawCue as DualCue) : null;
+      const segment = rawCue as DualSegment | null;
+      const cue = segment && this.primaryCues.find(c => c.startMs <= segment.startMs && c.endMs > segment.startMs) || null;
       if (!this.host.isActive() || !this.active) return;
+      this.host.onSegmentChanged?.();
 
-      if (!cue) {
+      if (!segment) {
         this.activeCue = null;
-        // Hold the subtitle during natural pauses/micro-gaps between lines to prevent
-        // sudden drop-out (持續不超過0.5秒) and ensure smooth continuous subtitles ("連段")
-        if (this.clearGraceTimer === null && this.host.getCueText() !== '') {
-          this.clearGraceTimer = setTimeout(() => {
-            this.clearGraceTimer = null;
-            if (!this.activeCue && this.host.getCueText() !== '') {
-              this.host.setCueText('');
-              this.lastRenderedSecondaryText = '';
-              this.host.clearLine();
-            }
-          }, this.clearGraceMs);
-        }
+        this.host.setCueText('');
+        this.lastRenderedSecondaryText = '';
+        this.host.clearLine();
         return;
-      }
-
-      // Cue active: cancel any pending clear timer
-      if (this.clearGraceTimer !== null) {
-        clearTimeout(this.clearGraceTimer);
-        this.clearGraceTimer = null;
       }
       this.activeCue = cue;
-
-      const pairing = this.pairingByPrimary.get(cue);
-      const secondaryText = pairing?.secondary?.text ?? '';
+      const originalText = segment.primaryText;
+      const secondaryText = segment.secondaryText;
 
       // If both lines are identical to what is currently rendered, skip re-rendering
-      if (cue.text === this.host.getCueText() && secondaryText === this.lastRenderedSecondaryText) {
+      if (originalText === this.host.getCueText() && secondaryText === this.lastRenderedSecondaryText &&
+          (secondaryText || !allowMachineFallback || !originalText)) {
         return;
       }
 
-      this.host.setCueText(cue.text);
+      this.host.setCueText(originalText);
       this.lastRenderedSecondaryText = secondaryText;
 
-      if (!cue.text && !secondaryText) return;
+      if (!originalText && !secondaryText) return;
 
       if (secondaryText) {
-        this.host.renderCueLine(cue.text, secondaryText);
-      } else {
+        this.host.renderCueLine(originalText, secondaryText);
+      } else if (allowMachineFallback && originalText) {
         // No paired native line: machine-translate this cue.
-        void this.host.machineTranslateCue(cue.text, this.host.routeGeneration());
+        void this.host.machineTranslateCue(originalText, this.host.routeGeneration());
+      } else {
+        this.host.renderCueLine(originalText, '');
       }
     });
     this.onTimelineChanged();

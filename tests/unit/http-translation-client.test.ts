@@ -54,4 +54,30 @@ describe('HTTP translation client abort classification', () => {
     controller.abort();
     await expect(request).rejects.toThrow('Translation aborted');
   });
+
+  it('retries transient HTTP 429 once with backoff before succeeding', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: { get: () => '0.01' },
+        text: async () => 'Rate limit reached',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await httpTranslationFetch('gemini-provider', {
+      url: 'https://example.test/translate',
+      interpretStatus: (status) => (status === 429 ? new Error('Quota exceeded') : null),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe(200);
+    expect(result.json).toEqual({ ok: true });
+  });
 });

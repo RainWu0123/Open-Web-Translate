@@ -174,4 +174,52 @@ describe('TranslationPipeline context-aware cache identity', () => {
     expect(mocks.cacheGet.mock.calls[0][0].providerFingerprint).toBe('provider:v1;context=none');
     expect(mocks.provider.translate.mock.calls[0][0].context).toBeUndefined();
   });
+
+  it('produces identical per-segment cache fingerprints when batch window boundaries shift after seeking', async () => {
+    const pipeline = new TranslationPipeline();
+
+    // Batch 1: cues c0..c3 with nextText c4
+    await pipeline.translate({
+      segments: [
+        { id: 'c0', text: 'Line zero.' },
+        { id: 'c1', text: 'Line one.' },
+        { id: 'c2', text: 'Line two.' },
+        { id: 'c3', text: 'Line three.' },
+      ],
+      sourceLanguage: 'en',
+      targetLanguage: 'zh-Hant',
+      context: {
+        title: 'Episode 1',
+        nextText: 'Line four.\nLine five.',
+      },
+    });
+
+    const batch1Fingerprints = new Map(
+      mocks.cacheSet.mock.calls.map(([arg]: any[]) => [arg.sourceText, arg.providerFingerprint]),
+    );
+    mocks.cacheGet.mockClear();
+
+    // Batch 2 (after seeking to c2): cues c2..c4 with previousText c0..c1 and nextText c5
+    await pipeline.translate({
+      segments: [
+        { id: 'c2', text: 'Line two.' },
+        { id: 'c3', text: 'Line three.' },
+        { id: 'c4', text: 'Line four.' },
+      ],
+      sourceLanguage: 'en',
+      targetLanguage: 'zh-Hant',
+      context: {
+        title: 'Episode 1',
+        previousText: 'Line zero.\nLine one.',
+        nextText: 'Line five.',
+      },
+    });
+
+    const batch2LookupFingerprints = new Map(
+      mocks.cacheGet.mock.calls.map(([arg]: any[]) => [arg.sourceText, arg.providerFingerprint]),
+    );
+
+    expect(batch2LookupFingerprints.get('Line two.')).toBe(batch1Fingerprints.get('Line two.'));
+    expect(batch2LookupFingerprints.get('Line three.')).toBe(batch1Fingerprints.get('Line three.'));
+  });
 });

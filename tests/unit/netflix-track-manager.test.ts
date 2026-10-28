@@ -30,7 +30,7 @@ describe('NetflixTrackManager Unit Tests', () => {
     const enTrack = { language: 'en', label: 'English' };
 
     expect(trackMatchesTargetLanguage(zhTrack, 'zh-TW')).toBe(true);
-    expect(trackMatchesTargetLanguage(zhTrack, 'zh-CN')).toBe(true);
+    expect(trackMatchesTargetLanguage(zhTrack, 'zh-CN')).toBe(false);
     expect(trackMatchesTargetLanguage(enTrack, 'en')).toBe(true);
     expect(trackMatchesTargetLanguage(enTrack, 'zh-TW')).toBe(false);
   });
@@ -58,6 +58,15 @@ describe('NetflixTrackManager Unit Tests', () => {
     // adapter can decide (bitmap rescue etc.).
     manager.setDiscoveredTracks([hydrating]);
     expect(manager.findBestMatchingTrack('zh-Hant')?.id).toBe('track_zh_pending');
+  });
+
+  it('prefers explicit Traditional Chinese over generic Chinese with a ready URL', () => {
+    const generic = { id: 'generic', language: 'zh', label: '中文', url: 'https://cdn.test/zh', isCC: false, hasUrl: true };
+    const traditional = { id: 'traditional', language: 'zh-Hant', label: '繁體中文', url: '', isCC: false, hasUrl: false };
+    const simplified = { id: 'simplified', language: 'zh-Hans', label: '简体中文', url: 'https://cdn.test/hans', isCC: false, hasUrl: true };
+    manager.setDiscoveredTracks([generic, simplified, traditional]);
+    expect(manager.findBestMatchingTrack('zh-TW')?.id).toBe('traditional');
+    expect(manager.findBestMatchingTrack('zh-CN')?.id).toBe('simplified');
   });
 
   it('transitions adapter state machine correctly', () => {

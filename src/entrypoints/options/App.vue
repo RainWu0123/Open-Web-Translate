@@ -148,7 +148,7 @@
             <button
               type="button"
               class="feedback-close-btn"
-              aria-label="Close"
+              :aria-label="tr('common.close')"
               @click="clearFeedback"
             >×</button>
           </div>
@@ -156,9 +156,6 @@
 
           <!-- Main Title -->
           <h1 class="canvas-title">{{ currentHeadline }}</h1>
-
-          <!-- Subtitle -->
-          <p class="canvas-subtitle">{{ currentSubtitle }}</p>
 
           <!-- ========================================================= -->
           <!-- TAB 1: SUBTITLES                                          -->
@@ -451,7 +448,7 @@
           <template v-else-if="activeTab === 'learning'">
             <div id="learn-stage" class="learning-container">
               <FlashcardWorkbench
-                :cards="learningCards" :save-review="recordSrsReview"
+                :cards="learningCards" :save-review="recordSrsReview" :language="settings.uiLanguage"
 
                 @close="switchTab('vocabulary')"
               />
@@ -475,7 +472,7 @@
             <div id="vocab-stage" class="vocab-container">
               <GlossaryManager
                 :items="vocabItems" :save-review="recordSrsReview" :save-term="addVocabItem"
-                :t="t"
+                :t="t" :language="settings.uiLanguage"
                 @deleteItem="deleteVocabItem"
                 @clearAll="clearVocabulary"
                 @exportCsv="exportVocabulary"
@@ -562,7 +559,7 @@
                         @change="save"
                         class="stitch-input"
                         list="gemini-model-suggestions"
-                        placeholder="例：gemini-3.5-flash"
+                        placeholder="gemini-3.5-flash"
                       />
                       <datalist id="gemini-model-suggestions">
                         <option v-for="m in activeModels" :key="m.id" :value="m.id">
@@ -863,7 +860,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, watchEffect, onMounted, onUnmounted } from 'vue';
 import { messageRouter } from '@/infrastructure/messaging/message-router';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
 import { LearningRepository } from '@/infrastructure/storage/repositories/learning-repository';
@@ -878,7 +875,7 @@ import {
 import type { LearningCard, SrsGrade } from '@/core/domain/learning-types';
 import GlossaryManager from '@/components/GlossaryManager.vue';
 import FlashcardWorkbench from '@/components/learning/FlashcardWorkbench.vue';
-import { translate, uiLanguageOptions, type TranslationKey } from '@/shared/i18n';
+import { translate, resolveUiLocale, uiLanguageOptions, type TranslationKey } from '@/shared/i18n';
 import { ChromeBuiltInAIProvider } from '@/infrastructure/providers/chrome-builtin-ai-provider';
 import { getProviderTestFingerprint } from '@/infrastructure/providers/cache-identity';
 
@@ -997,7 +994,8 @@ function reportError(message: string) {
 const tr = (key: TranslationKey, vars?: Record<string, string | number>) =>
   translate(settings.value.uiLanguage, key, vars);
 
-const { theme, resolvedTheme, onThemeChange, toggleTheme } = useUiTheme(reportError);
+const { theme, resolvedTheme, onThemeChange, toggleTheme } = useUiTheme(reportError, () => settings.value.uiLanguage);
+watchEffect(() => { document.documentElement.lang = resolveUiLocale(settings.value.uiLanguage); });
 watch(() => [settings.value.activeProviderId, settings.value.targetLanguage], () => { providerTestResult.value = ''; });
 
 const learningCards = computed(() => vocabItems.value);
@@ -1019,18 +1017,6 @@ const currentHeadline = computed(() => {
     default: return 'Open Web Translate';
   }
 });
-
-const currentSubtitle = computed(() => {
-  switch (activeTab.value) {
-    case 'subtitles': return tr('options.subtitleSubtitle');
-    case 'learning': return tr('options.learningSubtitle');
-    case 'vocabulary': return tr('options.vocabSubtitle');
-    case 'models': return tr('options.providersSubtitle');
-    case 'general': return tr('options.readingSubtitle');
-    default: return tr('options.defaultSubtitle');
-  }
-});
-
 
 const currentSubNavItems = computed(() => {
   switch (activeTab.value) {
@@ -1066,11 +1052,12 @@ const currentSubNavItems = computed(() => {
 
 function t(key: string): string {
   if (key === 'subtitleNetflixNote') {
-    return settings.value.uiLanguage === 'ja'
+    const locale = resolveUiLocale(settings.value.uiLanguage);
+    return locale === 'ja'
       ? 'Netflix の字幕トラックは再生中に自動取得されます。'
-      : settings.value.uiLanguage === 'zh-Hans'
+      : locale === 'zh-Hans'
         ? 'Netflix 字幕轨道会在播放时自动获取。'
-        : settings.value.uiLanguage === 'en'
+        : locale === 'en'
           ? 'Netflix subtitle tracks are discovered automatically during playback.'
           : 'Netflix 字幕軌道會在播放時自動擷取。';
   }

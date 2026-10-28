@@ -150,6 +150,7 @@ export interface NetflixStateInfo {
   /** Internal adapter state machine value, surfaced for diagnostics. */
   adapterState?: string;
   selectedTrackId?: string;
+  originalTrackId?: string | null;
   /** 'auto' prefers a native track matching the target language; 'manual' is a user pick (incl. AI-only). */
   selectionMode?: 'auto' | 'manual';
   /** Discovered tracks for the popup selector; tracks without a URL can be hydrated on selection. */
@@ -301,6 +302,7 @@ export interface SetNetflixSelectionMessage {
   type: 'SET_NETFLIX_SELECTION';
   source: 'auto' | 'ai' | 'track';
   trackId?: string;
+  side?: 'original' | 'translation';
 }
 
 export interface SetNetflixActiveMessage {
@@ -320,6 +322,9 @@ export interface YoutubeStateInfo {
   isActive: boolean;
   tracks?: YoutubeTrackInfo[];
   selectedTrackId?: string | null;
+  originalSourceId?: string | null;
+  translationSourceId?: string | null;
+  nativeFallback?: boolean;
 }
 
 export interface GetYoutubeStateMessage {
@@ -334,6 +339,12 @@ export interface SetYoutubeActiveMessage {
 export interface SetYoutubeTrackMessage {
   type: 'SET_YOUTUBE_TRACK';
   trackId: string;
+}
+
+export interface SetYoutubeSourcesMessage {
+  type: 'SET_YOUTUBE_SOURCES';
+  side: 'original' | 'translation';
+  value: string;
 }
 
 /** All messages that can be sent in the messaging system */
@@ -363,7 +374,8 @@ export type BackgroundMessage =
   | SetNetflixActiveMessage
   | GetYoutubeStateMessage
   | SetYoutubeActiveMessage
-  | SetYoutubeTrackMessage;
+  | SetYoutubeTrackMessage
+  | SetYoutubeSourcesMessage;
 
 // ─── Responses (Background / Content → Caller) ────────────────────
 
@@ -423,6 +435,7 @@ export type ResponseMap = {
   GET_YOUTUBE_STATE: YoutubeStateInfo | null;
   SET_YOUTUBE_ACTIVE: boolean;
   SET_YOUTUBE_TRACK: boolean;
+  SET_YOUTUBE_SOURCES: boolean;
 };
 
 // ─── Broadcast Events (Background → All) ────────────────────────

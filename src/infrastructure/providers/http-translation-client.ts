@@ -69,8 +69,16 @@ function composeSignals(callerSignal: AbortSignal | undefined, timeoutMs: number
   };
 }
 
-function backoffMs(attempt: number): number {
-  return Math.min(300 * 2 ** attempt, 3000);
+function backoffMs(attempt: number, retryAfterHeader?: string | null): number {
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.min(Math.round(seconds * 1000), 3000);
+    }
+  }
+  const base = Math.min(200 * 2 ** attempt, 3000);
+  const jitter = Math.floor(Math.random() * 50);
+  return base + jitter;
 }
 
 export async function httpTranslationFetch(
@@ -94,10 +102,14 @@ export async function httpTranslationFetch(
   }
 
   let lastError: Error | null = null;
+  let retryAfterHeader: string | null = null;
+  const statusRetries = options.retries ?? 1;
+  const maxAttempts = Math.max(retries, statusRetries);
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, backoffMs(attempt - 1)));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs(attempt - 1, retryAfterHeader)));
+      retryAfterHeader = null;
       if (signal?.aborted) {
         throw new Error('Translation aborted');
       }
@@ -123,9 +135,16 @@ export async function httpTranslationFetch(
         : new NetworkError(
             sanitize(`[${providerId}] network request failed: ${err?.message || 'unknown error'}`),
           );
-      continue; // transient → maybe retry
+      if (attempt < retries) {
+        continue; // transient network error → retry only when retries > 0
+      }
+      throw lastError;
     }
     const timedOut = onTimeout();
+
+    if (!response) {
+      throw lastError ?? new NetworkError(`[${providerId}] empty response`);
+    }
 
     // Prefer text() (needed for status ladders); fall back to json() for
     // Response polyfills that omit it. A read/parse failure is remembered
@@ -148,12 +167,22 @@ export async function httpTranslationFetch(
 
     if (!response.ok) {
       const interpreted = interpretStatus?.(response.status, bodyText) ?? null;
-      if (interpreted) {
-        throw interpreted; // provider-specific: never retried
-      }
-      if (response.status >= 500 && attempt < retries) {
-        lastError = new NetworkError(`[${providerId}] HTTP ${response.status}`);
+      const isTransientStatus =
+        response.status === 429 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504 ||
+        response.status >= 500;
+
+      if (isTransientStatus && attempt < statusRetries) {
+        retryAfterHeader =
+          typeof response.headers?.get === 'function' ? response.headers.get('retry-after') : null;
+        lastError = interpreted ?? new NetworkError(`[${providerId}] HTTP ${response.status}`);
         continue;
+      }
+
+      if (interpreted) {
+        throw interpreted;
       }
       throw timedOut
         ? new NetworkError(`[${providerId}] HTTP ${response.status} (timeout)`)

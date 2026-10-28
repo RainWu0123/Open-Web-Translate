@@ -2,9 +2,8 @@
  * Active-track detection for the Cadmium player.
  *
  * The player's timed-text track list does not expose one documented
- * "active" flag across Netflix player versions, so this helper checks the
- * known flag names defensively and never guesses: an unflagged list yields
- * null. The "none/off" pseudo-track is excluded even when flagged.
+ * "active" flag across Netflix player versions. Prefer its current-track
+ * getter when available, then fall back to explicitly flagged tracks.
  */
 
 export interface TrackLike {
@@ -30,34 +29,28 @@ function trackKey(track: TrackLike): string | number | null {
   return null;
 }
 
+/** Resolve the actual list object without guessing a track by its language. */
+export function getActiveTrack(list: TrackLike[], player?: { getTimedTextTrack?: () => unknown }): TrackLike | null {
+  if (typeof player?.getTimedTextTrack === 'function') {
+    try {
+      const selected = player.getTimedTextTrack();
+      const key = selected && typeof selected === 'object'
+        ? trackKey(selected as TrackLike)
+        : typeof selected === 'string' || typeof selected === 'number' ? selected : null;
+      if (key === null) return null;
+      return list.find(track => String(trackKey(track)) === String(key)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  return list.find(track => ACTIVE_FLAGS.some(flag => isTruthyFlag(track[flag]))) ?? null;
+}
+
 /**
  * Returns the id of the player's currently-displayed subtitle track, or
  * null when no track is recognisably active.
  */
-export function pickActiveTrackId(list: TrackLike[]): string | number | null {
-  const playable = list.filter((t) => !t.isNoneTrack);
-  if (playable.length === 0) return null;
-
-  let flaggedOnNoneTrack = false;
-  for (const flag of ACTIVE_FLAGS) {
-    const hit = playable.find((t) => isTruthyFlag(t[flag]));
-    if (hit) {
-      const key = trackKey(hit);
-      if (key !== null) return key;
-    }
-    if (list.some((t) => t.isNoneTrack && isTruthyFlag(t[flag]))) {
-      flaggedOnNoneTrack = true;
-    }
-  }
-
-  if (flaggedOnNoneTrack) {
-    // The player flagged the "off" pseudo-track; best effort — the first
-    // playable track with an identity.
-    for (const t of playable) {
-      const key = trackKey(t);
-      if (key !== null) return key;
-    }
-  }
-
-  return null;
+export function pickActiveTrackId(list: TrackLike[], player?: { getTimedTextTrack?: () => unknown }): string | number | null {
+  const active = getActiveTrack(list, player);
+  return active && !active.isNoneTrack ? trackKey(active) : null;
 }

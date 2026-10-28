@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('wxt/browser', () => ({ browser: { i18n: { getUILanguage: () => 'en-US' } } }));
+import { browser } from 'wxt/browser';
 import { normalizeBrowserLocale, resolveUiLocale, translate } from '@/shared/i18n';
 
 describe('UI i18n', () => {
@@ -7,6 +9,12 @@ describe('UI i18n', () => {
     expect(normalizeBrowserLocale('zh-HK')).toBe('zh-Hant');
     expect(normalizeBrowserLocale('zh-CN')).toBe('zh-Hans');
     expect(normalizeBrowserLocale('zh-SG')).toBe('zh-Hans');
+    expect(normalizeBrowserLocale('zh')).toBe('zh-Hans');
+    expect(normalizeBrowserLocale('zh_HK')).toBe('zh-Hant');
+    expect(normalizeBrowserLocale('zh-TW-u-ca-gregory')).toBe('zh-Hant');
+    expect(normalizeBrowserLocale('ja-JP')).toBe('ja');
+    expect(normalizeBrowserLocale('en-US')).toBe('en');
+    expect(normalizeBrowserLocale('fr-FR')).toBe('en');
   });
 
   it('keeps Traditional and Simplified Chinese terminology distinct', () => {
@@ -40,5 +48,14 @@ describe('UI i18n', () => {
   it('accepts explicit locale preferences without browser inference', () => {
     expect(resolveUiLocale('zh-Hans')).toBe('zh-Hans');
     expect(resolveUiLocale('ja')).toBe('ja');
+  });
+
+  it('uses the browser interface language in auto mode, while manual choice takes priority', () => {
+    const spy = vi.spyOn(browser.i18n, 'getUILanguage').mockReturnValue('ja-JP');
+    try {
+      expect(resolveUiLocale('auto')).toBe('ja');
+      expect(resolveUiLocale('zh-Hans')).toBe('zh-Hans');
+      expect(translate('auto', 'popup.translatePage')).toBe('現在のページを翻訳');
+    } finally { spy.mockRestore(); }
   });
 });

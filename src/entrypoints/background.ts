@@ -17,6 +17,7 @@ import { MessageErrorCode } from '@/core/contracts/messages';
 import { createLogger } from '@/shared/logger';
 import { inspectHttpEndpoint } from '@/infrastructure/providers/endpoint-security';
 import { translate } from '@/shared/i18n';
+import { learningText } from '@/shared/i18n/learning';
 import { resolveProviderId } from '@/core/settings/provider-selection';
 
 const logger = createLogger('Background');
@@ -72,14 +73,14 @@ export default defineBackground(() => {
     if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
       const tabId = sender?.tab?.id;
       if (typeof tabId !== 'number') {
-        throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。請先開啟要翻譯的頁面。');
+        throw new Error(learningText(settings.uiLanguage, 'chromeTabRequired'));
       }
       const { type: _type, forceProvider: _forceProvider, ...request } = msg;
       const result = await extensionBridge.sendTabCommand(tabId, {
         type: 'EXECUTE_CHROME_AI_TRANSLATION',
         request,
       });
-      if (!result) throw new Error('Chrome 本機 AI 執行頁面沒有回應');
+      if (!result) throw new Error(learningText(settings.uiLanguage, 'chromeNoResponse'));
       return result;
     }
     return translationPipeline.translate(msg);
@@ -186,19 +187,21 @@ export default defineBackground(() => {
 
   // ── TRANSLATE_ACTIVE_TAB ───────────────────────────────────────
   messageRouter.registerHandler('TRANSLATE_ACTIVE_TAB', async () => {
+    const language = (await SettingsStorage.get()).uiLanguage;
     return relayCommandToActiveTab('EXECUTE_PAGE_TRANSLATION', {
-      tabNotFound: '找不到作用中的分頁 (Active tab not found)',
-      scriptUnavailable: '無法在目前的頁面上執行翻譯（Content Script 未回應）',
-      executionFailed: '翻譯執行失敗',
+      tabNotFound: translate(language, 'error.activeTabMissing'),
+      scriptUnavailable: translate(language, 'error.communicationLoaded'),
+      executionFailed: translate(language, 'error.pageTranslation'),
     });
   });
 
   // ── RESTORE_ACTIVE_TAB ─────────────────────────────────────────
   messageRouter.registerHandler('RESTORE_ACTIVE_TAB', async () => {
+    const language = (await SettingsStorage.get()).uiLanguage;
     return relayCommandToActiveTab('RESTORE_PAGE_TRANSLATION', {
-      tabNotFound: '找不到作用中的分頁 (Active tab not found)',
-      scriptUnavailable: '無法在目前的頁面上執行還原（Content Script 未回應）',
-      executionFailed: '還原執行失敗',
+      tabNotFound: translate(language, 'error.activeTabMissing'),
+      scriptUnavailable: translate(language, 'error.communicationLoaded'),
+      executionFailed: translate(language, 'error.pageRestore'),
     });
   });
 
@@ -246,13 +249,13 @@ export default defineBackground(() => {
     const providerId = resolveProviderId(settings, msg.usage);
     if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
       const tabId = sender?.tab?.id;
-      if (typeof tabId !== 'number') throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。');
+      if (typeof tabId !== 'number') throw new Error(learningText(settings.uiLanguage, 'chromeTabRequired'));
       const { type: _type, ...request } = msg;
       const result = await extensionBridge.sendTabCommand(tabId, {
         type: 'EXECUTE_CHROME_AI_WORD_ANALYSIS',
         request,
       });
-      if (!result) throw new Error('Chrome 本機 AI 沒有回應');
+      if (!result) throw new Error(learningText(settings.uiLanguage, 'chromeNoResponse'));
       return result;
     }
     return await aiLearningEngine.analyzeWord(msg);
@@ -263,13 +266,13 @@ export default defineBackground(() => {
     const providerId = resolveProviderId(settings, msg.usage);
     if (providerId === 'chrome-builtin-ai-provider' || providerId === 'chrome-ai-provider') {
       const tabId = sender?.tab?.id;
-      if (typeof tabId !== 'number') throw new Error('Chrome 本機 AI 必須在瀏覽器分頁中執行。');
+      if (typeof tabId !== 'number') throw new Error(learningText(settings.uiLanguage, 'chromeTabRequired'));
       const { type: _type, ...request } = msg;
       const result = await extensionBridge.sendTabCommand(tabId, {
         type: 'EXECUTE_CHROME_AI_GRAMMAR_ANALYSIS',
         request,
       });
-      if (!result) throw new Error('Chrome 本機 AI 沒有回應');
+      if (!result) throw new Error(learningText(settings.uiLanguage, 'chromeNoResponse'));
       return result;
     }
     return await aiLearningEngine.explainGrammar(msg);

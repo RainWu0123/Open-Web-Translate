@@ -8,6 +8,8 @@
  * This parser is original project code; the URLs above document the format
  * semantics and namespace/time-expression conventions it interoperates with.
  */
+import { normalizeSubtitleCueText } from '@/shared/utils/subtitle-text';
+
 export interface SubtitleCue {
   startMs: number;
   endMs: number;
@@ -167,18 +169,20 @@ export function parseNetflixTtmlDetailed(xmlText: string): TtmlParseResult {
         parts.push('\n');
         return;
       }
+      if (name === 'rt' || name === 'rp') {
+        return;
+      }
+      const rubyRole = getAttr(element, 'ruby').toLowerCase();
+      if (rubyRole === 'text' || rubyRole === 'delimiter') {
+        return;
+      }
       for (let i = 0; i < element.childNodes.length; i++) {
         walk(element.childNodes[i]);
       }
     };
 
     walk(el);
-    return parts
-      .join('')
-      .replace(/[ \t]+\n/g, '\n')
-      .replace(/\n[ \t]+/g, '\n')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim();
+    return normalizeSubtitleCueText(parts.join(''));
   };
 
   if (!xmlText || /[\x00-\x08\x0b\x0c\x0e-\x1f\ufffd]/.test(xmlText) || (!xmlText.includes('<') && !xmlText.includes('>'))) {
@@ -237,31 +241,106 @@ export function parseNetflixTtmlDetailed(xmlText: string): TtmlParseResult {
     console.warn('[OWT-TTML] Failed to parse TTML:', err);
   }
 
-  const sorted = cues.sort((a, b) => a.startMs - b.startMs);
+  const processed = postProcessTimedCues(cues);
 
-  // Smooth micro-gaps and ensure human-readable continuity ("連段")
-  // Short cues (< 1000ms) flash too quickly for reading; extend them smoothly up to the next cue
-  for (let i = 0; i < sorted.length; i++) {
-    const cur = sorted[i];
-    const next = sorted[i + 1];
+  diagnostics.cueCount = processed.length;
+  diagnostics.firstCueMs = processed[0]?.startMs ?? null;
+  diagnostics.lastCueMs = processed.at(-1)?.endMs ?? null;
+  return { cues: processed, diagnostics };
+}
+
+const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
+const DIALOGUE_MARKER_RE = /^(?:[-–—―•]|>>|[（(\[][^）)\]]+[）)\]])/;
+const SENTENCE_TERMINAL_RE = /[.!?。！？…♪♫”"'\])»）」』】》]\s*$/;
+const CJK_INCOMPLETE_END_RE = /[はがをにでとへのもやからまでよりっててでりしく、，]$/;
+const LATIN_INCOMPLETE_END_RE =
+  /(?:,|\b(?:the|a|an|to|of|in|on|for|with|at|by|from|into|about|as|that|which|who|whom|whose|where|when|while|and|or|but|because|if|than|is|are|was|were|be|been|has|have|had|will|would|can|could|should))\s*$/i;
+
+function shouldCoalesceTimedCues(prev: SubtitleCue, next: SubtitleCue): boolean {
+  const gapMs = Math.max(0, next.startMs - prev.endMs);
+  if (gapMs > 350) return false;
+  if (DIALOGUE_MARKER_RE.test(next.text)) return false;
+  if (SENTENCE_TERMINAL_RE.test(prev.text)) return false;
+
+  const mergedDuration = next.endMs - prev.startMs;
+  if (mergedDuration > 12_000) return false;
+
+  const combined = normalizeSubtitleCueText(`${prev.text}\n${next.text}`);
+  const maxChars = CJK_RE.test(combined) ? 72 : 180;
+  if (combined.length > maxChars) return false;
+
+  if (CJK_RE.test(prev.text)) {
+    return CJK_INCOMPLETE_END_RE.test(prev.text.trim());
+  }
+
+  return /^[a-z]/.test(next.text.trim()) || LATIN_INCOMPLETE_END_RE.test(prev.text.trim());
+}
+
+function postProcessTimedCues(rawCues: SubtitleCue[]): SubtitleCue[] {
+  if (rawCues.length === 0) return [];
+
+  const sorted = [...rawCues]
+    .map((c) => ({
+      startMs: c.startMs,
+      endMs: c.endMs,
+      text: normalizeSubtitleCueText(c.text),
+    }))
+    .filter((c) => c.text.length > 0)
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+
+  // 1. Merge simultaneous cues (e.g. two <p> tags at the same timestamp) and clamp overlaps
+  const deoverlapped: SubtitleCue[] = [];
+  for (const cue of sorted) {
+    const prev = deoverlapped[deoverlapped.length - 1];
+    if (prev) {
+      if (Math.abs(cue.startMs - prev.startMs) <= 200) {
+        if (prev.text !== cue.text && !prev.text.includes(cue.text)) {
+          prev.text = normalizeSubtitleCueText(`${prev.text}\n${cue.text}`);
+        }
+        prev.endMs = Math.max(prev.endMs, cue.endMs);
+        continue;
+      }
+      if (prev.endMs > cue.startMs) {
+        prev.endMs = Math.max(prev.startMs + 150, cue.startMs - 20);
+      }
+    }
+    deoverlapped.push({ ...cue });
+  }
+
+  // 2. Coalesce consecutive cues when a single sentence is split across two adjacent cues
+  const coalesced: SubtitleCue[] = [];
+  for (const cue of deoverlapped) {
+    const prev = coalesced[coalesced.length - 1];
+    if (prev && shouldCoalesceTimedCues(prev, cue)) {
+      prev.text = normalizeSubtitleCueText(`${prev.text}\n${cue.text}`);
+      prev.endMs = Math.max(prev.endMs, cue.endMs);
+    } else {
+      coalesced.push({ ...cue });
+    }
+  }
+
+  // 3. Smooth micro-gaps and ensure human-readable continuity ("連段")
+  for (let i = 0; i < coalesced.length; i++) {
+    const cur = coalesced[i];
+    const next = coalesced[i + 1];
     const duration = cur.endMs - cur.startMs;
 
-    const maxAllowedEnd = next ? Math.max(cur.startMs + 500, next.startMs - 30) : cur.startMs + 2500;
+    const maxAllowedEnd = next ? Math.max(cur.startMs + 150, next.startMs - 20) : cur.startMs + 2500;
 
     if (duration < 1000) {
       cur.endMs = Math.min(cur.startMs + 1200, Math.max(cur.endMs, maxAllowedEnd));
     }
 
-    // Bridge small micro-gaps (<= 250ms) between adjacent cues to prevent visual flickering / strobing
-    if (next && next.startMs > cur.endMs && (next.startMs - cur.endMs) <= 250) {
+    if (next && next.startMs > cur.endMs && next.startMs - cur.endMs <= 250) {
       cur.endMs = next.startMs - 20;
+    }
+
+    if (next && cur.endMs >= next.startMs) {
+      cur.endMs = Math.max(cur.startMs + 80, next.startMs - 1);
     }
   }
 
-  diagnostics.cueCount = sorted.length;
-  diagnostics.firstCueMs = sorted[0]?.startMs ?? null;
-  diagnostics.lastCueMs = sorted.at(-1)?.endMs ?? null;
-  return { cues: sorted, diagnostics };
+  return coalesced;
 }
 
 /** Backward-compatible API for existing adapters. */
@@ -281,12 +360,12 @@ export function parseNetflixTtml(xmlText: string): SubtitleCue[] {
       if (!timing) continue;
       const element = document.createElement('div');
       element.innerHTML = lines.slice(index + 1).join('\n').replace(/<[^>]*>/g, '');
-      const text = element.textContent?.trim() || '';
+      const text = normalizeSubtitleCueText(element.textContent || '');
       const startMs = timestamp(timing[1]);
       const endMs = timestamp(timing[2]);
       if (text && endMs > startMs) cues.push({ startMs, endMs, text });
     }
-    return cues.sort((a, b) => a.startMs - b.startMs);
+    return postProcessTimedCues(cues);
   }
   return parseNetflixTtmlDetailed(xmlText).cues;
 }

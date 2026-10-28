@@ -44,6 +44,29 @@ export interface VocabularyCard {
   reviewState: 'new' | 'learning' | 'known';
 }
 
+const segmenterCache = new Map<string, Intl.Segmenter>();
+
+function detectScriptLocale(text: string, lang: string): string | undefined {
+  if (lang && lang !== 'auto') return lang;
+  if (/[\u3040-\u309f\u30a0-\u30ff]/.test(text)) return 'ja';
+  if (/[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/.test(text)) return 'ko';
+  if (/[\u4e00-\u9fff]/.test(text)) return 'zh';
+  return undefined;
+}
+
+function getWordSegmenter(locale: string | undefined): Intl.Segmenter {
+  const key = locale || '__default__';
+  let cached = segmenterCache.get(key);
+  if (cached) return cached;
+  try {
+    cached = new Intl.Segmenter(locale, { granularity: 'word' });
+  } catch {
+    cached = new Intl.Segmenter(undefined, { granularity: 'word' });
+  }
+  segmenterCache.set(key, cached);
+  return cached;
+}
+
 /**
  * Tokenize subtitle text into interactive tokens for CJK and Western languages.
  */
@@ -52,10 +75,8 @@ export function tokenizeText(cueId: string, text: string, lang: string): Subtitl
   if (!text) return tokens;
 
   if (typeof Intl.Segmenter === 'function') {
-    const locale = !lang || lang === 'auto' ? undefined : lang;
-    let segmenter: Intl.Segmenter;
-    try { segmenter = new Intl.Segmenter(locale, { granularity: 'word' }); }
-    catch { segmenter = new Intl.Segmenter(undefined, { granularity: 'word' }); }
+    const locale = detectScriptLocale(text, lang);
+    const segmenter = getWordSegmenter(locale);
     for (const part of segmenter.segment(text)) {
       if (!part.isWordLike) continue;
       tokens.push({ id: `${cueId}:${part.index}-${part.index + part.segment.length}`, surface: part.segment,

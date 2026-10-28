@@ -192,7 +192,9 @@ export default defineContentScript({
 
     messageRouter.registerHandler('SET_NETFLIX_SELECTION', async (msg) => {
       if (!isNetflix) return false;
-      return await netflixAdapter.setSubtitleSource(msg.source, msg.trackId);
+      return msg.side === 'original'
+        ? await netflixAdapter.setOriginalSubtitleSource(msg.source === 'track' ? msg.trackId : undefined)
+        : await netflixAdapter.setSubtitleSource(msg.source, msg.trackId);
     });
 
     messageRouter.registerHandler('SET_NETFLIX_ACTIVE', async (msg) => {
@@ -217,6 +219,11 @@ export default defineContentScript({
       return await youtubeAdapter.setTrack(msg.trackId);
     });
 
+    messageRouter.registerHandler('SET_YOUTUBE_SOURCES', async (msg) => {
+      if (!isYouTube) return false;
+      return await youtubeAdapter.setSubtitleSources(msg.side, msg.value);
+    });
+
     messageRouter.listen();
 
     // 2. Setup SPA navigation listener to clear old translations on route change
@@ -225,7 +232,7 @@ export default defineContentScript({
     // 2b. Selection translate (劃詞翻譯) pill
     setupSelectionTranslate(async (selection) => {
       const result = await executeSelectionTranslation(selection);
-      if (!result.success) showTranslationError(result.error?.message || '翻譯失敗，請重試。');
+      if (!result.success) showTranslationError(result.error?.message || translate(badgeUiLanguage, 'content.translationFailed'));
     }, () => translationEnabled);
 
     // 3. Listen for settings changes to dynamically show/hide badge
@@ -435,7 +442,7 @@ function addFloatingBadge(): void {
       if (badgeState === 'idle') {
         const res = await executePageTranslation();
         if (!res.success) {
-          showTranslationError(res.error?.message || '翻譯失敗，請重試。');
+          showTranslationError(res.error?.message || translate(badgeUiLanguage, 'content.translationFailed'));
         }
       } else if (badgeState === 'translated') {
         await executePageRestore();
@@ -636,7 +643,7 @@ async function executeSelectionTranslation(
 ): Promise<{ success: boolean; error?: ErrorPayload }> {
   try {
     const settings = await SettingsStorage.get();
-    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: '網頁翻譯已關閉，請先在擴充功能中開啟。' } };
+    if (!settings.enabled) return { success: false, error: { code: 'DISABLED', message: translate(settings.uiLanguage, 'content.translationDisabled') } };
     const targetLanguage = settings?.targetLanguage || 'zh-Hant';
     const sourceLanguage = settings?.sourceLanguage || 'auto';
 

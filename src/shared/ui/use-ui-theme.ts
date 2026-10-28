@@ -1,7 +1,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { SettingsStorage } from '@/infrastructure/storage/extension-storage/settings-storage';
+import { learningText, type LearningKey } from '@/shared/i18n/learning';
 
-export function useUiTheme(onError: (message: string) => void) {
+export function useUiTheme(onError: (message: string) => void, language: () => string | undefined = () => 'auto') {
+  const error = (key: LearningKey) => onError(learningText(language(), key));
   const theme = ref<'light' | 'dark' | 'system'>('system');
   const systemDark = ref(false);
   const resolvedTheme = computed(() => theme.value === 'system' ? (systemDark.value ? 'dark' : 'light') : theme.value);
@@ -21,14 +23,14 @@ export function useUiTheme(onError: (message: string) => void) {
     try {
       apply((await SettingsStorage.get()).theme ?? 'system');
       unwatch = SettingsStorage.watch(settings => apply(settings.theme ?? 'system'));
-    } catch { onError('無法讀取外觀設定，請重新開啟擴充功能。'); }
+    } catch { error('themeReadFailed'); }
   });
   onUnmounted(() => { unwatch?.(); media?.removeEventListener('change', onSystemChange); });
   async function setTheme(value: typeof theme.value) {
     const previous = document.documentElement.dataset.theme as typeof theme.value;
     apply(value);
     try { await SettingsStorage.set({ theme: value }); }
-    catch { apply(previous); onError('外觀設定未儲存，請再試一次。'); }
+    catch { apply(previous); error('themeSaveFailed'); }
   }
   function onThemeChange(event: Event) {
     return setTheme((event.target as HTMLSelectElement).value as typeof theme.value);

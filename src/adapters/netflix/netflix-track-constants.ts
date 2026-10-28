@@ -20,6 +20,11 @@ export const NETFLIX_PREFERRED_TEXT_PROFILES: readonly string[] = [
   'webvtt-ls',
 ];
 
+/** Query parameters change during playback; only the watch ID identifies a film. */
+export function netflixVideoId(): string {
+  return window.location.pathname.match(/\/watch\/(\d+)/)?.[1] ?? window.location.pathname;
+}
+
 /** Substrings identifying A/V media segments that are never subtitle tracks. */
 const MEDIA_SEGMENT_MARKERS = ['path=video', 'path=audio', '/video/', '/audio/'] as const;
 

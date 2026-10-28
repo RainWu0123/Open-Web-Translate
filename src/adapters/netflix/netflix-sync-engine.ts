@@ -11,6 +11,7 @@ export class NetflixSyncEngine {
   private isRunning = false;
   private rafId: number | null = null;
   private currentCue: SubtitleCue | null = null;
+  private hasEmitted = false;
   private onCueChangeCb: CueChangeCallback | null = null;
 
   constructor() {}
@@ -19,6 +20,7 @@ export class NetflixSyncEngine {
     // Assert/Ensure cues are sorted by startMs asc
     this.cues = [...cues].sort((a, b) => a.startMs - b.startMs);
     this.currentCue = null;
+    this.hasEmitted = false;
   }
 
   public getCues(): SubtitleCue[] {
@@ -61,6 +63,7 @@ export class NetflixSyncEngine {
       this.videoEl = null;
     }
     this.currentCue = null;
+    this.hasEmitted = false;
     logger.debug('Sync engine stopped');
   }
 
@@ -85,10 +88,11 @@ export class NetflixSyncEngine {
   };
 
   public syncOnce(currentMs: number): void {
-    const hit = this.binarySearchCue(currentMs);
+    const hit = this.binarySearchCue(currentMs) ?? null;
 
-    if (hit !== this.currentCue) {
-      this.currentCue = hit ?? null;
+    if (!this.hasEmitted || hit !== this.currentCue) {
+      this.hasEmitted = true;
+      this.currentCue = hit;
       if (this.onCueChangeCb) {
         this.onCueChangeCb(this.currentCue, currentMs);
       }

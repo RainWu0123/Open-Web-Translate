@@ -90,14 +90,35 @@ function buildRequestChunks(targets: ExtractedTarget[]): {
   return { chunks, renderTagMapByTarget };
 }
 
+const FIRST_BATCH_MAX_CHUNKS = 8;
+const FIRST_BATCH_MAX_CHARS = 4_500;
+const NEXT_BATCH_MAX_CHUNKS = 20;
+const NEXT_BATCH_MAX_CHARS = 12_000;
+
 function partitionChunks(chunks: RequestChunk[]): RequestChunk[][] {
   const batches: RequestChunk[][] = [];
   let current: RequestChunk[] = [];
   let currentChars = 0;
   for (const chunk of chunks) {
+    const isFirstBatch = batches.length === 0;
+    const maxChunks = Math.min(
+      PAYLOAD_LIMITS.MAX_TARGETS,
+      isFirstBatch ? FIRST_BATCH_MAX_CHUNKS : NEXT_BATCH_MAX_CHUNKS,
+    );
+    const maxChars = Math.min(
+      PAYLOAD_LIMITS.MAX_TOTAL_CHARS,
+      isFirstBatch ? FIRST_BATCH_MAX_CHARS : NEXT_BATCH_MAX_CHARS,
+    );
+    const sameTargetAsPrevious =
+      current.length > 0 && current[current.length - 1].targetId === chunk.targetId;
+
     const overflow =
       current.length >= PAYLOAD_LIMITS.MAX_TARGETS ||
-      (current.length > 0 && currentChars + chunk.text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS);
+      (current.length > 0 && currentChars + chunk.text.length > PAYLOAD_LIMITS.MAX_TOTAL_CHARS) ||
+      (!sameTargetAsPrevious &&
+        (current.length >= maxChunks ||
+          (current.length > 0 && currentChars + chunk.text.length > maxChars)));
+
     if (overflow) {
       batches.push(current);
       current = [];
@@ -110,28 +131,80 @@ function partitionChunks(chunks: RequestChunk[]): RequestChunk[][] {
   return batches;
 }
 
+function prioritizeTargetsByViewport(targets: ExtractedTarget[]): ExtractedTarget[] {
+  if (typeof window === 'undefined' || !window.innerHeight || targets.length <= 1) {
+    return targets;
+  }
+
+  const vh = window.innerHeight;
+  const nearViewport: ExtractedTarget[] = [];
+  const offscreen: ExtractedTarget[] = [];
+
+  for (const target of targets) {
+    try {
+      const rect = target.element.getBoundingClientRect();
+      // In JSDOM or visible viewport band [-0.5*vh, 1.5*vh]
+      if (rect.bottom >= -vh * 0.5 && rect.top <= vh * 1.5) {
+        nearViewport.push(target);
+      } else {
+        offscreen.push(target);
+      }
+    } catch {
+      nearViewport.push(target);
+    }
+  }
+
+  return [...nearViewport, ...offscreen];
+}
+
 async function translateExtractedTargets(
   targets: ExtractedTarget[],
   translateFn: TranslationExecutionOptions['translateFn'],
+  onTargetTranslated?: (
+    target: ExtractedTarget,
+    translatedText: string,
+    tagMap: ExtractedTarget['tagMap'],
+  ) => void,
 ): Promise<{ translations: Map<string, string>; renderTagMapByTarget: Map<string, ExtractedTarget['tagMap']> }> {
   const { chunks, renderTagMapByTarget } = buildRequestChunks(targets);
   const translatedChunks = new Map<string, string>();
+  const translations = new Map<string, string>();
+  const chunksByTarget = new Map<string, RequestChunk[]>();
+
+  for (const chunk of chunks) {
+    const list = chunksByTarget.get(chunk.targetId) || [];
+    list.push(chunk);
+    chunksByTarget.set(chunk.targetId, list);
+  }
+  const targetById = new Map(targets.map((t) => [t.id, t]));
 
   for (const batch of partitionChunks(chunks)) {
     const response = await translateFn(batch.map(({ id, text }) => ({ id, text })));
     const responseMap = new Map(response.map((item) => [item.id, item.translatedText]));
+    const touchedTargetIds = new Set<string>();
+
     for (const chunk of batch) {
       const translated = responseMap.get(chunk.id);
       if (!translated?.trim()) throw new Error('翻譯服務未回傳完整內容，請重試。');
       translatedChunks.set(chunk.id, translated);
+      touchedTargetIds.add(chunk.targetId);
+    }
+
+    for (const targetId of touchedTargetIds) {
+      if (translations.has(targetId)) continue;
+      const targetChunks = chunksByTarget.get(targetId) || [];
+      if (targetChunks.every((c) => translatedChunks.has(c.id))) {
+        const sortedChunks = [...targetChunks].sort((a, b) => a.chunkIndex - b.chunkIndex);
+        const fullTranslated = sortedChunks.map((c) => translatedChunks.get(c.id)!).join(' ').trim();
+        translations.set(targetId, fullTranslated);
+        const target = targetById.get(targetId);
+        if (target && onTargetTranslated) {
+          onTargetTranslated(target, fullTranslated, renderTagMapByTarget.get(targetId));
+        }
+      }
     }
   }
 
-  const translations = new Map<string, string>();
-  for (const target of targets) {
-    const targetChunks = chunks.filter((chunk) => chunk.targetId === target.id).sort((a, b) => a.chunkIndex - b.chunkIndex);
-    translations.set(target.id, targetChunks.map((chunk) => translatedChunks.get(chunk.id)!).join(' ').trim());
-  }
   return { translations, renderTagMapByTarget };
 }
 
@@ -192,7 +265,8 @@ export class GenericDomAdapter implements SiteAdapter {
   }
 
   /**
-   * Translates extracted HTML content blocks on the page and renders bilingual Shadow DOM blocks.
+   * Translates extracted HTML content blocks on the page and renders bilingual Shadow DOM blocks
+   * progressively per batch, prioritizing viewport-visible blocks first.
    */
   async translatePage(
     doc: Document = document,
@@ -206,27 +280,29 @@ export class GenericDomAdapter implements SiteAdapter {
       return { success: false, translatedCount: 0 };
     }
 
-    const { targets } = extractResult;
-    const { translations, renderTagMapByTarget } = await translateExtractedTargets(targets, options.translateFn);
+    const orderedTargets = prioritizeTargetsByViewport(extractResult.targets);
     removeAllBilingualBlocks(doc);
 
-    targets.forEach((target) => {
-      const translatedText = translations.get(target.id)!;
-      renderBilingualBlock(
-        target.element,
-        target.id,
-        target.text,
-        translatedText,
-        options.displayMode || 'bilingual',
-        renderTagMapByTarget.get(target.id),
-      );
-    });
+    await translateExtractedTargets(
+      orderedTargets,
+      options.translateFn,
+      (target, translatedText, tagMap) => {
+        renderBilingualBlock(
+          target.element,
+          target.id,
+          target.text,
+          translatedText,
+          options.displayMode || 'bilingual',
+          tagMap,
+        );
+      },
+    );
 
-    logger.info(`Successfully translated ${targets.length} HTML content blocks via Shadow DOM`);
+    logger.info(`Successfully translated ${orderedTargets.length} HTML content blocks via Shadow DOM`);
     return {
       success: true,
-      translatedCount: targets.length,
-      targets,
+      translatedCount: orderedTargets.length,
+      targets: extractResult.targets,
     };
   }
 

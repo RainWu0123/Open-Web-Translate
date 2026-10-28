@@ -159,6 +159,36 @@ describe('Generic Web Page DOM Translation Adapter & Model Registry', () => {
       expect(restoredCount).toBe(1);
       expect(document.querySelectorAll('.owt-bilingual-host').length).toBe(0);
     });
+
+    it('1.8 renders translated blocks progressively per batch without waiting for later batches', async () => {
+      // Create 2 blocks where the first block exceeds MAX_TOTAL_CHARS threshold when combined with the second
+      const blockA = 'A'.repeat(2800);
+      const blockB = 'B'.repeat(2800);
+      const blockC = 'C'.repeat(2800);
+      testContainer.innerHTML = `
+        <p id="p-a">${blockA}</p>
+        <p id="p-b">${blockB}</p>
+        <p id="p-c">${blockC}</p>
+      `;
+
+      let renderedCountBeforeSecondBatch = -1;
+      let batchCallCount = 0;
+
+      await adapter.translatePage(document, {
+        targetLanguage: 'zh-TW',
+        translateFn: async (segments) => {
+          batchCallCount += 1;
+          if (batchCallCount === 2) {
+            renderedCountBeforeSecondBatch = document.querySelectorAll('.owt-bilingual-host').length;
+          }
+          return segments.map((s) => ({ id: s.id, translatedText: `譯:${s.text.slice(0, 10)}` }));
+        },
+      });
+
+      expect(batchCallCount).toBeGreaterThanOrEqual(2);
+      expect(renderedCountBeforeSecondBatch).toBeGreaterThan(0);
+      expect(document.querySelectorAll('.owt-bilingual-host').length).toBe(3);
+    });
   });
 
   // --------------------------------------------------------------------------

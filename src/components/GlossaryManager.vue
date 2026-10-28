@@ -5,7 +5,7 @@
     <div v-if="isReviewMode" class="review-mode-wrapper">
       <FlashcardWorkbench
         :cards="learningCards" :save-review="saveReview"
-        :t="t"
+        :t="t" :language="language"
         @review="onRecordReview"
         @close="isReviewMode = false"
       />
@@ -15,9 +15,9 @@
     <template v-else>
       <div class="panel-header">
         <div class="title-group">
-          <h1 class="panel-title">{{ translate('vocabularyWorkbench') }}</h1>
-          <span class="count-badge" data-testid="item-count">{{ safeItems.length }} 個單字</span>
-          <span v-if="dueCardsCount > 0" class="due-badge">{{ dueCardsCount }} 待複習</span>
+          <h1 class="panel-title">{{ tr('wordsTitle') }}</h1>
+          <span class="count-badge" data-testid="item-count">{{ tr('wordCount', { count: safeItems.length }) }}</span>
+          <span v-if="dueCardsCount > 0" class="due-badge">{{ tr('dueCount', { count: dueCardsCount }) }}</span>
         </div>
         <div class="header-actions">
           <button
@@ -26,16 +26,16 @@
             :disabled="safeItems.length === 0"
             data-testid="start-review-btn"
           >
-            複習單字
+            {{ tr('reviewWords') }}
           </button>
           <button
             class="btn btn-save btn-sm"
             @click="onExportAnki"
             :disabled="safeItems.length === 0"
             data-testid="export-anki-btn"
-            title="匯出至 Anki 牌組 (.txt)"
+            :title="tr('exportAnkiTitle')"
           >
-            匯出 Anki
+            {{ tr('exportAnki') }}
           </button>
           <button
             class="btn btn-outline btn-sm"
@@ -43,7 +43,7 @@
             :disabled="safeItems.length === 0"
             data-testid="export-csv-btn"
           >
-            {{ translate('exportCsv') }}
+            {{ tr('exportCsv') }}
           </button>
           <button
             class="btn btn-clear btn-sm"
@@ -51,7 +51,7 @@
             :disabled="safeItems.length === 0"
             data-testid="clear-all-btn"
           >
-            {{ translate('clearAll') }}
+            {{ tr('clearAll') }}
           </button>
         </div>
       </div>
@@ -62,14 +62,14 @@
           <input
             type="text"
             v-model="newSource"
-            placeholder="單字，例如 apple"
+            :placeholder="tr('termPlaceholder')"
             class="term-input"
             data-testid="input-source-term"
           />
           <input
             type="text"
             v-model="newTarget"
-            placeholder="意思，例如 蘋果"
+            :placeholder="tr('meaningPlaceholder')"
             class="term-input"
             data-testid="input-target-term"
           />
@@ -79,7 +79,7 @@
             :disabled="isAdding || !newSource.trim() || !newTarget.trim()"
             data-testid="add-term-btn"
           >
-            新增單字
+            {{ tr('add') }}
           </button>
         </div>
       </div>
@@ -89,7 +89,7 @@
         <input
           type="text"
           v-model="searchQuery"
-          placeholder="搜尋單字、意思或例句…"
+          :placeholder="tr('search')"
           class="search-input"
           data-testid="vocab-search-input"
         />
@@ -100,8 +100,8 @@
         <div class="vocab-container">
           <!-- Empty State -->
           <div v-if="filteredItems.length === 0" class="empty-state" data-testid="empty-state">
-            <p v-if="searchQuery">找不到符合的單字： "{{ searchQuery }}".</p>
-            <p v-else>{{ translate('vocabularyDesc') }}</p>
+            <p v-if="searchQuery">{{ tr('noResults', { query: searchQuery }) }}</p>
+            <p v-else>{{ tr('wordsDesc') }}</p>
           </div>
 
           <!-- Vocab Item List -->
@@ -121,24 +121,24 @@
                   <button
                     class="vocab-audio-btn"
                     @click="playAudio(item.word || item.source || '', item.sourceLang)"
-                    title="朗讀發音"
+                    :title="tr('speakWord')" :aria-label="tr('speakWord')"
                   >
                     🔊
                   </button>
                   <span v-if="item.pos" class="vocab-badge-pos">{{ item.pos }}</span>
                   <span v-if="item.lemma && item.lemma !== (item.word || item.source)" class="vocab-lemma">
-                    原形: {{ item.lemma }}
+                    {{ tr('lemma') }}: {{ item.lemma }}
                   </span>
                   <span class="vocab-translation" data-testid="vocab-translation">{{ item.meaning || item.translation || item.target }}</span>
                   <span v-if="item.srs" class="vocab-interval-pill">
-                    複習間隔: {{ item.srs.interval || 0 }}d
+                    {{ tr('interval', { count: item.srs.interval || 0 }) }}
                   </span>
                 </div>
                 <div v-if="item.contextSentence || item.context" class="vocab-context">
-                  例句： "{{ item.contextSentence || item.context }}"
+                  {{ tr('example') }}: "{{ item.contextSentence || item.context }}"
                 </div>
                 <div v-if="item.contextTranslation" class="vocab-context-trans">
-                  譯文: "{{ item.contextTranslation }}"
+                  {{ tr('translation') }}: "{{ item.contextTranslation }}"
                 </div>
                 <a
                   v-if="item.sourceUrl || item.url"
@@ -148,13 +148,13 @@
                   class="vocab-link"
                   data-testid="vocab-source-link"
                 >
-                  開啟原始網頁
+                  {{ tr('openSource') }}
                 </a>
               </div>
               <button
                 class="btn-delete-item"
                 @click="onDeleteItem(item)"
-                title="刪除這個單字"
+                :title="tr('delete')" :aria-label="tr('delete')"
                 data-testid="delete-vocab-item-btn"
               >
                 &times;
@@ -180,6 +180,7 @@ import FlashcardWorkbench from './learning/FlashcardWorkbench.vue';
 import { LearningRepository } from '@/infrastructure/storage/repositories/learning-repository';
 import { SrsEngine } from '@/core/learning/srs-engine';
 import { ttsPlayer } from '@/shared/audio/tts-player';
+import { learningText, type LearningKey } from '@/shared/i18n/learning';
 import type { SrsGrade, LearningCard } from '@/core/domain/learning-types';
 
 export interface VocabItem {
@@ -216,6 +217,7 @@ const props = withDefaults(
     glossary?: VocabItem[];
     enabled?: boolean;
     t?: (key: string) => string;
+    language?: string;
     loading?: boolean;
   }>(),
   {
@@ -291,26 +293,17 @@ const filteredItems = computed(() => {
   });
 });
 
-function translate(key: string): string {
-  if (props.t && props.t(key) !== key) return props.t(key);
-  const fallbackDict: Record<string, string> = {
-    vocabularyWorkbench: '收藏清單',
-    vocabularyDesc: '目前尚未儲存任何生字。請在瀏覽網頁或觀看影片字幕時點擊單字進行收藏。',
-    exportCsv: '匯出 CSV',
-    clearAll: '清空字庫',
-  };
-  return fallbackDict[key] || key;
-}
+const tr = (key: LearningKey, vars?: Record<string, string | number>) => learningText(props.language, key, vars);
 
 function playAudio(word: string, lang?: string) {
   if (!word) return;
   if (!ttsPlayer.isSupported()) {
-    formError.value = '這個瀏覽器不支援朗讀。';
+    formError.value = tr('audioUnsupported');
     return;
   }
   formError.value = '';
   void ttsPlayer.speak(word, lang || 'auto').catch(() => {
-    formError.value = '朗讀失敗，請檢查系統語音是否可用。';
+    formError.value = tr('audioFailed');
   });
 }
 
@@ -348,7 +341,7 @@ async function onAddTerm() {
     isAdding.value = true;
     formError.value = '';
     try { await props.saveTerm(newItem); }
-    catch { formError.value = '尚未儲存，輸入的內容已保留。請再試一次。'; return; }
+    catch { formError.value = tr('saveFailed'); return; }
     finally { isAdding.value = false; }
   } else {
     emit('addTerm', newItem);

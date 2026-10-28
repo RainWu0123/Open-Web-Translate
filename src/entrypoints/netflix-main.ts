@@ -79,8 +79,9 @@ export default defineUnlistedScript({
         if (typeof requestId !== 'string') return;
         let trackId: string | number | null = null;
         try {
-          const list = getMainVideoPlayer()?.player?.getTimedTextTrackList?.() ?? [];
-          trackId = pickActiveTrackId(list);
+          const player = discovery.currentPlayer()?.player;
+          const list = player?.getTimedTextTrackList?.() ?? [];
+          trackId = pickActiveTrackId(list, player);
         } catch {
           trackId = null;
         }
@@ -104,13 +105,17 @@ export default defineUnlistedScript({
       }
 
       if (data.type === BRIDGE.messageType.HYDRATE_TRACK) {
+        const scope = discovery.captureScope();
         const { trackId, expectedLanguage, performSeek, txId, requestId } = data;
         const correlation = {
           ...(typeof requestId === 'string' ? { requestId } : {}),
           ...(typeof txId === 'string' ? { txId } : {}),
         };
         const task = hydrationQueue.then(async () => {
-          const player = getMainVideoPlayer()?.player;
+          if (!discovery.isCurrentScope(scope) || (data.videoId && data.videoId !== scope.videoId)) {
+            return { ok: false, reason: 'video-changed' };
+          }
+          const player = discovery.currentPlayer()?.player;
           if (!player) return { ok: false, reason: 'api-unavailable' };
           if (typeof player.getTimedTextTrackList !== 'function' || typeof player.setTimedTextTrack !== 'function') {
             return { ok: false, reason: 'unsupported-api' };
@@ -122,15 +127,20 @@ export default defineUnlistedScript({
             Boolean(performSeek),
             {
               resourceEntries: () => performance.getEntriesByType('resource'),
-              fetchResource: fetch.bind(window),
+              fetchResource: (input, init) => discovery.fetchResource(scope, String(input), init),
               wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              isCurrent: () => discovery.isCurrentScope(scope) && discovery.currentPlayer()?.player === player,
             },
           );
         });
         hydrationQueue = task.then(() => undefined, () => undefined);
         try {
           const result = await task;
-          if (result.ok && result.url) discovery.bindHydratedUrl(String(trackId), result.url);
+          if (!discovery.isCurrentScope(scope)) {
+            replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { ...correlation, ok: false, reason: 'video-changed' });
+            return;
+          }
+          if (result.ok && result.url) discovery.bindHydratedUrl(String(trackId), result.url, scope);
           replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { ...correlation, ...result });
         } catch (err: any) {
           replyToContent(BRIDGE.messageType.HYDRATE_RESULT, { ...correlation, ok: false, reason: err?.message || 'exception' });
@@ -142,11 +152,16 @@ export default defineUnlistedScript({
         const requestId = data.requestId;
         const url = data.url;
         if (typeof requestId !== 'string' || typeof url !== 'string') return;
+        const scope = discovery.captureScope();
+        if (data.videoId !== scope.videoId || (typeof data.scopeEpoch === 'number' && data.scopeEpoch !== scope.epoch)) {
+          replyToContent(BRIDGE.messageType.TTML_RESULT, { requestId, ok: false, reason: 'video-changed' });
+          return;
+        }
 
         logger.debug('[Step 3 fetch begin]', { requestId, url: url.length > 50 ? url.substring(0, 50) + '...' : url });
 
         try {
-          const fetchPromise = fetch(url, {
+          const fetchPromise = discovery.fetchResource(scope, url, {
             method: 'GET',
             credentials: 'same-origin',
             cache: 'no-store',
@@ -164,6 +179,11 @@ export default defineUnlistedScript({
 
           const response = await Promise.race([fetchPromise, timeoutPromise]);
 
+          if (!discovery.isCurrentScope(scope)) {
+            replyToContent(BRIDGE.messageType.TTML_RESULT, { requestId, ok: false, reason: 'video-changed' });
+            return;
+          }
+
           if (!response || !response.ok) {
             logger.warn(`[Step 3 FAIL] Fetch HTTP ${response?.status || 'Network Error'} for URL: ${url}`);
             replyToContent(BRIDGE.messageType.TTML_RESULT, {
@@ -177,6 +197,7 @@ export default defineUnlistedScript({
           }
           const contentType = response.headers.get('content-type') || '';
           const arrayBuffer = await response.arrayBuffer();
+          if (!discovery.isCurrentScope(scope)) throw new Error('video-changed');
           const bytes = new Uint8Array(arrayBuffer);
           const detectedFormat = detectSubtitleFormat(bytes);
 

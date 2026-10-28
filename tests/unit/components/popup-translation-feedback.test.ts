@@ -13,8 +13,14 @@ const mocks = vi.hoisted(() => ({
   queryActiveTabId: vi.fn(async () => 42),
   sendTabCommand: vi.fn(async (_tabId: number, _msg: any): Promise<any> => null),
   sendTabMessage: vi.fn(async (_tabId: number, _msg: any): Promise<any> => null),
+  preferenceGet: vi.fn(async () => ({ mode: 'native' as const })),
+  preferenceSet: vi.fn(async (_value: any) => {}),
 }));
 vi.mock('@/infrastructure/storage/extension-storage/settings-storage', () => ({ SettingsStorage: mocks }));
+vi.mock('@/infrastructure/storage/extension-storage/subtitle-preference-storage', () => ({ SubtitlePreferenceStorage: {
+  get: mocks.preferenceGet, set: mocks.preferenceSet,
+  observe: (callback: (value: any) => void) => { void mocks.preferenceGet().then(callback); return () => {}; },
+} }));
 vi.mock('@/infrastructure/messaging/message-router', () => ({ messageRouter: { sendMessage: mocks.sendMessage } }));
 vi.mock('@/infrastructure/messaging/extension-bridge', () => ({ extensionBridge: {
   queryActiveTabUrl: mocks.queryActiveTabUrl,
@@ -34,6 +40,8 @@ beforeEach(() => {
   mocks.queryActiveTabId.mockReset().mockResolvedValue(42);
   mocks.sendTabCommand.mockReset().mockResolvedValue(null);
   mocks.sendTabMessage.mockReset().mockResolvedValue(null);
+  mocks.preferenceGet.mockReset().mockResolvedValue({ mode: 'native' });
+  mocks.preferenceSet.mockReset().mockResolvedValue(undefined);
   (mocks.watch as any).mockReset().mockImplementation((callback: (settings: any) => void) => {
     mocks.watchCallback = callback;
     return () => {};
@@ -42,6 +50,25 @@ beforeEach(() => {
 });
 
 describe('Translation feedback follows real request results', () => {
+  it('keeps original and translation subtitle selectors separate and restores the prior value on failure', async () => {
+    mocks.queryActiveTabUrl.mockResolvedValue('https://www.netflix.com/watch/123');
+    const state = { isActive: true, primaryStatus: 'active', secondaryStatus: 'track', modeLabel: '', modeClass: '',
+      discoveredTracksCount: 3, selectionMode: 'manual', originalTrackId: 'ja', selectedTrackId: 'zh',
+      tracks: [{ id: 'ja', label: '日語', isCC: false }, { id: 'zh', label: '中文（繁體）', isCC: false }, { id: 'en', label: '英語', isCC: false }] };
+    mocks.sendTabMessage.mockResolvedValue(state);
+    mocks.sendTabCommand.mockImplementation(async (_id, msg) => msg.type === 'SET_NETFLIX_SELECTION' ? false : state);
+    const wrapper = mount(Popup); await flushPromises();
+    const original = wrapper.get<HTMLSelectElement>('[data-testid="original-subtitle-source-select"]');
+    const translation = wrapper.get<HTMLSelectElement>('[data-testid="subtitle-source-select"]');
+    expect(original.element.value).toBe('track:ja');
+    expect(translation.element.value).toBe('track:zh');
+    await original.setValue('track:en'); await flushPromises();
+    expect(mocks.sendTabCommand).toHaveBeenCalledWith(42, { type: 'SET_NETFLIX_SELECTION', source: 'track', trackId: 'en', side: 'original' });
+    expect(original.element.value).toBe('track:ja');
+    expect(translation.element.value).toBe('track:zh');
+    expect(wrapper.get('[role="alert"]').text()).toContain('無法載入所選字幕');
+    wrapper.unmount();
+  });
   it('shows progress until the request completes, then clears completion after restore', async () => {
     let resolve!: (response: { success: boolean; translatedCount: number }) => void;
     mocks.sendMessage.mockReturnValueOnce(new Promise(done => { resolve = done; }));
@@ -110,7 +137,8 @@ describe('Translation feedback follows real request results', () => {
       }),
     );
     expect(toggle.attributes('aria-pressed')).toBe('true');
-    expect(wrapper.get('[data-testid="netflix-summary"]').text()).toBe('已提前翻譯 40 句字幕');
+    expect(wrapper.get('[data-testid="netflix-summary"]').text()).toContain('已提前翻譯 40 句字幕');
+    expect(wrapper.get('[data-testid="netflix-summary"]').text()).toContain('暫時使用 AI／機翻');
     expect(wrapper.get('[data-testid="subtitle-restore-btn"]').text()).toContain('原始字幕');
     expect(wrapper.find('[data-testid="translate-page-btn"]').exists()).toBe(false);
     wrapper.unmount();
@@ -174,6 +202,60 @@ describe('Translation feedback follows real request results', () => {
     expect(mocks.sendMessage).not.toHaveBeenCalled();
     expect(wrapper.get('.action-slider').attributes('data-side')).toBe('right');
     expect(wrapper.get('[data-testid="subtitle-restore-btn"]').attributes('aria-pressed')).toBe('true');
+    wrapper.unmount();
+  });
+
+  it('offers independent YouTube subtitle tracks and restores the previous selection on failure', async () => {
+    mocks.queryActiveTabUrl.mockResolvedValue('https://www.youtube.com/watch?v=sample');
+    const state = { isActive: true, originalSourceId: 'ja', translationSourceId: 'en', tracks: [
+      { id: 'ja', languageCode: 'ja', label: '日本語' },
+      { id: 'en', languageCode: 'en', label: 'English' },
+      { id: 'en-asr', languageCode: 'en', label: 'English', kind: 'asr' },
+    ] };
+    mocks.sendTabCommand.mockImplementation(async (_tabId: number, msg: any): Promise<any> => {
+      if (msg.type === 'GET_YOUTUBE_STATE') return state;
+      if (msg.type === 'SET_YOUTUBE_SOURCES') return false;
+      return null;
+    });
+    const wrapper = mount(Popup); await flushPromises();
+    const original = wrapper.get('[data-testid="youtube-track-select"]');
+    const translation = wrapper.get('[data-testid="youtube-translation-source-select"]');
+    expect((original.element as HTMLSelectElement).value).toBe('ja');
+    expect((translation.element as HTMLSelectElement).value).toBe('en');
+    await translation.setValue('en-asr'); await flushPromises();
+    expect(mocks.sendTabCommand).toHaveBeenCalledWith(42, { type: 'SET_YOUTUBE_SOURCES', side: 'translation', value: 'en-asr' });
+    expect((translation.element as HTMLSelectElement).value).toBe('en');
+    expect(wrapper.get('[role="alert"]').text()).toContain('無法');
+    wrapper.unmount();
+  });
+
+  it('remembers the chosen YouTube source policy and the native track language', async () => {
+    mocks.queryActiveTabUrl.mockResolvedValue('https://www.youtube.com/watch?v=sample');
+    const state: { isActive: boolean; originalSourceId: string | null; translationSourceId: string | null; tracks: Array<{ id: string; languageCode: string; label: string }> } = { isActive: true, originalSourceId: null, translationSourceId: null, tracks: [
+      { id: 'en', languageCode: 'en', label: 'English' },
+    ] };
+    mocks.sendTabCommand.mockImplementation(async (_tabId: number, msg: any): Promise<any> => {
+      if (msg.type === 'GET_YOUTUBE_STATE') return state;
+      if (msg.type === 'SET_YOUTUBE_SOURCES') { state.translationSourceId = msg.value === 'en' ? 'en' : null; return true; }
+      return null;
+    });
+    const wrapper = mount(Popup); await flushPromises();
+    const select = wrapper.get('[data-testid="youtube-translation-source-select"]');
+    await select.setValue('en'); await flushPromises();
+    expect(mocks.preferenceSet).toHaveBeenLastCalledWith({ mode: 'native', language: 'en' });
+    await select.setValue('ai'); await flushPromises();
+    expect(mocks.preferenceSet).toHaveBeenLastCalledWith({ mode: 'ai' });
+    wrapper.unmount();
+  });
+
+  it('reports when a subtitle source changes but saving the preference fails', async () => {
+    mocks.queryActiveTabUrl.mockResolvedValue('https://www.youtube.com/watch?v=sample');
+    mocks.preferenceSet.mockRejectedValueOnce(new Error('storage unavailable'));
+    const state = { isActive: true, originalSourceId: null, translationSourceId: null, tracks: [{ id: 'en', languageCode: 'en', label: 'English' }] };
+    mocks.sendTabCommand.mockImplementation(async (_tabId: number, msg: any): Promise<any> => msg.type === 'GET_YOUTUBE_STATE' ? state : msg.type === 'SET_YOUTUBE_SOURCES');
+    const wrapper = mount(Popup); await flushPromises();
+    await wrapper.get('[data-testid="youtube-translation-source-select"]').setValue('ai'); await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain('無法儲存偏好');
     wrapper.unmount();
   });
 

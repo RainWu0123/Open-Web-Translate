@@ -1,11 +1,13 @@
 import { detectSubtitleFormat, extractTextFromMp4Segment } from './netflix-subtitle-format';
 import { extractTrackUrlUniversal } from './netflix-track-discovery';
 import { looksLikeTrackUrl } from './netflix-track-constants';
+import { getActiveTrack } from './active-track';
 
 type TrackRecord = Record<string, any>;
 
 export interface NetflixTimedTextPlayer {
   getTimedTextTrackList(): TrackRecord[];
+  getTimedTextTrack?(): unknown;
   setTimedTextTrack(track: TrackRecord): void;
   getCurrentTime?(): number;
   seek?(time: number): void;
@@ -21,17 +23,12 @@ export interface TrackHydrationDependencies {
   resourceEntries: () => PerformanceEntry[];
   fetchResource: typeof fetch;
   wait: (ms: number) => Promise<void>;
+  isCurrent?: () => boolean;
 }
-
-const ACTIVE_FLAGS = ['active', 'current', 'isSelected', 'isCurrentSubtitle'] as const;
 
 function trackIdentity(track: TrackRecord | null | undefined): string {
   if (!track) return '';
   return String(track.trackId ?? track.id ?? track.bcp47 ?? track.language ?? '');
-}
-
-function findActiveTrack(list: TrackRecord[]): TrackRecord | null {
-  return list.find((track) => ACTIVE_FLAGS.some((flag) => track?.[flag] === true)) ?? null;
 }
 
 function normalizeLanguage(value: unknown): string {
@@ -99,6 +96,8 @@ export async function hydrateNetflixTrackUrl(
   performSeek: boolean,
   dependencies: TrackHydrationDependencies,
 ): Promise<TrackHydrationResult> {
+  const isCurrent = dependencies.isCurrent ?? (() => true);
+  if (!isCurrent()) return { ok: false, reason: 'video-changed' };
   const initialList = player.getTimedTextTrackList() || [];
   const target = initialList.find((track) =>
     [track.trackId, track.id, track.bcp47, track.language].some((value) => String(value ?? '') === trackId),
@@ -108,7 +107,7 @@ export async function hydrateNetflixTrackUrl(
   const explicitUrl = extractTrackUrlUniversal(target);
   if (explicitUrl) return { ok: true, url: explicitUrl };
 
-  const original = findActiveTrack(initialList);
+  const original = getActiveTrack(initialList, player);
   // Mutating the player is unsafe when its current selection cannot be
   // identified: there would be no truthful way to restore the source line.
   if (!original) return { ok: false, reason: 'active-track-unknown' };
@@ -124,22 +123,26 @@ export async function hydrateNetflixTrackUrl(
       if (currentTime >= 0) player.seek(currentTime);
     }
     await dependencies.wait(650);
+    if (!isCurrent()) return { ok: false, reason: 'video-changed' };
 
     const candidates = dependencies.resourceEntries()
       .filter((entry) => entry.startTime >= startedAt - 50 && !baseline.has(entry.name) && looksLikeTrackUrl(entry.name))
       .sort((a, b) => b.startTime - a.startTime);
     for (const candidate of candidates) {
-      if (await candidateDeclaresLanguage(candidate.name, expectedLanguage, dependencies.fetchResource)) {
+      if (!isCurrent()) return { ok: false, reason: 'video-changed' };
+      const matchesLanguage = await candidateDeclaresLanguage(candidate.name, expectedLanguage, dependencies.fetchResource);
+      if (!isCurrent()) return { ok: false, reason: 'video-changed' };
+      if (matchesLanguage) {
         return { ok: true, url: candidate.name };
       }
     }
     return { ok: false, reason: 'track-url-not-verified' };
   } finally {
-    if (original && originalIdentity && originalIdentity !== targetIdentity) {
-      const current = findActiveTrack(player.getTimedTextTrackList() || []);
+    if (isCurrent() && original && originalIdentity && originalIdentity !== targetIdentity) {
+      const current = getActiveTrack(player.getTimedTextTrackList() || [], player);
       // Restore only while our temporary target is still active. A third
       // identity means the user changed Netflix's own subtitle selector.
-      if (!current || trackIdentity(current) === targetIdentity) {
+      if (current && trackIdentity(current) === targetIdentity) {
         player.setTimedTextTrack(original);
       }
     }

@@ -64,7 +64,7 @@ describe('YouTubeCaptionAdapter', () => {
     expect(seg?.hasAttribute('data-owt-fingerprint')).toBe(false);
   });
 
-  it('Translates native caption segments and attaches fingerprints', async () => {
+  it('Translates native caption segments and renders in Shadow DOM overlay', async () => {
     setupPlayerDOM();
     adapter = new YouTubeCaptionAdapter();
 
@@ -85,11 +85,9 @@ describe('YouTubeCaptionAdapter', () => {
       })
     );
 
-    const seg = document.querySelector('.ytp-caption-segment') as HTMLElement;
-    expect(seg.getAttribute('data-owt-original')).toBe('Hello');
-    expect(seg.getAttribute('data-owt-fingerprint')).toBeTruthy();
-    expect(seg.textContent).toContain('Hello');
-    expect(seg.textContent).toContain('你好');
+    const host = document.getElementById('owt-youtube-overlay-host');
+    expect(host?.shadowRoot?.textContent).toContain('Hello');
+    expect(host?.shadowRoot?.textContent).toContain('你好');
   });
 
   it('Supports different display modes (bilingual, translation-first, immersive)', async () => {
@@ -105,9 +103,11 @@ describe('YouTubeCaptionAdapter', () => {
     updateCaptions(['Hello']);
     await wait(250);
 
-    const segImmersive = document.querySelector('.ytp-caption-segment') as HTMLElement;
-    expect(segImmersive.textContent).toBe('你好');
-    expect(segImmersive.textContent).not.toContain('Hello');
+    const hostImmersive = document.getElementById('owt-youtube-overlay-host');
+    const origImmersive = hostImmersive?.shadowRoot?.querySelector('[data-kind="original"]');
+    const transImmersive = hostImmersive?.shadowRoot?.querySelector('[data-kind="translated"]');
+    expect(origImmersive).toBeNull();
+    expect(transImmersive?.textContent).toBe('你好');
 
     adapter.stop();
 
@@ -117,11 +117,13 @@ describe('YouTubeCaptionAdapter', () => {
     updateCaptions(['Hello']);
     await wait(250);
 
-    const segTransFirst = document.querySelector('.ytp-caption-segment') as HTMLElement;
-    const spans = segTransFirst.querySelectorAll('span');
-    expect(spans.length).toBe(2);
-    expect(spans[0].textContent).toBe('你好');
-    expect(spans[1].textContent).toBe('Hello');
+    const hostTransFirst = document.getElementById('owt-youtube-overlay-host');
+    const lines = hostTransFirst?.shadowRoot?.querySelectorAll('[data-kind]');
+    expect(lines?.length).toBe(2);
+    expect(lines?.[0].getAttribute('data-kind')).toBe('translated');
+    expect(lines?.[0].textContent).toBe('你好');
+    expect(lines?.[1].getAttribute('data-kind')).toBe('original');
+    expect(lines?.[1].textContent).toBe('Hello');
   });
 
   it('Pending request deduplication (same fingerprint)', async () => {
@@ -165,7 +167,7 @@ describe('YouTubeCaptionAdapter', () => {
     );
   });
 
-  it('Restores native DOM when stopped', async () => {
+  it('Restores native DOM and removes mask when stopped', async () => {
     setupPlayerDOM();
     adapter = new YouTubeCaptionAdapter();
 
@@ -177,13 +179,12 @@ describe('YouTubeCaptionAdapter', () => {
     updateCaptions(['Original Subtitle']);
     await wait(250);
 
-    const seg = document.querySelector('.ytp-caption-segment') as HTMLElement;
-    expect(seg.getAttribute('data-owt-original')).toBe('Original Subtitle');
+    expect(document.getElementById('owt-hide-native-youtube-subtitles')).not.toBeNull();
 
     adapter.stop();
 
-    expect(seg.hasAttribute('data-owt-original')).toBe(false);
-    expect(seg.hasAttribute('data-owt-fingerprint')).toBe(false);
+    expect(document.getElementById('owt-hide-native-youtube-subtitles')).toBeNull();
+    const seg = document.querySelector('.ytp-caption-segment') as HTMLElement;
     expect(seg.textContent).toBe('Original Subtitle');
   });
 });
